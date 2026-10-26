@@ -10,7 +10,7 @@ submission. The mechanical parts of G1 and G2 are implemented by `plan_tool.py c
 | G2 Report completeness | task | the nine `##` headings in order; acceptance criteria restated; evidence for each; open questions `None.` |
 | G3 Acceptance and spec review | task | every criterion cited to `path:lines`; spec items checked in the target repo; checklists applied |
 | G4 Branch build and verify | task | `task-<id>` cut from `BASE_SHA`; files COPIED to final paths; task verify and the plan suite pass |
-| G5 Commit, guard, push | task | one commit per task; diff only touches deliverable paths; none of `engine/`, `plans/`, `.github/`; no merge commits; no build-engine ancestry; pushed to castiel-dev; `PR-BODY.md` is public-safe |
+| G5 Commit, guard, push | task | one commit per task; diff only touches deliverable paths; none of `engine/`, `plans/`, `.github/`; no merge commits; no build-engine ancestry; pushed to PROJECT-dev; `PR-BODY.md` is public-safe |
 | G6 Plan integrity | run | tasks set to `pr_open`; render, check, `coverage --fail`, unit tests and `render --check` all pass; pushed to build-engine |
 | G7 Exit report | run | `EXIT-REPORT.md` written and pushed; same text printed |
 
@@ -20,7 +20,7 @@ independently against the public upstream.
 ## Reconcile (after merge)
 
 `cbridge reconcile` records PR number, state and merge SHA; the supervisor re-verifies against public
-`castiel` and sets `done` (merged) or `planned` (closed unmerged). Only `done` unblocks dependants.
+`PROJECT` and sets `done` (merged) or `planned` (closed unmerged). Only `done` unblocks dependants.
 
 ## Operator-executor tasks
 

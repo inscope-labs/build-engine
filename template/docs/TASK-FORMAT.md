@@ -61,8 +61,8 @@ start. A stage is `done` when all its non-dropped, non-superseded tasks are `don
 - `executor`: `worker` or `operator` (operator tasks are never ordered).
 - `deliverables`/`companions`: repo-relative paths, not under `engine/`, `plans/`, `.github/`; they must also
   satisfy the plan's `deliverable_roots` and `deliverable_patterns` when set.
-- `context`: URLs only, into the private `castiel-dev` repository. `source: target` is castiel content as mirrored in
-  `castiel-dev` `main` (`<target_base>/<commit>/<path>`; run `cbridge sync` first so the commit exists there);
+- `context`: URLs only, into the private `PROJECT-dev` repository. `source: target` is PROJECT content as mirrored in
+  `PROJECT-dev` `main` (`<target_base>/<commit>/<path>`; run `cbridge sync` first so the commit exists there);
   `source: plan` is a file under `plans/<plan>/package/` on `build-engine` (`--plan-ref <commit>`, default the
   engine repo HEAD). If `context.gateway` is configured, each printed item also gets a signed, expiring `gateway_url` for
   agents that can only make plain HTTPS GET requests (see `docs/CONTEXT-EXPORT.md`); signed links are minted at print
@@ -87,7 +87,7 @@ start. A stage is `done` when all its non-dropped, non-superseded tasks are `don
 
 ## Work orders
 
-`plan_tool.py order <plan> <ids> --target <castiel-dev main checkout> [--write] [--start]` prints a plain-text WORK
+`plan_tool.py order <plan> <ids> --target <PROJECT-dev main checkout> [--write] [--start]` prints a plain-text WORK
 ORDER (`--json` for the machine form). Context is URLs pinned to the checkout's HEAD (`--ref <sha>` pins one
 explicitly). `plan.json` `order_rules` are printed in every order.
 
@@ -115,7 +115,7 @@ Resolve with `plan_tool.py decide <plan> D-01 --by <name> --notes "<resolution>"
 ## plan.json
 
 ```json
-{"plan_id": "castiel-framework", "title": "...", "plan_number": "10008",
+{"plan_id": "PROJECT-framework", "title": "...", "plan_number": "10008",
  "deliverable_roots": ["amk/"], "deliverable_patterns": ["\\.md$"],
  "order_rules": ["Markdown only; no implementation code."],
  "spec": {"root": "amk/", "glob": "**/*.md", "item_regex": ""},

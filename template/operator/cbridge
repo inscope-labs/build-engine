@@ -63,7 +63,7 @@ cmd_init() {
   info "initialised $WORKDIR (remotes: private, upstream[read-only], outbox)"
 }
 
-cmd_bootstrap() {   # one-time: seed castiel-dev main from upstream; create build-engine only if absent
+cmd_bootstrap() {   # one-time: seed PROJECT-dev main from upstream; create build-engine only if absent
   need_clone; assert_private; fetch
   if g rev-parse -q --verify refs/remotes/private/main >/dev/null; then
     die "private repo already has main - nothing to bootstrap"
@@ -128,7 +128,7 @@ cmd_status() {
   echo "task branches (private):"
   g for-each-ref --format='  %(refname:strip=3) %(objectname:short)' 'refs/remotes/private/task-*'
   if have_gh; then
-    echo "pull requests (castiel):"
+    echo "pull requests (PROJECT):"
     gh pr list --repo "$UPSTREAM_SLUG" --state all --limit 50 --json number,headRefName,state \
       --jq '.[] | select(.headRefName|startswith("task-")) | "  #\(.number) \(.headRefName) \(.state)"' || true
   fi

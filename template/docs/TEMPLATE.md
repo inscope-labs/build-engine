@@ -17,7 +17,7 @@ The portable unit is `engine/` plus `operator/` and `docs/`. Plans are data and 
    `deliverable_roots`, `spec`, and `verify.commands` in each `plan.json` for the target's toolchain.
 7. Run `python3 -m unittest discover -s engine/tools`, then follow `docs/SETUP.md`.
 
-Nothing in `engine/` is specific to Castiel: language tooling lives in each plan's `verify.commands`,
+Nothing in `engine/` is specific to Project: language tooling lives in each plan's `verify.commands`,
 spec locations in `plan.json`, and repository names in `engine.json` and the cbridge config.
 
 Versioning: `engine/VERSION` follows semver. When you improve the engine in one repo, copy `engine/` over

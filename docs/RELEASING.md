@@ -4,7 +4,7 @@
    commands in the README). Anything new that must ship needs a line in `release/manifest.txt`.
 2. Choose the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION` and
    `template/engine/ENGINE.json` together).
-3. Record the abstract castiel version this release implements: `implements_abstract` in
+3. Record the abstract PROJECT version this release implements: `protocol` in
    `template/engine/ENGINE.json`, and a row in `COMPATIBILITY.md`.
 4. Add `## X.Y.Z - YYYY-MM-DD` to `CHANGELOG.md` (replace `unreleased` with the date).
 5. Open a pull request; CI must pass (tests, release self-test, update-flow test, a dry-run package + verify).
