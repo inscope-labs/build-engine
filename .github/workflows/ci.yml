@@ -17,7 +17,7 @@ jobs:
       - name: Shipped engine tests
         run: python3 -m unittest discover -s template/engine/tools -v
       - name: Gateway tests (never shipped)
-        run: python3 -m unittest discover -s gateway -p 'test_*.py' -v
+        run: python3 -m unittest discover -s gateway/read/reference -p 'test_*.py' -v
       - name: Shell syntax
         run: |
           bash -n template/operator/cbridge

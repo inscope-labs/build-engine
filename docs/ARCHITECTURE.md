@@ -29,6 +29,16 @@ Worker-specific rules (`wrangler.toml`, `.dev.vars`, `node_modules`, `cloudflare
 engine invariant (agents hold no write credential), which is why adopting it needs `template/engine/AGENTS.md` and
 `template/docs/SECURITY.md` updated first.
 
+## Where the rest of the design lives (none of it ships)
+
+- `gateway/read/reference` is the tested spec of the read gateway; `gateway/read/production` is its deployable port,
+  structure only until decision 0001 (hosting) is made.
+- `conformance/` is the acceptance suite any signer or gateway must pass, kept outside every implementation so a port in
+  another language is held to the same vectors and behaviours.
+- `variants/` documents alternatives not chosen (object-storage export), so a fallback does not need redesign.
+- `docs/decisions/` records the open decisions, `docs/pilot/` the acceptance run, `docs/END-TO-END.md` the status of every
+  stage from order to publish.
+
 ## What an update does
 
 `engine/bin/update.sh` verifies the checksum and the release manifest, then replaces the **managed** files as a set.
@@ -43,7 +53,7 @@ The reviewed layout had `template/modules/export-context/` and `template/modules
 is organised differently, and these files follow the code rather than invent a split:
 
 - export-context: the link scheme ships as `engine/tools/ctxlink.py` (+ `plan_tool.py links`); the gateway is
-  `gateway/ctxgate.py`; the design is `docs/CONTEXT-EXPORT.md`; the original proposal is `docs/proposals/context-export.md`.
+  `gateway/read/reference/ctxgate.py`; the design is `docs/CONTEXT-EXPORT.md`; the original proposal is `docs/proposals/context-export.md`.
 - write: the operator-side write path is `operator/cbridge` (`upload`, `publish`, `reconcile`). It was not split into a
   separate module.
 - `bin/install.sh` + `bin/update.sh` became one script, `engine/bin/update.sh` (install is an update with no lock yet).

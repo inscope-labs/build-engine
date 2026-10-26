@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for gateway/ctxgate.py (context gateway proof of concept). Not shipped in releases."""
+"""Tests for gateway/read/reference/ctxgate.py (context gateway proof of concept). Not shipped in releases."""
 import hashlib
 import io
 import json

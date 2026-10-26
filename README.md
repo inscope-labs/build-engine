@@ -10,10 +10,12 @@ install a **release artifact** with `engine/bin/update.sh`.
 | Path | Role | In a release? |
 |---|---|---|
 | `template/` | The product. Its contents map 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | yes, by allowlist only |
-| `gateway/` | Context gateways: the read gateway (`ctxgate.py`, tested PoC) and the proposed Cloudflare write gateway (`write/`, scaffold). | **never** |
+| `gateway/` | Context gateways: `read/` (tested reference + planned production port) and `write/` (proposed Cloudflare Worker, scaffold). | **never** |
+| `conformance/` | Language-neutral acceptance suite for the link scheme and any read gateway (signing vectors, B1 to B11). | no |
+| `variants/` | Documented alternatives not chosen (`object-storage/`). | no |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | no |
 | `tests/` | Consumer install/update flow test. | no |
-| `docs/` | Maintainer docs (`ARCHITECTURE.md`, `RELEASING.md`) and `proposals/`. | no |
+| `docs/` | Maintainer docs: `END-TO-END.md` (what is built and what is not), `ARCHITECTURE.md`, `RELEASING.md`, `decisions/` (open decisions), `pilot/`, `proposals/`. | no |
 | `.github/workflows/` | `ci.yml` (every push/PR), `release.yml` (on a `vX.Y.Z` tag). | no |
 | `VERSION`, `CHANGELOG.md`, `COMPATIBILITY.md` | One version, its history, and which abstract castiel version it implements. | no (the version is stamped into the artifact) |
 
@@ -21,13 +23,13 @@ install a **release artifact** with `engine/bin/update.sh`.
 
 ```
 python3 -m unittest discover -s template/engine/tools     # shipped engine tests
-python3 -m unittest discover -s gateway -p 'test_*.py'    # gateway tests (not shipped)
+python3 -m unittest discover -s gateway/read/reference -p 'test_*.py'    # read-gateway reference tests (not shipped)
 release/test-release.sh                                   # does the release pipeline catch what it must?
 tests/test_update.sh                                      # install + update flow on a throwaway repo
 release/package.sh && release/verify.sh dist/build-engine-v$(cat VERSION).tar.gz
 ```
 
-Cutting a release: `docs/RELEASING.md`. Installing one into a consumer: the header of `template/engine/bin/update.sh`.
+The whole picture and each part's status: `docs/END-TO-END.md`. Cutting a release: `docs/RELEASING.md`. Installing one into a consumer: the header of `template/engine/bin/update.sh`.
 
 ## Status
 

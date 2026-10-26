@@ -12,6 +12,9 @@ text: ^class Gateway[(:]
 text: ^class GitSource[(:]
 text: ^def make_server\(
 
+# -- development-only trees that must never reach a consumer
+path: (^|/)(conformance|variants)(/|$)
+
 # -- the write gateway (gateway/write, a Cloudflare Worker), by location, config and code
 path: (^|/)wrangler\.toml$
 path: (^|/)\.dev\.vars

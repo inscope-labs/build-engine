@@ -2,7 +2,7 @@
 """ctxgate - the context GATEWAY: verifies signed links and serves one file per link.
 
 PROOF OF CONCEPT. NOT PART OF ANY RELEASE: this program lives only in the build-engine source repository
-(`gateway/`). The link scheme it enforces is defined once, in `template/engine/tools/ctxlink.py`, which is what
+(`gateway/read/reference/`). The link scheme it enforces is defined once, in `template/engine/tools/ctxlink.py`, which is what
 ships and what mints links. The production source adapter (GitHub contents API) is described in
 docs/CONTEXT-EXPORT.md and is NOT implemented here.
 
@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "template" / "engine" / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "template" / "engine" / "tools"))
 from ctxlink import KID_RE, ORDER_RE, REF_RE, SCHEME, mint, now, safe_path, sign  # noqa: E402,F401  (single source of truth for the scheme)
 
 DEFAULT_DENY = [r"(^|/)\.git(/|$)", r"(^|/)\.github/", r"(^|/)\.env", r"(?i)(^|/)(secrets?|credentials?)(\.|/|$)", r"\.(pem|key|p12)$"]

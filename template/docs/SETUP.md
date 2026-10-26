@@ -57,5 +57,5 @@ an in-repo branch (the reconcile step assumes it does).
 ## 6. Context gateway (optional, for agents that can only make HTTPS GET requests)
 
 Not deployed yet: see `docs/CONTEXT-EXPORT.md` for the design, the proof of concept and the production path.
-To try the proof of concept locally: `python3 gateway/ctxgate.py serve --config gw.json --repo <private repo checkout>` from a checkout of the build-engine source repository (the gateway is not part of releases),
+To try the proof of concept locally: `python3 gateway/read/reference/ctxgate.py serve --config gw.json --repo <private repo checkout>` from a checkout of the build-engine source repository (the gateway is not part of releases),
 set `context.gateway.base` in `engine.json`, export `CTXGATE_SECRET`, then order as usual.

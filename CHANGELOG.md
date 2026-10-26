@@ -7,5 +7,8 @@
 - `engine.json`, `cbridge.config.example` and `operator/install.sh` carry `OWNER/PROJECT` placeholders. `engine.json` is
   a seed file: installed once, never overwritten by an update.
 - New: allowlist packaging, artifact verification, `engine/bin/update.sh`, CI and tag-triggered release workflows.
+- Structure only (not shipped), from a review of `docs/CONTEXT-EXPORT.md`: `gateway/read/{reference,production}` (the reference
+  gateway moved to `reference/`), `conformance/`, `variants/object-storage/`, `docs/decisions/`, `docs/pilot/`,
+  `docs/END-TO-END.md`.
 - New (not shipped): `gateway/write`, the proposed Cloudflare write gateway for Class B agents, as a typechecked and
   bundle-checked scaffold; extra release deny rules for Worker files; a `write-gateway` CI job.

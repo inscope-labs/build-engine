@@ -183,7 +183,7 @@ Each context item in an order carries: `url` (private raw URL, for class A), `re
 Two programs, split on purpose. **Shipped with every release:** `engine/tools/ctxlink.py` (the link scheme and `mint`) with
 `test_ctxlink.py`, and the work-order integration in `plan_tool.py` (with tests). **Not shipped:** the gateway itself,
 `ctxgate.py` (gateway rules, a local-git file source, a runnable HTTP server, `serve`, `revoke`, `audit`) with its tests,
-lives only in the build-engine source repository under `gateway/`. Run the `ctxgate.py` commands below from a checkout
+lives only in the build-engine source repository under `gateway/read/reference/`. Run the `ctxgate.py` commands below from a checkout
 of that repository.
 
 End-to-end run on the real Castiel plan (task `10008-1-102-00`), real Castiel files as the source, a plain `curl`
@@ -235,7 +235,7 @@ presigning needs an S3-compatible client or hand-rolled signing, which should be
 
 ## Appendix B: gateway behaviours a production port must pass
 
-Each is covered by `gateway/test_ctxgate.py` in the build-engine source repository:
+Each is covered by `gateway/read/reference/test_ctxgate.py` in the build-engine source repository:
 
 1. Valid link returns the exact bytes, correct hash header, `no-store`.
 2. HEAD returns headers and no body; POST, PUT, DELETE, PATCH return 405.

@@ -25,7 +25,7 @@ jobs:
       - name: Tests
         run: |
           python3 -m unittest discover -s template/engine/tools
-          python3 -m unittest discover -s gateway -p 'test_*.py'
+          python3 -m unittest discover -s gateway/read/reference -p 'test_*.py'
           release/test-release.sh
           tests/test_update.sh
       - name: Package

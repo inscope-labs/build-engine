@@ -23,10 +23,10 @@ a="$(sha256sum "$(ART)" | cut -d' ' -f1)"; build; [[ "$a" == "$(sha256sum "$(ART
 must_fail "release gate refuses an UNSET abstract version / undated changelog" "UNSET" "$R/release/verify.sh" "$(ART)" --release
 [[ -z "$(tar -tzf "$(ART)" | grep -E '(^|/)(gateway/|ctxgate\.py|test_ctxgate\.py)')" ]] && ok "clean artifact has no gateway file" || bad "clean artifact contains gateway files"
 
-fresh; cp "$R/gateway/ctxgate.py" "$R/template/engine/tools/ctxgate.py"; build
+fresh; cp "$R/gateway/read/reference/ctxgate.py" "$R/template/engine/tools/ctxgate.py"; build
 must_fail "gateway copied into an allowlisted directory is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 
-fresh; cp "$R/gateway/ctxgate.py" "$R/template/engine/tools/transport.py"; build
+fresh; cp "$R/gateway/read/reference/ctxgate.py" "$R/template/engine/tools/transport.py"; build
 must_fail "gateway under a different name is caught by its code" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
 
 fresh; mkdir "$R/template/gateway"; echo x > "$R/template/gateway/readme.txt"; echo "managed gateway" >> "$R/release/manifest.txt"; build
@@ -40,6 +40,9 @@ must_fail "Worker code under another name is caught by its content" "forbidden c
 
 fresh; mkdir -p "$R/template/docs/node_modules/x"; echo '{}' > "$R/template/docs/node_modules/x/package.json"; build
 must_fail "node_modules in the payload is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+
+fresh; mkdir -p "$R/template/docs/variants"; echo x > "$R/template/docs/variants/readme.md"; build
+must_fail "a variants/ tree in the payload is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 
 fresh; echo "managed does/not/exist" >> "$R/release/manifest.txt"
 must_fail "manifest entry that does not exist stops packaging" "does not exist" "$R/release/package.sh" "$R/dist"
