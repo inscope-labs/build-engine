@@ -33,21 +33,20 @@ order.
 
 ## 3. Options considered
 
-| | A. Signed gateway (recommended) | B. Static export to object storage (your proposal) | C. Public or unlisted copy | D. Inline content |
-|---|---|---|---|---|
-| How it works | Gateway verifies an HMAC link and reads the file from the private repo at a pinned commit | Operator uploads a bundle; agents get presigned storage URLs | Mirror the files somewhere public | Paste content in the order |
+| | A. Signed gateway (chosen) | B. Public or unlisted copy | C. Inline content |
+|---|---|---|---|
+| How it works | Gateway verifies an HMAC link and reads the file from the private repo at a pinned commit | Operator uploads a bundle; agents get presigned (rejected approach) storage URLs | Mirror the files somewhere public | Paste content in the order |
 | Private content at rest outside GitHub | No | Yes (until deleted) | Yes, publicly | Only in chat |
 | Who holds a GitHub credential | The gateway (read-only, one repo) | The operator only | n/a | n/a |
 | Agent-side credential | None | None | None | None |
 | Pinned to a commit | Yes, by construction | Yes, by what was exported | Only if you keep versions | Yes |
-| Revoke | Per order (instant); key rotation for everything | Delete the object (presigned URLs cannot be revoked individually) | Not possible | Not possible |
+| Revoke | Per order (instant); key rotation for everything | Delete the object (presigned (rejected approach) URLs cannot be revoked individually) | Not possible | Not possible |
 | Extra moving parts | One small service | Storage + presigning client + upload step + cleanup | Hosting | None |
 | Orders stay small / adjustable | Yes | Yes | Yes | No (rejected by you) |
 | Main risk | Gateway holds a read-only token; a leaked link exposes one file until it expires | Third-party copy of private content; operator must clean up | Disclosure | Violates your requirement |
 
 Why A: it never copies private content, needs no upload or cleanup step, gives per-order revocation, and the
-gateway is stateless apart from a revocation list and an audit log. B remains a valid fallback if you would rather
-not run any always-on service; it shares the same order integration (appendix A).
+gateway is stateless apart from a revocation list and an audit log. The rejected object-storage approach was considered and has been rejected.
 
 C and D are rejected. Option "give class B agents a token" does not exist: they cannot send one.
 
@@ -202,7 +201,7 @@ signed links stored in the committed order file: 0
 
 Not proven (and not claimed): a deployed gateway on any provider; the GitHub-backed source adapter (the proof of
 concept reads a local git repository); rate limiting; behaviour behind your agents' actual GET-only proxy; the
-object-storage variant.
+rejected object-storage approach.
 
 ## 11. Production path
 
@@ -213,7 +212,7 @@ object-storage variant.
 | 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B |
 | 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test |
 | 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads |
-| 6 | Optional: object-storage variant (appendix A) | Same order integration, delete-based revocation proven |
+| 6 | — | Same order integration, delete-based revocation proven |
 
 ## 12. Decisions needed from you
 
@@ -225,13 +224,6 @@ object-storage variant.
 4. **Which prefixes may be served**: proposed `amk/` and `plans/*/package/` only.
 5. Class A agents: are the private raw `url` fields enough for them, with their own credentials?
 
-## Appendix A: object-storage variant
-
-For a gateway-free setup: the operator builds a bundle of the order's files (verified by `sha256`), uploads each as
-an object under an order-specific prefix, and places presigned GET URLs in `gateway_url`. Differences: private
-content rests in storage until deleted; presigned links cannot be revoked individually (delete the objects);
-presigning needs an S3-compatible client or hand-rolled signing, which should be avoided. The order integration
-(`gateway_url` at print time, never stored) is identical.
 
 ## Appendix B: gateway behaviours a production port must pass
 

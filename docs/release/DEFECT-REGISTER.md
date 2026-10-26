@@ -143,7 +143,7 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 | Agent-side write gateway | REQUIRED for a claim that agent-side submission is operational; otherwise explicitly OUT OF SCOPE | Current implementation returns HTTP 501. Operator must approve the supported release boundary. |
 | Shared conformance harness | REQUIRED before claiming cross-implementation conformance | Current vectors/harness incomplete. |
 | Real end-to-end pilot | REQUIRED before claiming complete end-to-end readiness | Pilot not started. |
-| Object-storage variant | FUTURE WORK unless explicitly included in the approved first-release contract | Current state is design-only. |
+| Object-storage variant | REJECTED | Explicitly rejected in Stage 1.3. |
 
 This table is a proposal, not approval. No capability should be described as fully working unless its acceptance evidence exists or the capability is explicitly excluded/qualified in the release documentation.
 
