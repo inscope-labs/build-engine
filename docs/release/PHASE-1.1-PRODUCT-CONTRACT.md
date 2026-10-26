@@ -43,16 +43,16 @@ The updater treats only paths declared in the release manifest as managed or see
 - **Linux and Termux/Android:** supported. The operator bridge is a Termux-oriented script and the maintainer builds and operates from Termux.
 - **macOS:** conditional. The shipped scripts need bash 4 or newer, `sha256sum` and (for packaging) GNU `tar`; stock macOS provides bash 3.2 and BSD tools. Either macOS is supported only with Homebrew `bash`, `coreutils` and `gnu-tar`, or the scripts are ported. Operator to choose (register F0-014). Until chosen, macOS is not claimed.
 - Required tools: `bash` (4+), `python3` (3.10+ recommended), `git`, `tar`, `sha256sum`, `mktemp`, `gh` for downloads.
-- The write gateway runs on Cloudflare Workers with a Durable Object (Stage 1.4); the read gateway runs where decision 0001 records. Operators need accounts for those platforms; the consumer artifact has no runtime dependency on them beyond the links and the work-order contents.
+- The write gateway runs on Cloudflare Workers with a Durable Object (Stage 1.4); the read gateway runs on Cloudflare, operator-owned and single-tenant (decision 0001). Operators need accounts for those platforms; the consumer artifact has no runtime dependency on them beyond the links and the work-order contents.
 - Network access is needed only for operations the operator chooses to perform; offline plan authoring and local verification remain possible.
 
 ### Explicit limitations of the first release
 
 1. Task file contents in the write gateway are ephemeral by design (Stage 1.4.2); an isolate loss before commit loses staged, uncommitted files. Control-plane state (lease, seal/revocation, idempotency, quota metadata) is durable.
 2. The write transport carries payloads in a GET query string. Caching, prefetch and intermediary or platform logging risks are accepted subject to the Stage 1.4 mitigations and are not eliminated.
-3. The GitHub credential used by the write gateway is repository-scoped, not folder-scoped. Folder confinement is enforced by gateway code; a leaked token's impact is limited only by the isolated submissions repository or branch chosen in Stage 1.4.6.
+3. The GitHub credential used by the write gateway is repository-scoped, not folder-scoped. Stage 1.4.6 chose the **existing private repository with server-enforced path allow-listing only**; the plan (Stage 1.4.6) had preferred a dedicated submissions repository or branch. Folder confinement therefore rests entirely on gateway code, and a leaked token could reach the whole repository. The documentation must not describe the credential as path-scoped. This is an accepted residual risk and is raised again in the questions below.
 4. A checksum sidecar proves integrity, not authenticity: it ships beside the artifact (register F0-017). Provenance is added in Stage 3.3.8; no cryptographic attestation is claimed unless generated and verified.
-5. The object-storage export variant is not included (Stage 1.3); it is future work.
+5. The object-storage export variant was rejected in Stage 1.3 and is not included.
 6. The consumer artifact does not contain and must not instruct operators to use any endpoint that is not deployed. Documentation describes only capabilities that have passed acceptance (plan Stage 2.1.4/2.1.5).
 7. Repository branch/tag protection, required checks and Actions hardening are not in place today (R0-004); they must be configured and evidenced before any tag (Stage 3.3.7).
 
@@ -123,7 +123,7 @@ Consequences:
 | Shared conformance harness | **REQUIRED** (Phase 4.1) |
 | Real end-to-end pilot | **REQUIRED** (Phase 6) |
 | Remote revocation / audit | **REQUIRED** (Phases 4–5, verified in 6) |
-| Object-storage variant | NOT INCLUDED (future work) |
+| Object-storage variant | NOT INCLUDED (rejected in Stage 1.3) |
 
 ## Next steps after approval
 
@@ -136,6 +136,7 @@ Consequences:
 - Approve the Level B boundary above (both gateways, conformance and pilot required for 0.5.0).
 - Choose the macOS position (supported with Homebrew bash 4+/GNU tools, or not claimed) and confirm Linux and Termux/Android as the supported environments.
 - Decide how to resolve the `ENGINE.json` / `engine.json` case collision (register F0-013), since it changes the consumer contract.
+- Confirm that you accept the Stage 1.4.6 write boundary (existing private repository, path allow-listing in code only) despite the plan's stated preference for an isolated submissions repository or branch; if not, Stage 1.4.6 must be reopened before Phase 5.
 - Confirm or amend the finite acceptance checklist in 1.1.4.
 
 ---

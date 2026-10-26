@@ -249,6 +249,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Risk: server-side path checks do not limit a repository token's blast radius if compromised.
 - Required action: assess a dedicated submission repository or isolated repository/branch and fixed server-enforced destination; document least privilege.
 - Planned phase: Phase 1/5.
+- Update (A2): Stage 1.4.6 chose option (c), the existing private repository with server-enforced path allow-listing only, which is weaker than the plan's preferred isolated submissions repository or branch. Recorded as an **accepted residual risk pending the operator's explicit reconfirmation** (question in `PHASE-1.1-PRODUCT-CONTRACT.md`). If not accepted, reopen Stage 1.4.6 before Phase 5.
 
 ### R0-007 — Ephemeral staging and ambiguous commit outcomes need a recovery model
 - Severity: S2; Status: DESIGN RISK.
