@@ -1,9 +1,5 @@
 # variants/
 
-Alternative implementations of a capability that the main design deliberately did not choose, kept so they stay
-documented and can be built without redesign. **Not shipped in releases** (not under `template/`, not in the manifest,
-and `release/forbidden.txt` rejects a `variants/` path in an artifact).
+No alternative implementations are currently retained.
 
-| Variant | Alternative to | Status |
-|---|---|---|
-| `object-storage/` | the signed read gateway | design only |
+The former object-storage variant was evaluated and explicitly rejected in Stage 1.3 (see `docs/release/PHASE-1.3-READ-GATEWAY-DECISIONS.md`).

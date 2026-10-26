@@ -100,7 +100,6 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 | `conformance/README.md`, `behaviours.md` | Acceptance behaviours B1–B11 |
 | `conformance/signing-vectors.json` | Minimal vectors present |
 | `conformance/harness/README.md` | Harness not yet implemented |
-| `variants/README.md`, `variants/object-storage/README.md` | Documented fallback (design only) |
 
 ### 6. Maintainer documentation (`docs/` — never shipped)
 

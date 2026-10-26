@@ -35,7 +35,7 @@ engine invariant (agents hold no write credential), which is why adopting it nee
   structure only until decision 0001 (hosting) is made.
 - `conformance/` is the acceptance suite any signer or gateway must pass, kept outside every implementation so a port in
   another language is held to the same vectors and behaviours.
-- `variants/` documents alternatives not chosen (object-storage export), so a fallback does not need redesign.
+- `variants/` previously held alternative designs; the object-storage variant was rejected in Stage 1.3 and removed.
 - `docs/decisions/` records the open decisions, `docs/pilot/` the acceptance run, `docs/END-TO-END.md` the status of every
   stage from order to publish.
 

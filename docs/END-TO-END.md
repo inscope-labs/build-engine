@@ -20,7 +20,6 @@ How the parts fit, and what exists. Status words: **built** (code and tests), **
 | Serve context | read gateway, reference | `gateway/read/reference/` | built (proof of concept), not deployed |
 | Serve context | read gateway, production | `gateway/read/production/` | not started; open: decisions 0001 to 0004 |
 | Acceptance of any gateway | signing vectors, B1 to B11 | `conformance/` | behaviours written; vectors and harness not started |
-| Fallback read path | object-storage variant | `variants/object-storage/` | design only |
 | Submit deliverables, operator route | `cbridge upload` | `template/operator/` | built |
 | Submit deliverables, agent route | write gateway | `gateway/write/` | scaffold; open design questions in its README |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | built |
