@@ -41,7 +41,7 @@ The updater treats only paths declared in the release manifest as managed or see
 ### Supported operating environments
 
 - **Linux and Termux/Android:** supported. The operator bridge is a Termux-oriented script and the maintainer builds and operates from Termux.
-- **macOS:** conditional. The shipped scripts need bash 4 or newer, `sha256sum` and (for packaging) GNU `tar`; stock macOS provides bash 3.2 and BSD tools. Either macOS is supported only with Homebrew `bash`, `coreutils` and `gnu-tar`, or the scripts are ported. Operator to choose (register F0-014). Until chosen, macOS is not claimed.
+- **macOS:** not claimed as supported. The shipped scripts need bash 4 or newer, `sha256sum` and (for packaging) GNU `tar`, which stock macOS does not provide (it ships bash 3.2 and BSD tools). Support can be added later either by documenting Homebrew `bash`, `coreutils` and `gnu-tar` as requirements or by porting the scripts (register F0-014).
 - Required tools: `bash` (4+), `python3` (3.10+ recommended), `git`, `tar`, `sha256sum`, `mktemp`, `gh` for downloads.
 - The write gateway runs on Cloudflare Workers with a Durable Object (Stage 1.4); the read gateway runs on Cloudflare, operator-owned and single-tenant (decision 0001). Operators need accounts for those platforms; the consumer artifact has no runtime dependency on them beyond the links and the work-order contents.
 - Network access is needed only for operations the operator chooses to perform; offline plan authoring and local verification remain possible.
@@ -50,7 +50,7 @@ The updater treats only paths declared in the release manifest as managed or see
 
 1. Task file contents in the write gateway are ephemeral by design (Stage 1.4.2); an isolate loss before commit loses staged, uncommitted files. Control-plane state (lease, seal/revocation, idempotency, quota metadata) is durable.
 2. The write transport carries payloads in a GET query string. Caching, prefetch and intermediary or platform logging risks are accepted subject to the Stage 1.4 mitigations and are not eliminated.
-3. The GitHub credential used by the write gateway is repository-scoped, not folder-scoped. Stage 1.4.6 chose the **existing private repository with server-enforced path allow-listing only**; the plan (Stage 1.4.6) had preferred a dedicated submissions repository or branch. Folder confinement therefore rests entirely on gateway code, and a leaked token could reach the whole repository. The documentation must not describe the credential as path-scoped. This is an accepted residual risk and is raised again in the questions below.
+3. The write gateway's GitHub credential is repository-scoped, not folder-scoped. Stage 1.4.6 (amended 2026-10-26) confines it to a dedicated submissions repository and branch, with the task folder created beforehand by the operator; the gateway never creates branches or folders. A leaked token could alter any task's submissions in that repository but not the private consumer repository. The documentation must not describe the credential as path-scoped.
 4. A checksum sidecar proves integrity, not authenticity: it ships beside the artifact (register F0-017). Provenance is added in Stage 3.3.8; no cryptographic attestation is claimed unless generated and verified.
 5. The object-storage export variant was rejected in Stage 1.3 and is not included.
 6. The consumer artifact does not contain and must not instruct operators to use any endpoint that is not deployed. Documentation describes only capabilities that have passed acceptance (plan Stage 2.1.4/2.1.5).
@@ -63,8 +63,8 @@ The first release must support, and acceptance tests and the Phase 6 pilot must 
 1. **Plan creation:** the operator creates or updates a plan under `plans/<plan_id>/` using the shipped schemas and `plan_tool.py`.
 2. **Work order:** `plan_tool.py` produces a work order that binds exact file paths and immutable commit references.
 3. **Context access:** a Class A agent fetches pinned private raw URLs with its own credential; a Class B agent fetches only the intended pinned files through the read gateway using signed links.
-4. **Submission:** a Class B agent submits deliverables through the write gateway (stage, replace/append, read back, commit, seal); a Class A agent or the operator may place deliverables directly. Quotas, single-writer and path rules apply as decided.
-5. **Operator review:** the operator inspects the committed deliverables, runs local verification and records decisions via `plan_tool.py`.
+4. **Submission:** before issuing the work order the operator ensures the submissions branch and the task folder exist. A Class B agent submits deliverables through the write gateway into that folder (stage, replace/append, read back, commit, seal); a Class A agent or the operator may place deliverables directly in the consumer repository. Quotas, single-writer and path rules apply as decided.
+5. **Operator review and transfer:** the operator inspects the committed deliverables in the submissions repository, runs local verification, transfers accepted files into the consumer repository, and records decisions via `plan_tool.py`. The transfer tooling is not yet designed (register R0-011).
 6. **Publication / reconciliation:** the operator runs `cbridge publish` and `reconcile`. Publication is always an explicit operator action; neither the bridge nor either gateway publishes or merges.
 7. **Revocation and audit:** the operator can revoke or close a work order, after which further reads and writes are denied, and can inspect redacted audit records that contain no capability secrets, signatures or payloads.
 8. **Failure and recovery:** a lost response after a successful commit, an evicted staging session, an expired link and a revoked order each end in the documented outcome (Phase 6.3), never a silent duplicate or silent loss.
@@ -131,13 +131,22 @@ Consequences:
 2. With Phase 1 closed, Phase 2 starts at Stage 2.1 (metadata and documentation, register F0-019), then 2.2–2.4.
 3. Phases 4 and 5 may run on separate branches; integration and the pilot (Phase 6) are sequentially gated, as in the plan.
 
-## Questions for the operator
+## Operator decisions recorded (2026-10-26)
 
-- Approve the Level B boundary above (both gateways, conformance and pilot required for 0.5.0).
-- Choose the macOS position (supported with Homebrew bash 4+/GNU tools, or not claimed) and confirm Linux and Termux/Android as the supported environments.
-- Decide how to resolve the `ENGINE.json` / `engine.json` case collision (register F0-013), since it changes the consumer contract.
-- Confirm that you accept the Stage 1.4.6 write boundary (existing private repository, path allow-listing in code only) despite the plan's stated preference for an isolated submissions repository or branch; if not, Stage 1.4.6 must be reopened before Phase 5.
-- Confirm or amend the finite acceptance checklist in 1.1.4.
+| Item | Recorded answer | Effect |
+|---|---|---|
+| Level B boundary (both gateways, conformance, pilot required) | Decided earlier (Stages 1.3 and 1.4); stands | Section 1.1.3 |
+| Acceptance checklist (1.1.4) | **Not yet answered** | Approval still pending |
+| macOS | Operator asked for an explanation; **default applied: macOS is not claimed as supported** | Section 1.1.1; reversible on request |
+| `ENGINE.json` / `engine.json` collision | "Lowercase" | Both names lowercase. Literal lowercase of `ENGINE.json` equals the seed `engine.json`, so the managed file needs a new lowercase name; **name pending operator confirmation** (proposed `engine/release.json`). Safe now: nothing has been released, so no consumer migration is needed |
+| Write boundary (Stage 1.4.6) | Isolated submissions repository and branch; branch and task-id folder must already exist | Stage 1.4.6 amended; register R0-006 and R0-011 |
+
+## Questions still open
+
+- Approve or amend the finite acceptance checklist in 1.1.4 (and the Level B boundary as a whole).
+- Confirm the new name for the managed `ENGINE.json` (proposed `engine/release.json`).
+- Name and create the submissions repository, or tell me to propose names; it is needed before Phase 5 and for the Phase 6 pilot.
+- Design the submissions-to-consumer transfer step (R0-011): add it to the plan as a new work item in Stage 5.1 and Stage 2.3?
 
 ---
 End of Stage 1.1 revised draft.

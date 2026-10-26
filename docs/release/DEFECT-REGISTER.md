@@ -142,7 +142,8 @@ Added after the operator asked for a register that omits no known defect. Method
 - Severity: S2. Status: CONFIRMED (source: `release/manifest.txt` lines 9 and 15, both files present in `template/engine/`).
 - Evidence: the two names collide on case-insensitive filesystems (default macOS and Windows volumes, FAT/exFAT and some Android storage). One cannot check out both; an install or update could overwrite the seed (consumer configuration) with managed metadata or the reverse.
 - Consequence: potential loss of consumer-owned configuration, contradicting G-04.
-- Required resolution: rename one file (a consumer-contract change, so this needs an operator decision and a migration step in `update.sh`); add a case-fold duplicate check to packaging and verification.
+- Operator decision 2026-10-26: names are to be lowercase. Literal lowercase of `ENGINE.json` equals the seed `engine.json`, so the managed file needs a distinct lowercase name (**pending confirmation; proposed `engine/release.json`**). No consumer migration is needed because nothing has been released.
+- Required resolution: rename the managed file (touches `release/manifest.txt`, `set-version.sh`, `verify.sh`, `test-release.sh`, and five docs); add a case-fold duplicate check to packaging and verification.
 - Owner: operator (decision), implementation. Planned phase: decision in Phase 2.4 planning; implementation 2.4 and 3.1.2.
 - Closure evidence: no two manifest paths equal under case folding; update test covers migration.
 
@@ -150,7 +151,8 @@ Added after the operator asked for a register that omits no known defect. Method
 - Severity: S2. Status: CONFIRMED by source; not executed on macOS.
 - Evidence: `engine/bin/update.sh` uses `declare -A` (not in the bash 3.2 that macOS ships) and requires `sha256sum`; `release/package.sh` uses GNU `tar` options (`--sort`, `--mtime`, `--owner`, `--numeric-owner`) and `sha256sum`; the operator README describes `cbridge` as a Termux script.
 - Consequence: the documented supported environments and the real requirements disagree. The redrafted Stage 1.1 contract states the requirement explicitly.
-- Required resolution: either state the requirement (bash >= 4, GNU coreutils/tar; macOS only with Homebrew equivalents) and add a preflight check with a clear error, or port. Operator to choose.
+- Operator response 2026-10-26: asked for an explanation. Default applied: macOS is not claimed as supported (revisit on request).
+- Required resolution: state the requirement (bash >= 4, GNU coreutils/tar) and add a preflight check with a clear error so unsupported shells fail clearly.
 - Owner: operator (environment decision), implementation. Planned phase: Phase 1.1 contract (this PR), Phase 2.4 preflight.
 - Closure evidence: preflight test on an older-bash stub; docs state the requirement.
 
@@ -249,7 +251,13 @@ Added after the operator asked for a register that omits no known defect. Method
 - Risk: server-side path checks do not limit a repository token's blast radius if compromised.
 - Required action: assess a dedicated submission repository or isolated repository/branch and fixed server-enforced destination; document least privilege.
 - Planned phase: Phase 1/5.
-- Update (A2): Stage 1.4.6 chose option (c), the existing private repository with server-enforced path allow-listing only, which is weaker than the plan's preferred isolated submissions repository or branch. Recorded as an **accepted residual risk pending the operator's explicit reconfirmation** (question in `PHASE-1.1-PRODUCT-CONTRACT.md`). If not accepted, reopen Stage 1.4.6 before Phase 5.
+- Update (A2): Stage 1.4.6 originally chose the existing private repository with path allow-listing only. **Operator decision 2026-10-26: not accepted; Stage 1.4.6 amended to a dedicated isolated submissions repository and branch**, with the branch and task folder pre-created and never created by the gateway. Residual risk is now limited to the submissions repository. Closure evidence: Phase 5.1.6 contract and a credential-scope check (`scripts/check-token-scope.ts`) in Phase 5.
+
+### R0-011 — Submissions-to-consumer transfer path and pre-creation tooling are undefined
+- Severity: S1 for the approved workflow; Status: DESIGN GAP (consequence of the amended Stage 1.4.6).
+- Evidence: with an isolated submissions repository, accepted deliverables must move into the private consumer repository, and the operator must create the submissions branch and the task folder (with a placeholder file) before issuing a work order. `RELEASE-PLAN.md` has no stage for either; `cbridge upload/sync` currently targets the consumer repository only.
+- Required action: operator decision to add both items to the plan (Stage 5.1 contract and Stage 2.3 / 6.2 tooling); define placeholder-file handling and the error for a missing folder; test in the Phase 6 pilot.
+- Owner: operator (plan change), implementation. Planned phase: Stage 5.1 and 2.3 (to be added), 6.2.
 
 ### R0-007 — Ephemeral staging and ambiguous commit outcomes need a recovery model
 - Severity: S2; Status: DESIGN RISK.
@@ -333,6 +341,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
+| R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
 | R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
