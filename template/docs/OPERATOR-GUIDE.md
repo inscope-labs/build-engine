@@ -15,10 +15,10 @@ resume, and refuses to run if it is dirty, so push your commits before running a
 
 1. **Sync and check.** `cbridge sync && cbridge verify-main` (must print `main == upstream`).
 2. **Pick work.** `$PT next <plan> --all`.
-3. **Order.** Keep a checkout of `castiel-dev` `main` (it pins the context URLs to its HEAD; `cbridge sync` first), then:
-   `$PT order <plan> <ids...> --target ~/src/castiel-dev --write --start`
+3. **Order.** Keep a checkout of `PROJECT-dev` `main` (it pins the context URLs to its HEAD; `cbridge sync` first), then:
+   `$PT order <plan> <ids...> --target ~/src/PROJECT-dev --write --start`
    Commit and push the new order file and status changes. Give the worker `engine/prompts/AGENT-WORKER-PROMPT.md`
-   once, then paste the printed WORK ORDER text. The URLs point into the private repo at that commit, so `castiel-dev` `main`
+   once, then paste the printed WORK ORDER text. The URLs point into the private repo at that commit, so `PROJECT-dev` `main`
    must already contain it.
 4. **Collect.** Save the worker's reply to `out.txt` and run
    `python3 ~/cbridge/engine/engine/tools/unpack_blocks.py out.txt ./sub` (or use a zip the worker produced).
@@ -27,7 +27,7 @@ resume, and refuses to run if it is dirty, so push your commits before running a
    `SUBMISSION: <id>`. Read its `EXIT-REPORT.md`.
 7. **Publish.** For each pushed task: `cbridge publish task-<ID> --body-file <PR-BODY.md>` (confirm the
    prompt). It guards, pushes to the outbox and opens the PR.
-8. **Merge** each PR in `inscope-labs/castiel` after your own review.
+8. **Merge** each PR in `inscope-labs/PROJECT` after your own review.
 9. **Reconcile.** `cbridge reconcile <plan> <id> task-<ID> ...`, then send the printed `MERGED: <id>` (or
    `CLOSED: <id>`) to the supervisor.
 
@@ -56,7 +56,7 @@ writes while a HALT file exists, and the supervisor prompt stops at the next gat
 
 | Symptom | Cause / fix |
 |---|---|
-| `verify-main` exits 1 (diverged) | someone committed to castiel-dev `main`. Inspect `git log upstream/main..private/main`; do not force. |
+| `verify-main` exits 1 (diverged) | someone committed to PROJECT-dev `main`. Inspect `git log upstream/main..private/main`; do not force. |
 | `verify-main` exits 10 | behind upstream; run `cbridge sync`. |
 | `publish` refuses | read the guard message; fix the branch (the supervisor re-cuts it from `main`). |
 | `upload` says submission exists | submissions are immutable; use a new `-rN` order. |

@@ -1,19 +1,19 @@
 # operator/ - cbridge
 
-`cbridge` is the Termux script the operator uses to cross between public `castiel` and private
-`castiel-dev`. It is the only component with credentials for the public repo. Never give it to an agent.
+`cbridge` is the Termux script the operator uses to cross between public `PROJECT` and private
+`PROJECT-dev`. It is the only component with credentials for the public repo. Never give it to an agent.
 
 ## Download
 
 The repo is private, so use your authenticated `gh`:
 
     gh api -H "Accept: application/vnd.github.raw" \
-      "repos/inscope-labs/castiel-dev/contents/operator/install.sh?ref=build-engine" | sh
+      "repos/inscope-labs/PROJECT-dev/contents/operator/install.sh?ref=build-engine" | sh
 
 Or fetch the script directly:
 
     gh api -H "Accept: application/vnd.github.raw" \
-      "repos/inscope-labs/castiel-dev/contents/operator/cbridge?ref=build-engine" > ~/bin/cbridge
+      "repos/inscope-labs/PROJECT-dev/contents/operator/cbridge?ref=build-engine" > ~/bin/cbridge
     chmod +x ~/bin/cbridge
 
 `install.sh` also writes `~/.config/cbridge/config` from `cbridge.config.example` if none exists.
@@ -28,8 +28,8 @@ Or fetch the script directly:
 
 | Command | Does |
 |---|---|
-| `init`, `bootstrap`, `doctor` | one-time setup; `doctor` confirms castiel-dev is private |
-| `sync` / `verify-main` | fast-forward castiel-dev `main` to upstream / detect divergence (exit 0 equal, 10 behind, 1 diverged) |
+| `init`, `bootstrap`, `doctor` | one-time setup; `doctor` confirms PROJECT-dev is private |
+| `sync` / `verify-main` | fast-forward PROJECT-dev `main` to upstream / detect divergence (exit 0 equal, 10 behind, 1 diverged) |
 | `upload <plan> <dir\|zip>` | commit a worker submission to build-engine; prints `SUBMISSION: <id>` |
 | `publish <task-branch> [--title T] [--body-file F] [-y]` | guard, push to the outbox, open the PR |
 | `reconcile <plan> <submission_id> <task-branch>...` | verify merges, write `RECONCILE.json`, print `MERGED:` / `CLOSED:` |

@@ -2,7 +2,7 @@
 
 **Operator-controlled build system** for driving planned work from private development repositories into public projects.
 
-This repository is the single source of the build-engine: the plan/implementation system comprising plans, work orders, operator tooling, prompts, and related infrastructure. Private `<project>-dev` repositories (for example, `inscope-labs/castiel-dev`) consume verified **release artifacts**. Consumers never clone or copy from this repository by hand; they install or update via `engine/bin/update.sh`.
+This repository is the single source of the build-engine: the plan/implementation system comprising plans, work orders, operator tooling, prompts, and related infrastructure. Private `<project>-dev` repositories (for example, `inscope-labs/PROJECT-dev`) consume verified **release artifacts**. Consumers never clone or copy from this repository by hand; they install or update via `engine/bin/update.sh`.
 
 Current version: **0.5.0** (unreleased).
 
@@ -41,7 +41,7 @@ The design prioritises:
 | `tests/` | Consumer install/update flow tests. | No |
 | `docs/` | Maintainer documentation: `END-TO-END.md`, `ARCHITECTURE.md`, `RELEASING.md`, `decisions/`, `pilot/`, `proposals/`. | No |
 | `.github/workflows/` | `ci.yml` (every push/PR), `release.yml` (on `vX.Y.Z` tag). | No |
-| `VERSION`, `CHANGELOG.md`, `COMPATIBILITY.md` | Version, history, and abstract castiel compatibility. | Version is stamped into the artifact |
+| `VERSION`, `CHANGELOG.md`, `COMPATIBILITY.md` | Version, history, and abstract PROJECT compatibility. | Version is stamped into the artifact |
 
 ### Template contents (what ships)
 
@@ -168,7 +168,7 @@ release/package.sh && release/verify.sh dist/build-engine-v$(cat VERSION).tar.gz
 
 1. Branch from `main`. Make and test changes. Add any new shipping paths to `release/manifest.txt`.
 2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/ENGINE.json`).
-3. Record the abstract castiel version implemented: set `implements_abstract` in `template/engine/ENGINE.json` and add a row to `COMPATIBILITY.md`.
+3. Record the abstract PROJECT version implemented: set `protocol` in `template/engine/ENGINE.json` and add a row to `COMPATIBILITY.md`.
 4. Update `CHANGELOG.md` (replace the unreleased section with a dated entry).
 5. Open a pull request; CI must pass (unit tests, release self-test, update-flow test, dry-run package + verify).
 6. After merge: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`.
@@ -187,11 +187,11 @@ Release isolation is enforced by three independent layers:
 
 ## Compatibility
 
-| Engine | Abstract castiel | Notes |
+| Engine | Abstract PROJECT | Notes |
 |--------|------------------|-------|
 | 0.5.0 (unreleased) | UNSET | Must be recorded before the first release |
 
-A release build (`release/verify.sh --release`) refuses to publish while `implements_abstract` is `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
+A release build (`release/verify.sh --release`) refuses to publish while `protocol` is missing or `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
 
 ---
 
@@ -199,8 +199,8 @@ A release build (`release/verify.sh --release`) refuses to publish while `implem
 
 Version 0.5.0 is unreleased. Known gaps, ordered by priority:
 
-1. `implements_abstract` remains `UNSET`; a release build will refuse to publish until the abstract castiel version is recorded.
-2. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still references Castiel as the worked example. Machine-readable configuration (`engine.json`, `cbridge.config.example`, `install.sh`) already uses placeholders.
+1. `protocol` remains `UNSET`; a release build will refuse to publish until the abstract PROJECT version is recorded.
+2. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still references Project as the worked example. Machine-readable configuration (`engine.json`, `cbridge.config.example`, `install.sh`) already uses placeholders.
 3. GitHub repository settings (branch protection on `main`, tag protection for `v*`) are not configured from this repository.
 4. The read gateway is a proof of concept and the write gateway (`gateway/write`) is a scaffold; neither is deployable. See `template/docs/CONTEXT-EXPORT.md` and `gateway/write/README.md`.
 
@@ -217,7 +217,7 @@ Version 0.5.0 is unreleased. Known gaps, ordered by priority:
 | `docs/pilot/` | Maintainers | Acceptance / pilot planning |
 | `docs/proposals/` | Maintainers | Historical and alternative proposals |
 | `template/docs/CONTEXT-EXPORT.md` | Consumers + maintainers | Signed-link design, threat model, integration |
-| `template/engine/AGENTS.md` | Agents / operators | Agent guidance (currently Castiel-centric) |
+| `template/engine/AGENTS.md` | Agents / operators | Agent guidance (currently Project-centric) |
 | Header of `template/engine/bin/update.sh` | Consumers | Install/update contract |
 
 ---

@@ -81,8 +81,8 @@ bash -n "$X/operator/cbridge"; sh -n "$X/operator/install.sh"; bash -n "$X/engin
 
 # 8. release gate
 if [[ "$MODE" == "--release" ]]; then
-  IA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("implements_abstract",""))' "$X/engine/ENGINE.json")"
-  [[ -n "$IA" && "$IA" != UNSET ]] || die "ENGINE.json implements_abstract is UNSET: record the abstract version this release implements"
+  PROTO="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("protocol") or d.get("implements_abstract",""))' "$X/engine/ENGINE.json")"
+  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "ENGINE.json protocol is missing or UNSET: record the protocol version this release implements (e.g. build-engine/0.5)"
   grep -Eq "^## $AV - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" "$ROOT/CHANGELOG.md" || die "CHANGELOG.md has no dated '## $AV - YYYY-MM-DD' entry"
 fi
 echo "verify: OK ($base: $(wc -l < "$WORK/names") files, version $AV${MODE:+, $MODE})"

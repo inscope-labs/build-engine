@@ -5,7 +5,7 @@ PLAN LIFECYCLE (build-engine)
   plans/<plan>/stages.json + tasks/*.json  --plan_tool.py render-->  PLAN.md (generated)
         |
 ORDER   operator:  plan_tool.py next <plan>
-        operator:  plan_tool.py order <plan> <ids> --write --start --target <castiel checkout>
+        operator:  plan_tool.py order <plan> <ids> --write --start --target <PROJECT checkout>
         -> WORK ORDER text (submission id, tasks, acceptance, deliverables, context URLs pinned to a commit)
         |
 WORKER  operator gives the worker AGENT-WORKER-PROMPT.md once, then the WORK ORDER text
@@ -21,7 +21,7 @@ SUPERVISOR  operator sends "SUBMISSION: <id>"
         |
 PUBLISH operator:  cbridge publish task-<id> --body-file PR-BODY.md   (per task; guarded)
         |
-MERGE   operator reviews and merges each PR in castiel
+MERGE   operator reviews and merges each PR in PROJECT
         operator:  cbridge reconcile <plan> <id> task-<id>...   -> MERGED: <id> | CLOSED: <id>
         |
 RECONCILE  operator sends the line; supervisor verifies, sets done / planned, re-renders, pushes
@@ -29,7 +29,7 @@ RECONCILE  operator sends the line; supervisor verifies, sets done / planned, re
 NEXT    read EXIT-REPORT.md "Next orders"; plan_tool.py next
 ```
 
-Side lanes: `cbridge sync` keeps `castiel-dev:main` equal to upstream. `cbridge halt` stops everything at
+Side lanes: `cbridge sync` keeps `PROJECT-dev:main` equal to upstream. `cbridge halt` stops everything at
 the next gate. Operator-executor tasks skip the worker (see GATES.md).
 
 ## Rework

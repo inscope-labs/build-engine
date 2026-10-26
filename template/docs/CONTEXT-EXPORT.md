@@ -6,7 +6,7 @@ Status: proof of concept built and tested locally. Not yet deployed. Supersedes 
 ## 1. Verdict
 
 Agents with limited tools can only make plain HTTPS GET requests, and the context they need lives in the private
-`castiel-dev` repository. The mechanism that solves this with the least new risk is a **signed context gateway**:
+`PROJECT-dev` repository. The mechanism that solves this with the least new risk is a **signed context gateway**:
 
 - The operator's tooling mints a short-lived, read-only link for each file in a work order. The link is a plain URL.
 - A small gateway verifies the link, reads that one file at that one pinned commit from the private repo, and
@@ -14,7 +14,7 @@ Agents with limited tools can only make plain HTTPS GET requests, and the contex
 - Links expire, can be re-minted without changing the order, can be revoked per order, and every fetch is audited.
 
 What the proof of concept **proves**: the link format, the signing rules, every refusal rule, expiry, revocation,
-audit, the integration into work orders, and a plain-GET client fetching real Castiel files whose hashes match the
+audit, the integration into work orders, and a plain-GET client fetching real Project files whose hashes match the
 order. What it **does not prove**: a deployed gateway, the GitHub-backed file source, and any hosting provider
 (sections 10 and 11). One decision is yours: where the gateway runs (section 12).
 
@@ -23,7 +23,7 @@ order. What it **does not prove**: a deployed gateway, the GitHub-backed file so
 | Fact | Consequence |
 |---|---|
 | Work orders hold only URLs (small orders, agent controls digestion, adjustable during the order's life) | Links must be re-issuable without editing the order |
-| The URLs point at the private `castiel-dev` repo; agents have no relationship with public `castiel` | The source of truth is private; public raw URLs are not an option |
+| The URLs point at the private `PROJECT-dev` repo; agents have no relationship with public `PROJECT` | The source of truth is private; public raw URLs are not an option |
 | Class A agents use authenticated git/curl | They can read private raw URLs directly; no export needed |
 | Class B agents can only use an HTTPS GET-only gateway | They cannot send an `Authorization` header: the link itself must carry the authority |
 | Agents are free to use their capabilities | No closed world; the link grants read access only, nothing else |
@@ -75,7 +75,7 @@ Numbered flow:
 1. **Setup (once).** Generate a signing secret per key id (`k1`). Configure the gateway with the secrets, allowed
    path prefixes and a read-only repository credential. Put the gateway base URL in `engine.json`
    (`context.gateway`). The secret is exported as `CTXGATE_SECRET` when ordering and never stored in the repo.
-2. **Order.** `plan_tool.py order <plan> <ids> --target <castiel-dev main checkout> --write --start`. The engine
+2. **Order.** `plan_tool.py order <plan> <ids> --target <PROJECT-dev main checkout> --write --start`. The engine
    builds the context list (pinned commit, repository path, sha256), writes the order file *without* signed links,
    and prints the work order with a signed link beside each file.
 3. **Hand over.** The operator gives the printed order to the agent.
@@ -186,7 +186,7 @@ Two programs, split on purpose. **Shipped with every release:** `engine/tools/ct
 lives only in the build-engine source repository under `gateway/read/reference/`. Run the `ctxgate.py` commands below from a checkout
 of that repository.
 
-End-to-end run on the real Castiel plan (task `10008-1-102-00`), real Castiel files as the source, a plain `curl`
+End-to-end run on the real Project plan (task `10008-1-102-00`), real Project files as the source, a plain `curl`
 client with no credentials, links with a 4-second lifetime:
 
 ```

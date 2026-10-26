@@ -5,10 +5,10 @@
 | Asset | Where | Who can touch it |
 |---|---|---|
 | plans, prompts, reviews, records | private `build-engine` | operator, supervisor |
-| product code | public `castiel` | operator via `cbridge publish` and merge |
+| product code | public `PROJECT` | operator via `cbridge publish` and merge |
 | public-repo credentials | operator's Termux `gh` login | operator only |
 
-The supervisor token is scoped to `castiel-dev`. A leaked or misused supervisor token cannot push to or
+The supervisor token is scoped to `PROJECT-dev`. A leaked or misused supervisor token cannot push to or
 open PRs in the public repo. Rotate it on a schedule.
 
 ## Leak controls on the public path (`cbridge publish`)
@@ -17,7 +17,7 @@ open PRs in the public repo. Rotate it on a schedule.
 - Task branches must descend from upstream `main`; any `build-engine` ancestry is refused.
 - Denied paths (`engine/`, `plans/`, `.github/` by default), merge commits, secret patterns, private names in
   commit messages and PR title/body (`DENY_TEXT`), and optionally author emails (`ALLOW_EMAIL_RE`).
-- `cbridge doctor` and every command that writes private content refuse to run unless `castiel-dev` is
+- `cbridge doctor` and every command that writes private content refuse to run unless `PROJECT-dev` is
   confirmed private through the GitHub API.
 
 Published commits expose authorship, timestamps and diffs. Use a noreply email for task commits.
@@ -31,11 +31,11 @@ A leaked link exposes one file at one commit until it expires or its order is re
 
 ## Known limitations
 
-- **No branch protection on a free private repo.** Direct pushes to `castiel-dev` `main` are possible and
+- **No branch protection on a free private repo.** Direct pushes to `PROJECT-dev` `main` are possible and
   are detected, not prevented (G0 tripwire, `verify-main`).
 - **Fine-grained PAT scopes cannot be introspected.** The supervisor prompt cannot verify its own token's
   permissions. Keep the token narrowly scoped at creation and short-lived.
-- **Task branches live in the public repo** (outbox = castiel) between publish and merge. Delete them after
+- **Task branches live in the public repo** (outbox = PROJECT) between publish and merge. Delete them after
   merge. Their contents are, by design, only deliverable files.
 - **Worker output is untrusted.** `SUBMISSION.json` `worker.*` fields are informational. Hashes and
   provenance come from `cbridge upload` (`UPLOAD.json`, manifest), not from the worker.

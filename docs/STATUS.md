@@ -2,7 +2,7 @@
 
 A *successful published release candidate* is currently blocked by process/gating items rather than missing directories or allowlisted files. The principal blockers are:
 
-1. `template/engine/ENGINE.json` has `"implements_abstract": "UNSET"` — `release/verify.sh --release` refuses to pass.
+1. `template/engine/ENGINE.json` previously had `"protocol": "UNSET"`; Stage 1.2 migrates the field to `protocol` = `build-engine/0.5`.
 2. `CHANGELOG.md` still records `## 0.5.0 - unreleased` instead of a dated entry required by the release gate.
 3. Read-gateway production port, write-gateway, conformance harness vectors, and pilot remain incomplete or scaffold-only (these never ship, so they do not block packaging of the current artifact, but they limit a fully operational end-to-end system).
 
@@ -18,7 +18,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 |------|------|
 | `VERSION` | Single source of truth: `0.5.0` |
 | `CHANGELOG.md` | History; currently unreleased |
-| `COMPATIBILITY.md` | Abstract-castiel mapping; currently `UNSET` |
+| `COMPATIBILITY.md` | Abstract-PROJECT mapping; currently `UNSET` |
 | `README.md` | Maintainer-facing overview |
 | `.gitignore` | Standard exclusions |
 | `.github/workflows/ci.yml` | Push/PR: unit tests, shell syntax, release self-test, update-flow test, dry-run package+verify, write-gateway typecheck/bundle |
@@ -41,7 +41,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 
 | Path | Role |
 |------|------|
-| `ENGINE.json` | Machine metadata (`engine_version`, `implements_abstract`) — managed |
+| `ENGINE.json` | Machine metadata (`engine_version`, `protocol`) — managed |
 | `VERSION` | Stamped version — managed |
 | `engine.json` | Consumer configuration (placeholders) — **seed** (installed once, never overwritten) |
 | `AGENTS.md` | Agent guidance |
@@ -125,7 +125,7 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 
 **Hard blockers for publishing (release gate):**
 
-- `implements_abstract` remains `UNSET` in `ENGINE.json`.
+- `protocol` remains `UNSET` in `ENGINE.json`.
 - `CHANGELOG.md` lacks a dated `## 0.5.0 - YYYY-MM-DD` entry.
 
 **Structural completeness of the shippable payload:**  
@@ -137,7 +137,7 @@ None. Every path required by `release/manifest.txt` exists under `template/`. `p
 - Write gateway is scaffold only.
 - Conformance harness and full signing-vector set incomplete.
 - Pilot not started.
-- Prose still Castiel-centric in places (machine configuration already uses placeholders).
+- Prose still Project-centric in places (machine configuration already uses placeholders).
 - Repository settings (branch/tag protection) not managed from this repository.
 
 Once the two hard blockers are resolved, the existing machinery can produce and publish a verified release artefact containing the engine, operator bridge, schemas, prompts, templates, and documentation listed above.

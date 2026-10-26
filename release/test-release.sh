@@ -71,7 +71,7 @@ must_fail "a payload that fails its own tests is caught" "payload tests fail" "$
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
-p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["implements_abstract"] = "1.2.3"
+p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
 open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build

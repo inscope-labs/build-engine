@@ -13,4 +13,4 @@ d = json.load(open(p)); d["engine_version"] = v
 open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 echo "version set to $V (VERSION, template/engine/VERSION, template/engine/ENGINE.json)"
-echo "now: add '## $V - YYYY-MM-DD' to CHANGELOG.md and record the abstract version in ENGINE.json + COMPATIBILITY.md"
+echo "now: add '## $V - YYYY-MM-DD' to CHANGELOG.md and record the protocol version in ENGINE.json + COMPATIBILITY.md"
