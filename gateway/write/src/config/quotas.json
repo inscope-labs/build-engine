@@ -1,0 +1,11 @@
+{
+  "_note": "The proposal says 240 KB / 12 KB without defining KB. Interpreted as 1024 bytes; confirm before implementing.",
+  "max_files": 20,
+  "max_total_bytes": 245760,
+  "max_file_bytes": 12288,
+  "rate_limit": {
+    "requests": 30,
+    "window_seconds": 60
+  },
+  "max_concurrency": 1
+}

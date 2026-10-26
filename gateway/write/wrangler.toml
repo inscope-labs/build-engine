@@ -1,0 +1,17 @@
+# ctxgate write gateway: Worker + one Durable Object class. SCAFFOLD: not deployable yet (no routes, no secrets).
+name = "ctxgate"
+main = "src/index.ts"
+# Pin deliberately and bump on purpose; do not float.
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "TASK_SESSION"
+class_name = "TaskSession"
+
+# ASSUMPTION to confirm in docs/adr/0001-durable-object-coordination.md: SQLite-backed Durable Object.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TaskSession"]
+
+# Secrets (signing keys, GitHub token) are NEVER put here: `wrangler secret put`, or .dev.vars locally.
+# routes / workers_dev are intentionally unset until a deployment decision is made.

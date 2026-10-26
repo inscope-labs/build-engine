@@ -1,0 +1,4 @@
+# ci/load.yml
+# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
+# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
+# definition for that wiring; it does not run from here.

@@ -1,0 +1,7 @@
+# Local secrets template. Copy to .dev.vars (gitignored). Names are PROVISIONAL until src/config/env.ts exists.
+# Signing secret per key id (the same scheme as the read gateway: see ../../template/engine/tools/ctxlink.py).
+CTXGATE_SECRET_K1=
+# GitHub credential for the commit step. Scope it as narrowly as GitHub allows (see README, "Open questions").
+GITHUB_TOKEN=
+GITHUB_REPO=OWNER/PROJECT-dev
+GITHUB_BRANCH=build-engine

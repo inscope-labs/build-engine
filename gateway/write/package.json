@@ -1,0 +1,17 @@
+{
+  "name": "ctxgate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Task-scoped write gateway: a GET-only Cloudflare Worker for Class B agents (scaffold, not implemented)",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "check:bundle": "wrangler deploy --dry-run --outdir .wrangler-dryrun"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261011.1",
+    "typescript": "7.0.2",
+    "wrangler": "4.149.0"
+  }
+}
