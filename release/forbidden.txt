@@ -1,0 +1,27 @@
+# Independent second line of defence: verify.sh fails the build if the FINISHED artifact matches any rule
+# here, even when release/manifest.txt allows the path. Format:  path: <ERE>   or   text: <ERE>
+# path rules match the artifact-relative file path; text rules match file contents (binary files skipped).
+
+# -- the gateway, by location and by name
+path: (^|/)gateway(/|$)
+path: (^|/)ctxgate\.py$
+path: (^|/)test_ctxgate\.py$
+path: (^|/)gw[^/]*\.json$
+# -- the gateway, by code (so a renamed copy is still caught)
+text: ^class Gateway[(:]
+text: ^class GitSource[(:]
+text: ^def make_server\(
+
+# -- repository internals, local state, key material
+path: (^|/)\.git(/|$)
+path: (^|/)\.env
+path: \.(pem|key|p12|pat|token)$
+path: (^|/)__pycache__(/|$)
+path: \.pyc$
+
+# -- credential shapes. These match real tokens, not the scanner patterns in cbridge/plan_tool.py
+# (those contain a bracket right after the prefix, which these require to be a token character).
+text: ghp_[A-Za-z0-9]{36}
+text: github_pat_[A-Za-z0-9_]{50,}
+text: AKIA[0-9A-Z]{16}
+text: -----BEGIN [A-Z ]*PRIVATE KEY-----

@@ -1,0 +1,46 @@
+name: release
+# Publishes a release when a vX.Y.Z tag is pushed. The artifact is built from template/ by allowlist, verified as a
+# finished file, and only then published. The gateway (gateway/) is never part of it.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag matches VERSION and points at a commit on main
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF_NAME" = "v$(tr -d ' \n' < VERSION)" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION"; exit 1; }
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag must point at a commit on main"; exit 1; }
+      - name: Tests
+        run: |
+          python3 -m unittest discover -s template/engine/tools
+          python3 -m unittest discover -s gateway -p 'test_*.py'
+          release/test-release.sh
+          tests/test_update.sh
+      - name: Package
+        run: release/package.sh dist
+      - name: Verify (release gate)
+        run: release/verify.sh "dist/build-engine-${GITHUB_REF_NAME}.tar.gz" --release
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## " v " - " {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "no changelog entry for $v"; exit 1; }
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/build-engine-${GITHUB_REF_NAME}.tar.gz" "dist/build-engine-${GITHUB_REF_NAME}.tar.gz.sha256" \
+            --title "build-engine ${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag

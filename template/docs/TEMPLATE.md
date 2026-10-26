@@ -1,5 +1,7 @@
 # Using the engine in another repository
 
+> **Preferred route:** install a release with `engine/bin/update.sh` instead of copying files by hand. It verifies the artifact, never overwrites your `engine/engine.json`, and records what it installed in `.build-engine.lock`. The manual steps below describe what a release contains and what you configure.
+
 The portable unit is `engine/` plus `operator/` and `docs/`. Plans are data and are not copied.
 
 1. Create a new **private** repository for the target project (`<owner>/<project>-dev`). Keep the target

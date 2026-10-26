@@ -1,0 +1,34 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Shipped engine tests
+        run: python3 -m unittest discover -s template/engine/tools -v
+      - name: Gateway tests (never shipped)
+        run: python3 -m unittest discover -s gateway -p 'test_*.py' -v
+      - name: Shell syntax
+        run: |
+          bash -n template/operator/cbridge
+          sh -n template/operator/install.sh
+          bash -n template/engine/bin/update.sh
+          for f in release/*.sh tests/*.sh; do bash -n "$f"; done
+      - name: Release machinery self-test
+        run: release/test-release.sh
+      - name: Consumer install and update flow
+        run: tests/test_update.sh
+      - name: Package and verify (dry run, no publish)
+        run: |
+          release/package.sh dist
+          release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz"
