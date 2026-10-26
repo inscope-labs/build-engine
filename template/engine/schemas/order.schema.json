@@ -1,0 +1,106 @@
+{
+  "type": "object",
+  "required": [
+    "kind",
+    "order_version",
+    "plan_id",
+    "submission_id",
+    "mode",
+    "tasks",
+    "upload_to",
+    "report_headings",
+    "context_ref"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "TASK_ORDER"
+      ]
+    },
+    "order_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "plan_id": {
+      "type": "string"
+    },
+    "submission_id": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "new",
+        "rework"
+      ]
+    },
+    "rework_of": {
+      "type": "string"
+    },
+    "upload_to": {
+      "type": "string"
+    },
+    "report_headings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "branch",
+          "task_dir",
+          "acceptance",
+          "deliverables",
+          "companions",
+          "verify",
+          "context"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "task_dir": {
+            "type": "string"
+          },
+          "acceptance": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "context_ref": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# cbridge 1.0.0 - operator bridge: private castiel-dev  <->  public castiel
+#
+# The ONLY component that crosses the public/private boundary.
+# Agents get a token for the private repo only; nothing here is ever given to them.
+#
+#   init | bootstrap | doctor | sync | verify-main | status
+#   upload <plan_id> <dir|zip>      commit a worker submission to build-engine
+#   publish <task-branch> [...]     guard, push to outbox, open PR in castiel
+#   reconcile <plan_id> <submission_id> <task-branch>...
+#   halt [plan_id] | resume [plan_id]
+set -euo pipefail
+
+CONFIG="${CBRIDGE_CONFIG:-$HOME/.config/cbridge/config}"
+die()  { echo "ERROR: $*" >&2; exit 1; }
+info() { echo "* $*"; }
+warn() { echo "WARN: $*" >&2; }
+
+[ -f "$CONFIG" ] || die "missing config $CONFIG (copy cbridge.config.example there and edit it)"
+# shellcheck disable=SC1090
+. "$CONFIG"
+: "${PRIVATE_URL:?}" "${PRIVATE_SLUG:?}" "${UPSTREAM_URL:?}" "${UPSTREAM_SLUG:?}" "${OUTBOX_URL:?}" "${OUTBOX_OWNER:?}"
+WORKDIR="${WORKDIR:-$HOME/cbridge/work}"
+ENGINE_WT="${ENGINE_WT:-$HOME/cbridge/engine}"
+DENY_PATHS="${DENY_PATHS:-^(engine/|plans/|\.github/)}"
+DENY_TEXT="${DENY_TEXT:-castiel-dev|build-engine|plans/|submissions/}"
+ALLOW_PATHS="${ALLOW_PATHS:-}"          # optional allowlist regex: every changed path must match it
+ALLOW_EMAIL_RE="${ALLOW_EMAIL_RE:-}"
+GIT_NAME="${GIT_NAME:-cbridge}"
+GIT_EMAIL="${GIT_EMAIL:-cbridge@users.noreply.github.com}"
+SECRET_RE='ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}'
+
+[ "$PRIVATE_URL" != "$OUTBOX_URL" ]   || die "OUTBOX_URL must not be the private repo"
+[ "$PRIVATE_URL" != "$UPSTREAM_URL" ] || die "UPSTREAM_URL must not be the private repo"
+
+TMP=""; trap '[ -z "$TMP" ] || rm -rf "$TMP"' EXIT
+
+g()         { git -C "$WORKDIR" "$@"; }
+need_clone(){ [ -d "$WORKDIR/.git" ] || die "run: cbridge init"; }
+have_gh()   { [ -z "${CBRIDGE_NO_GH:-}" ] && command -v gh >/dev/null 2>&1; }
+
+assert_private() {
+  if [ -n "${CBRIDGE_NO_GH:-}" ]; then warn "privacy check skipped (CBRIDGE_NO_GH)"; return 0; fi
+  have_gh || die "gh not installed (pkg install gh); needed to verify $PRIVATE_SLUG is private"
+  [ "$(gh api "repos/$PRIVATE_SLUG" --jq .private 2>/dev/null || echo unknown)" = "true" ] \
+    || die "$PRIVATE_SLUG is not confirmed private - refusing"
+}
+
+fetch() {
+  g fetch -q --prune private
+  g fetch -q upstream "+refs/heads/main:refs/remotes/upstream/main"
+}
+
+# ---------------------------------------------------------------- setup
+cmd_init() {
+  command -v git >/dev/null || die "pkg install git"
+  mkdir -p "$(dirname "$WORKDIR")"
+  [ -d "$WORKDIR/.git" ] || git clone -q --no-checkout -o private "$PRIVATE_URL" "$WORKDIR"
+  g remote get-url upstream >/dev/null 2>&1 || g remote add upstream "$UPSTREAM_URL"
+  g remote get-url outbox   >/dev/null 2>&1 || g remote add outbox "$OUTBOX_URL"
+  g remote set-url --push upstream "DISABLED-never-push-to-upstream"
+  fetch
+  info "initialised $WORKDIR (remotes: private, upstream[read-only], outbox)"
+}
+
+cmd_bootstrap() {   # one-time: seed castiel-dev main from upstream; create build-engine only if absent
+  need_clone; assert_private; fetch
+  if g rev-parse -q --verify refs/remotes/private/main >/dev/null; then
+    die "private repo already has main - nothing to bootstrap"
+  fi
+  g push private "refs/remotes/upstream/main:refs/heads/main"
+  if g rev-parse -q --verify refs/remotes/private/build-engine >/dev/null; then
+    info "build-engine already exists - left untouched"
+  else
+    TMP=$(mktemp -d)
+    git -C "$TMP" init -q -b build-engine
+    mkdir -p "$TMP/engine" "$TMP/plans"; : > "$TMP/engine/.gitkeep"; : > "$TMP/plans/.gitkeep"
+    printf '# build-engine\nExclusive planning/implementation branch. Never merge into main.\n' > "$TMP/README.md"
+    git -C "$TMP" add -A
+    git -C "$TMP" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "Initialize build-engine"
+    git -C "$TMP" push -q "$PRIVATE_URL" build-engine:refs/heads/build-engine
+  fi
+  if have_gh; then gh repo edit "$PRIVATE_SLUG" --default-branch build-engine
+  else warn "set default branch to build-engine in the GitHub UI"; fi
+  info "bootstrapped: main = upstream"
+}
+
+cmd_doctor() {
+  local ok=1
+  for c in git jq sha256sum; do command -v "$c" >/dev/null || { warn "missing: $c"; ok=0; }; done
+  command -v gh >/dev/null || warn "gh missing (PR creation and privacy check disabled)"
+  if have_gh; then gh auth status >/dev/null 2>&1 || { warn "gh not logged in"; ok=0; }; fi
+  assert_private || ok=0
+  [ -d "$WORKDIR/.git" ] || { warn "not initialised (cbridge init)"; ok=0; }
+  [ "$ok" = 1 ] && info "doctor: OK" || die "doctor: problems found"
+}
+
+# ---------------------------------------------------------------- main sync / tripwire
+cmd_sync() {
+  need_clone; assert_private; fetch
+  local up pm
+  up=$(g rev-parse refs/remotes/upstream/main)
+  pm=$(g rev-parse -q --verify refs/remotes/private/main) || die "private main missing - run bootstrap"
+  [ "$pm" = "$up" ] && { info "main already equals upstream (${up:0:10})"; return 0; }
+  g merge-base --is-ancestor "$pm" "$up" || die "private main has commits not in upstream (diverged). Investigate; never force."
+  info "fast-forwarding private main ${pm:0:10} -> ${up:0:10} ($(g rev-list --count "$pm..$up") commits)"
+  g push private "$up:refs/heads/main"
+}
+
+cmd_verify_main() {   # exit 0 = equal, 10 = behind (ok), 1 = diverged
+  need_clone; fetch
+  local up pm behind
+  up=$(g rev-parse refs/remotes/upstream/main)
+  pm=$(g rev-parse -q --verify refs/remotes/private/main) || die "private main missing"
+  g merge-base --is-ancestor "$pm" "$up" || { echo "FAIL: private main diverged from upstream"; exit 1; }
+  behind=$(g rev-list --count "$pm..$up")
+  if [ "$behind" = 0 ]; then echo "OK: main == upstream (${up:0:10})"
+  else echo "OK: main is $behind commit(s) behind upstream - run: cbridge sync"; exit 10; fi
+}
+
+cmd_status() {
+  need_clone; fetch
+  local up pm="none"
+  up=$(g rev-parse refs/remotes/upstream/main)
+  pm=$(g rev-parse -q --verify refs/remotes/private/main || echo none)
+  echo "upstream main: ${up:0:10}"; echo "private  main: ${pm:0:10}"
+  [ "$pm" = none ] || echo "private main behind upstream by $(g rev-list --count "$pm..$up")"
+  echo "task branches (private):"
+  g for-each-ref --format='  %(refname:strip=3) %(objectname:short)' 'refs/remotes/private/task-*'
+  if have_gh; then
+    echo "pull requests (castiel):"
+    gh pr list --repo "$UPSTREAM_SLUG" --state all --limit 50 --json number,headRefName,state \
+      --jq '.[] | select(.headRefName|startswith("task-")) | "  #\(.number) \(.headRefName) \(.state)"' || true
+  fi
+}
+
+# ---------------------------------------------------------------- engine worktree (build-engine)
+engine_sync() {
+  need_clone; assert_private; fetch
+  g rev-parse -q --verify refs/remotes/private/build-engine >/dev/null || die "no build-engine branch (bootstrap?)"
+  if [ -e "$ENGINE_WT/.git" ]; then
+    [ -z "$(git -C "$ENGINE_WT" status --porcelain)" ] || die "engine worktree dirty: $ENGINE_WT"
+    git -C "$ENGINE_WT" checkout -q --detach refs/remotes/private/build-engine
+  else
+    g worktree add -q --detach "$ENGINE_WT" refs/remotes/private/build-engine
+  fi
+}
+
+engine_commit_push() {
+  git -C "$ENGINE_WT" add -A
+  git -C "$ENGINE_WT" diff --cached --quiet && { info "nothing to commit"; return 0; }
+  git -C "$ENGINE_WT" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "$1"
+  git -C "$ENGINE_WT" push -q private HEAD:refs/heads/build-engine \
+    || die "push rejected (someone else pushed build-engine). Re-run the command."
+}
+
+# ---------------------------------------------------------------- upload
+cmd_upload() {
+  local plan="${1:?usage: upload <plan_id> <dir|zip>}" src="${2:?usage: upload <plan_id> <dir|zip>}"
+  command -v jq >/dev/null || die "pkg install jq"
+  engine_sync
+  [ -d "$ENGINE_WT/plans/$plan" ] || die "unknown plan: $plan"
+  TMP=$(mktemp -d)
+  local root="$TMP/in" listing
+  mkdir -p "$root"
+  if [ -d "$src" ]; then cp -a "$src/." "$root/"
+  else
+    command -v unzip >/dev/null || die "pkg install unzip"
+    listing=$(unzip -Z1 "$src")
+    if grep -Eq '(^/|\.\.)' <<<"$listing"; then die "zip contains absolute or '..' paths"; fi
+    unzip -q "$src" -d "$root"
+  fi
+  local hits; mapfile -t hits < <(find "$root" -maxdepth 2 -name SUBMISSION.json)
+  [ "${#hits[@]}" = 1 ] || die "expected exactly one SUBMISSION.json, found ${#hits[@]}"
+  local dir id pj; dir=$(dirname "${hits[0]}")
+  id=$(jq -er .submission_id "${hits[0]}") || die "SUBMISSION.json has no submission_id"
+  [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || die "bad submission_id: $id"
+  pj=$(jq -r '.plan_id // empty' "${hits[0]}")
+  [ -z "$pj" ] || [ "$pj" = "$plan" ] || die "SUBMISSION.json plan_id ($pj) != $plan"
+  [ -z "$(find "$dir" -type l)" ] || die "symlinks not allowed in submission"
+  if grep -rEl "$SECRET_RE" "$dir" >/dev/null 2>&1; then die "secret pattern found in submission"; fi
+  local target="$ENGINE_WT/plans/$plan/submissions/$id"
+  [ ! -e "$target" ] || die "submission $id already exists (immutable). Use a new id (e.g. -r2)."
+  mkdir -p "$(dirname "$target")"; cp -a "$dir" "$target"
+  ( cd "$target" && find . -type f ! -name MANIFEST.sha256 ! -name UPLOAD.json -print0 \
+      | sort -z | xargs -0 sha256sum > MANIFEST.sha256 )
+  local psha="unknown" pf="$ENGINE_WT/engine/prompts/AGENT-WORKER-PROMPT.md"
+  [ ! -f "$pf" ] || psha=$(sha256sum "$pf" | cut -d' ' -f1)
+  jq -n --arg id "$id" --arg plan "$plan" --arg at "$(date -u +%FT%TZ)" --arg p "$psha" \
+        --arg m "$(sha256sum "$target/MANIFEST.sha256" | cut -d' ' -f1)" \
+    '{submission_id:$id,plan_id:$plan,uploaded_at:$at,prompt_sha:$p,manifest_sha256:$m,tool:"cbridge 1.0.0"}' \
+    > "$target/UPLOAD.json"
+  engine_commit_push "upload $plan/$id"
+  echo; echo "Hand to the supervisor:"; echo "SUBMISSION: $id"
+}
+
+# ---------------------------------------------------------------- publish (private task branch -> public PR)
+TASK_SHA=""; TASK_BASE=""
+guard_task() {
+  local b="$1" bad msgs added ids
+  [[ "$b" =~ ^task-[A-Za-z0-9._-]+$ ]] || die "branch must match task-<id>"
+  TASK_SHA=$(g rev-parse -q --verify "refs/remotes/private/$b") || die "no such private branch: $b"
+  TASK_BASE=$(g merge-base refs/remotes/upstream/main "$TASK_SHA" 2>/dev/null) \
+    || die "$b shares no history with upstream main (not cut from main)"
+  [ "$(g rev-list --count "$TASK_BASE..$TASK_SHA")" -gt 0 ] || die "$b has no commits beyond upstream"
+  [ -z "$(g rev-list --merges "$TASK_BASE..$TASK_SHA")" ] || die "merge commits not allowed in task branches"
+  bad=$(g log --name-only --format= "$TASK_BASE..$TASK_SHA" | sort -u | grep -E "$DENY_PATHS" || true)
+  [ -z "$bad" ] || { echo "$bad" >&2; die "task branch touches denied paths"; }
+  if [ -n "$ALLOW_PATHS" ]; then
+    bad=$(g log --name-only --format= "$TASK_BASE..$TASK_SHA" | sort -u | grep -Ev "$ALLOW_PATHS" || true)
+    [ -z "$bad" ] || { echo "$bad" >&2; die "task branch changes files outside ALLOW_PATHS"; }
+  fi
+  msgs=$(g log --format=%B "$TASK_BASE..$TASK_SHA")
+  if grep -Eiq "$DENY_TEXT" <<<"$msgs"; then die "a commit message matches DENY_TEXT"; fi
+  added=$(g diff "$TASK_BASE" "$TASK_SHA" | grep -E '^\+' || true)
+  if grep -Eq "$SECRET_RE" <<<"$added"; then die "secret pattern in diff"; fi
+  if [ -n "$ALLOW_EMAIL_RE" ]; then
+    ids=$(g log --format='%ae%n%ce' "$TASK_BASE..$TASK_SHA" | sort -u)
+    if grep -Evq "$ALLOW_EMAIL_RE" <<<"$ids"; then die "author/committer email not allowed"; fi
+  fi
+}
+
+cmd_publish() {
+  need_clone; assert_private
+  local branch="" title="" bodyf="" yes=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title) title="$2"; shift 2 ;;
+      --body-file) bodyf="$2"; shift 2 ;;
+      -y) yes=1; shift ;;
+      -*) die "unknown flag $1" ;;
+      *) branch="$1"; shift ;;
+    esac
+  done
+  [ -n "$branch" ] || die "usage: publish <task-branch> [--title T] [--body-file F] [-y]"
+  fetch; guard_task "$branch"
+  local subj body
+  mapfile -t subj < <(g log --reverse --format=%s "$TASK_BASE..$TASK_SHA")
+  [ -n "$title" ] || title="${subj[0]}"
+  if [ -n "$bodyf" ]; then [ -f "$bodyf" ] || die "no such file: $bodyf"; body=$(cat "$bodyf")
+  else body=$(printf 'Task `%s`.\n\nCommits:\n' "$branch"; printf -- '- %s\n' "${subj[@]}"); fi
+  if grep -Eiq "$DENY_TEXT" <<<"$title"$'\n'"$body"; then die "PR title/body matches DENY_TEXT (would leak private context)"; fi
+  echo "Branch : $branch @ ${TASK_SHA:0:10} (base ${TASK_BASE:0:10})"
+  echo "Title  : $title"; g diff --stat "$TASK_BASE" "$TASK_SHA"
+  if [ "$yes" != 1 ]; then
+    read -r -p "Push to outbox and open PR to $UPSTREAM_SLUG:main? [y/N] " a; [ "$a" = y ] || die "aborted"
+  fi
+  g push outbox "$TASK_SHA:refs/heads/$branch"
+  if have_gh; then
+    TMP=$(mktemp -d); printf '%s\n' "$body" > "$TMP/body.md"
+    gh pr create --repo "$UPSTREAM_SLUG" --base main --head "$OUTBOX_OWNER:$branch" \
+      --title "$title" --body-file "$TMP/body.md"
+  else
+    echo "Open the PR: https://github.com/$UPSTREAM_SLUG/compare/main...$OUTBOX_OWNER:$branch?expand=1"
+  fi
+}
+
+# ---------------------------------------------------------------- reconcile (public merge -> private evidence)
+cmd_reconcile() {
+  local plan="${1:?usage: reconcile <plan_id> <submission_id> <task-branch>...}" sid="${2:?}"; shift 2
+  [ $# -gt 0 ] || die "give at least one task branch"
+  command -v jq >/dev/null || die "pkg install jq"
+  have_gh || die "gh required for reconcile"
+  engine_sync
+  local recs=() b prs pick sha onmain state pr
+  for b in "$@"; do
+    prs=$(gh pr list --repo "$UPSTREAM_SLUG" --head "$b" --state all --limit 5 \
+            --json number,state,mergeCommit,url)
+    pick=$(jq -c '(map(select(.state=="MERGED"))[0]) // .[0] // {}' <<<"$prs")
+    state=$(jq -r '.state // "NO_PR"' <<<"$pick"); pr=$(jq -r '.number // 0' <<<"$pick")
+    sha=$(jq -r '.mergeCommit.oid // ""' <<<"$pick"); onmain=false
+    if [ -n "$sha" ] && g cat-file -e "$sha^{commit}" 2>/dev/null \
+       && g merge-base --is-ancestor "$sha" refs/remotes/upstream/main; then onmain=true; fi
+    recs+=("$(jq -nc --arg b "$b" --arg s "$state" --argjson p "$pr" --arg m "$sha" --argjson o "$onmain" \
+              '{branch:$b,pr:$p,state:$s,merge_sha:$m,on_main:$o}')")
+  done
+  local out="$ENGINE_WT/plans/$plan/submissions/$sid/RECONCILE.json"
+  [ -d "$(dirname "$out")" ] || die "no submission folder for $sid"
+  printf '%s\n' "${recs[@]}" | jq -s --arg at "$(date -u +%FT%TZ)" '{checked_at:$at,tasks:.}' > "$out"
+  engine_commit_push "reconcile $plan/$sid"
+  jq -r '.tasks[] | "  \(.branch): \(.state) pr#\(.pr) on_main=\(.on_main)"' "$out"
+  if jq -e '[.tasks[].on_main] | all' "$out" >/dev/null; then echo; echo "MERGED: $sid"
+  elif jq -e '[.tasks[] | select(.state=="CLOSED")] | length > 0' "$out" >/dev/null; then echo; echo "CLOSED: $sid"
+  else echo; echo "Still open or partially merged - no handover yet."; fi
+}
+
+# ---------------------------------------------------------------- kill switch
+cmd_halt() {
+  engine_sync
+  local p="${1:-}" f="HALT"; [ -z "$p" ] || f="plans/$p/HALT"
+  date -u +%FT%TZ > "$ENGINE_WT/$f"; engine_commit_push "HALT ${p:-global}"
+  info "HALT set (${p:-global}). Supervisor must stop at the next gate boundary."
+}
+cmd_resume() {
+  engine_sync
+  local p="${1:-}" f="HALT"; [ -z "$p" ] || f="plans/$p/HALT"
+  [ -e "$ENGINE_WT/$f" ] || die "no HALT marker at $f"
+  rm "$ENGINE_WT/$f"; engine_commit_push "RESUME ${p:-global}"
+}
+
+usage() { sed -n '2,12p' "$0"; exit 2; }
+cmd="${1:-}"; [ $# -eq 0 ] || shift
+case "$cmd" in
+  init) cmd_init ;; bootstrap) cmd_bootstrap ;; doctor) cmd_doctor ;;
+  sync) cmd_sync ;; verify-main) cmd_verify_main ;; status) cmd_status ;;
+  upload) cmd_upload "$@" ;; publish) cmd_publish "$@" ;;
+  reconcile) cmd_reconcile "$@" ;; halt) cmd_halt "$@" ;; resume) cmd_resume "$@" ;;
+  *) usage ;;
+esac

@@ -1,0 +1,23 @@
+{
+  "phases": [
+    {
+      "id": "1",
+      "name": "Foundations",
+      "goal": "Decisions and groundwork."
+    }
+  ],
+  "stages": [
+    {
+      "id": "1-1",
+      "name": "Ground rules",
+      "goal": "Conventions everything else relies on.",
+      "gate": true
+    },
+    {
+      "id": "1-2",
+      "name": "Implementation",
+      "goal": "Atomic tasks.",
+      "gate": false
+    }
+  ]
+}

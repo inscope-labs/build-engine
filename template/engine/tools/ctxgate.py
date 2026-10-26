@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""ctxgate - signed, expiring, read-only context links for agents that can only make HTTPS GET requests.
+
+PROOF OF CONCEPT. The signing scheme and the gateway rules are the contract; this file is a reference
+implementation (Python, standard library only) that a production gateway must match. The production source
+adapter (GitHub contents API) is described in docs/CONTEXT-EXPORT.md and is NOT implemented here.
+
+Link format (all parts are path segments, so GET-only proxies that drop query strings still work):
+
+    {base}/v1/{kid}/{exp}/{order}/{sig}/{ref}/{path...}
+
+    kid    key id (selects the signing secret)             exp    unix seconds, link is dead after this
+    order  work order id the link was minted for           ref    40-hex commit sha (immutable content)
+    sig    base64url(HMAC-SHA256(secret, message))         path   repo-relative path of ONE file
+
+    message = "ctxgate-v1\\n" + kid + "\\n" + exp + "\\n" + order + "\\n" + ref + "\\n" + path   (UTF-8)
+
+Commands:
+  mint     --base URL --kid K --order ID --ref SHA [--ttl S] PATH...     (secret from $CTXGATE_SECRET)
+  serve    --config gw.json --repo GIT_DIR [--host H] [--port P]         (reference gateway over a local git repo)
+  revoke   --config gw.json ORDER                                         (kill every link minted for an order)
+  audit    --log FILE --order ID [--expect PATH...]                       (what was fetched, what was refused)
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import quote, unquote
+
+SCHEME = "ctxgate-v1"
+REF_RE = re.compile(r"^[0-9a-f]{40}$")
+ORDER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+KID_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+DEFAULT_DENY = [r"(^|/)\.git(/|$)", r"(^|/)\.github/", r"(^|/)\.env", r"(?i)(^|/)(secrets?|credentials?)(\.|/|$)", r"\.(pem|key|p12)$"]
+
+
+def now():
+    return int(os.environ.get("CTXGATE_NOW") or time.time())
+
+
+def b64u(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+
+def message(kid, exp, order, ref, path):
+    return "\n".join([SCHEME, kid, str(exp), order, ref, path]).encode("utf-8")
+
+
+def sign(secret, kid, exp, order, ref, path):
+    return b64u(hmac.new(secret, message(kid, exp, order, ref, path), hashlib.sha256).digest())
+
+
+def safe_path(path):
+    if not path or path.startswith("/") or "\\" in path or "\x00" in path:
+        return False
+    return all(p not in ("", ".", "..") for p in path.split("/"))
+
+
+def mint(base, secret, kid, order, ref, paths, ttl=86400, at=None):
+    """Return one signed URL per path. Pure function: no network, no state."""
+    if not KID_RE.match(kid) or not ORDER_RE.match(order) or not REF_RE.match(ref):
+        raise ValueError("bad kid, order or ref")
+    exp = (now() if at is None else at) + int(ttl)
+    urls = []
+    for p in paths:
+        if not safe_path(p):
+            raise ValueError("unsafe path: %r" % p)
+        sig = sign(secret, kid, exp, order, ref, p)
+        urls.append("%s/v1/%s/%d/%s/%s/%s/%s" % (base.rstrip("/"), kid, exp, order, sig, ref, "/".join(quote(x, safe="") for x in p.split("/"))))
+    return urls
+
+
+class NotFound(Exception):
+    pass
+
+
+class TooLarge(Exception):
+    pass
+
+
+class GitSource:
+    """Reads one blob at an immutable commit from a local git repository (PoC stand-in for the GitHub source)."""
+
+    def __init__(self, repo, max_bytes):
+        self.repo, self.max_bytes = str(repo), max_bytes
+
+    def _git(self, *args):
+        return subprocess.run(["git", "-C", self.repo] + list(args), capture_output=True)
+
+    def read(self, ref, path):
+        if self._git("cat-file", "-e", ref + "^{commit}").returncode != 0:
+            raise NotFound()
+        spec = "%s:%s" % (ref, path)
+        t = self._git("cat-file", "-t", spec)
+        if t.returncode != 0 or t.stdout.strip() != b"blob":
+            raise NotFound()
+        size = int(self._git("cat-file", "-s", spec).stdout.strip() or 0)
+        if size > self.max_bytes:
+            raise TooLarge()
+        return self._git("cat-file", "blob", spec).stdout
+
+
+class Gateway:
+    """Transport-independent request handling. Returns (status, headers, body)."""
+
+    def __init__(self, keys, source, allow_prefixes=("",), deny_regex=None, max_bytes=1_000_000,
+                 max_ttl=7 * 86400, audit_path=None, revoked_path=None):
+        self.keys = {k: (v.encode() if isinstance(v, str) else v) for k, v in keys.items()}
+        self.source = source
+        self.allow = tuple(allow_prefixes)
+        self.deny = [re.compile(r) for r in (DEFAULT_DENY if deny_regex is None else deny_regex)]
+        self.max_bytes, self.max_ttl = max_bytes, max_ttl
+        self.audit_path = audit_path
+        self.revoked_path = revoked_path
+
+    # -- state
+    def revoked(self):
+        if self.revoked_path and Path(self.revoked_path).exists():
+            return set(json.loads(Path(self.revoked_path).read_text()))
+        return set()
+
+    def _audit(self, at, status, reason, kid="-", order="-", ref="-", path="-", nbytes=0):
+        if self.audit_path:
+            rec = {"ts": at, "status": status, "reason": reason, "kid": kid, "order": order, "ref": ref, "path": path, "bytes": nbytes}
+            with open(self.audit_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, sort_keys=True) + "\n")
+
+    def _forbidden(self, at, reason, **kw):
+        self._audit(at, 403, reason, **kw)
+        return 403, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}, b"forbidden (link invalid, expired or revoked)\n"
+
+    # -- request
+    def handle(self, method, raw_path, at=None):
+        at = now() if at is None else at
+        if method not in ("GET", "HEAD"):
+            self._audit(at, 405, "method")
+            return 405, {"Allow": "GET, HEAD", "Cache-Control": "no-store"}, b"read-only\n"
+        raw = raw_path.split("?", 1)[0]
+        if re.search(r"%(2f|5c|00)", raw, re.I):
+            return self._forbidden(at, "encoded-separator")
+        parts = raw.split("/")
+        # ['', 'v1', kid, exp, order, sig, ref, path...]
+        if len(parts) < 8 or parts[0] != "" or parts[1] != "v1":
+            return self._forbidden(at, "malformed")
+        kid, exp_s, order, sig, ref = parts[2], parts[3], parts[4], parts[5], parts[6]
+        path = "/".join(unquote(p) for p in parts[7:])
+        ctx = dict(kid=kid, order=order, ref=ref, path=path)
+        if not (KID_RE.match(kid) and ORDER_RE.match(order) and REF_RE.match(ref) and exp_s.isdigit() and safe_path(path)):
+            return self._forbidden(at, "malformed", **ctx)
+        secret = self.keys.get(kid)
+        if secret is None:
+            return self._forbidden(at, "unknown-key", **ctx)
+        exp = int(exp_s)
+        if not hmac.compare_digest(sign(secret, kid, exp, order, ref, path), sig):  # verify BEFORE anything else
+            return self._forbidden(at, "bad-signature", **ctx)
+        if at > exp:
+            return self._forbidden(at, "expired", **ctx)
+        if exp - at > self.max_ttl:
+            return self._forbidden(at, "ttl-too-long", **ctx)
+        if order in self.revoked():
+            return self._forbidden(at, "revoked", **ctx)
+        if not any(path.startswith(p) for p in self.allow) or any(rx.search(path) for rx in self.deny):
+            return self._forbidden(at, "path-denied", **ctx)
+        try:
+            body = self.source.read(ref, path)
+        except NotFound:
+            self._audit(at, 404, "not-found", **ctx)
+            return 404, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}, b"not found\n"
+        except TooLarge:
+            self._audit(at, 413, "too-large", **ctx)
+            return 413, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}, b"too large\n"
+        digest = hashlib.sha256(body).hexdigest()
+        self._audit(at, 200, "ok", nbytes=len(body), **ctx)
+        headers = {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                   "X-Content-SHA256": digest, "X-Ctx-Order": order, "Content-Length": str(len(body))}
+        return 200, headers, (b"" if method == "HEAD" else body)
+
+
+def make_server(gateway, host="127.0.0.1", port=0):
+    class H(BaseHTTPRequestHandler):
+        def _go(self):
+            status, headers, body = gateway.handle(self.command, self.path)
+            self.send_response(status)
+            for k, v in headers.items():
+                self.send_header(k, v)
+            if "Content-Length" not in headers:
+                self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+
+        do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _go
+
+        def log_message(self, *a):
+            pass
+
+    return ThreadingHTTPServer((host, port), H)
+
+
+def summarize_audit(log_path, order, expected=()):
+    seen, refused, unexpected = {}, [], []
+    for line in Path(log_path).read_text(encoding="utf-8").splitlines():
+        r = json.loads(line)
+        if r["order"] != order:
+            continue
+        if r["status"] == 200:
+            seen[r["path"]] = seen.get(r["path"], 0) + 1
+        else:
+            refused.append((r["status"], r["reason"], r["path"]))
+    for p in seen:
+        if expected and p not in expected:
+            unexpected.append(p)
+    missing = [p for p in expected if p not in seen]
+    return {"served": seen, "refused": refused, "served_but_not_in_order": unexpected, "never_fetched": missing}
+
+
+# ----------------------------------------------------------------------------- CLI
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="ctxgate.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sp = p.add_subparsers(dest="cmd", required=True)
+    s = sp.add_parser("mint"); s.add_argument("--base", required=True); s.add_argument("--kid", default="k1")
+    s.add_argument("--order", required=True); s.add_argument("--ref", required=True); s.add_argument("--ttl", type=int, default=86400)
+    s.add_argument("paths", nargs="+")
+    s = sp.add_parser("serve"); s.add_argument("--config", required=True); s.add_argument("--repo", required=True)
+    s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8787)
+    s = sp.add_parser("revoke"); s.add_argument("--config", required=True); s.add_argument("order")
+    s = sp.add_parser("audit"); s.add_argument("--log", required=True); s.add_argument("--order", required=True); s.add_argument("--expect", nargs="*", default=[])
+    a = p.parse_args(argv)
+    if a.cmd == "mint":
+        secret = os.environ.get("CTXGATE_SECRET")
+        if not secret:
+            sys.exit("ERROR: set CTXGATE_SECRET")
+        print("\n".join(mint(a.base, secret.encode(), a.kid, a.order, a.ref, a.paths, a.ttl)))
+        return 0
+    if a.cmd in ("serve", "revoke"):
+        cfg = json.loads(Path(a.config).read_text())
+        if a.cmd == "revoke":
+            rp = Path(cfg["revoked_path"])
+            cur = set(json.loads(rp.read_text())) if rp.exists() else set()
+            cur.add(a.order)
+            rp.write_text(json.dumps(sorted(cur)))
+            print("revoked %s" % a.order)
+            return 0
+        gw = Gateway(cfg["keys"], GitSource(a.repo, cfg.get("max_bytes", 1_000_000)), cfg.get("allow_prefixes", [""]),
+                     cfg.get("deny_regex"), cfg.get("max_bytes", 1_000_000), cfg.get("max_ttl", 7 * 86400), cfg.get("audit_path"), cfg.get("revoked_path"))
+        srv = make_server(gw, a.host, a.port)
+        print("ctxgate listening on http://%s:%d" % (a.host, srv.server_address[1]), flush=True)
+        srv.serve_forever()
+        return 0
+    print(json.dumps(summarize_audit(a.log, a.order, a.expect), indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

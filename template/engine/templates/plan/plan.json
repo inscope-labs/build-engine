@@ -1,0 +1,16 @@
+{
+  "plan_id": "{{PLAN_ID}}",
+  "title": "{{TITLE}}",
+  "plan_number": "{{PLAN_NUMBER}}",
+  "deliverable_roots": [],
+  "deliverable_patterns": [],
+  "order_rules": [],
+  "spec": {
+    "root": "",
+    "glob": "**/*.md",
+    "item_regex": ""
+  },
+  "verify": {
+    "commands": []
+  }
+}

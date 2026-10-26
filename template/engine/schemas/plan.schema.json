@@ -1,0 +1,78 @@
+{
+  "type": "object",
+  "required": [
+    "plan_id",
+    "title",
+    "plan_number"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deliverable_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "glob": {
+          "type": "string"
+        },
+        "item_regex": {
+          "type": "string"
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "deliverable_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "plan_number": {
+      "type": "string",
+      "pattern": "^[0-9]{5}$"
+    },
+    "order_rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "max_open_orders": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

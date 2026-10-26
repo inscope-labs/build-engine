@@ -1,0 +1,47 @@
+{
+  "engine_version": "0.4.0",
+  "private_slug": "inscope-labs/castiel-dev",
+  "target": {
+    "upstream_slug": "inscope-labs/castiel",
+    "base_branch": "main",
+    "pr_base": "main"
+  },
+  "branches": {
+    "engine": "build-engine",
+    "task_prefix": "task-"
+  },
+  "halt_file": "HALT",
+  "report_headings": [
+    "Summary",
+    "Deliverables",
+    "Acceptance",
+    "Spec references",
+    "Verification",
+    "Files",
+    "Deviations",
+    "Findings",
+    "Open questions"
+  ],
+  "deny_in_task_branches": [
+    "engine/",
+    "plans/",
+    ".github/"
+  ],
+  "limits": {
+    "max_tasks_per_order": 5,
+    "max_file_bytes": 1000000,
+    "verify_timeout_seconds": 900,
+    "max_open_orders": 0
+  },
+  "context": {
+    "target_base": "https://raw.githubusercontent.com/inscope-labs/castiel-dev",
+    "plan_base": "https://raw.githubusercontent.com/inscope-labs/castiel-dev",
+    "gateway_template": "",
+    "gateway": {
+      "base": "",
+      "kid": "k1",
+      "ttl_seconds": 86400,
+      "secret_env": "CTXGATE_SECRET"
+    }
+  }
+}

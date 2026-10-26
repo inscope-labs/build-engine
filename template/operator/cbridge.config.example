@@ -1,0 +1,27 @@
+# Copy to ~/.config/cbridge/config and edit.  chmod 600 it.
+# Values below are pre-filled for the inscope-labs setup.
+
+# PRIVATE: detached private repo (NOT a fork). Agents get a token for this repo only.
+PRIVATE_URL=https://github.com/inscope-labs/castiel-dev.git
+PRIVATE_SLUG=inscope-labs/castiel-dev
+
+# PUBLIC upstream: read-only for cbridge (its push URL is disabled).
+UPSTREAM_URL=https://github.com/inscope-labs/castiel.git
+UPSTREAM_SLUG=inscope-labs/castiel
+
+# OUTBOX: where task-<id> branches are pushed before the PR is opened.
+# castiel and castiel-dev share an owner, and a repo cannot be forked into its own owner,
+# so the outbox is castiel itself: short-lived task-<id> branches live there until merged.
+# (If you later fork castiel under a DIFFERENT owner, point these at the fork instead.)
+OUTBOX_URL=https://github.com/inscope-labs/castiel.git
+OUTBOX_OWNER=inscope-labs
+
+# Optional
+# WORKDIR=$HOME/cbridge/work
+# ENGINE_WT=$HOME/cbridge/engine
+# DENY_PATHS='^(engine/|plans/|\.github/)'                   # never allowed in a published task branch
+# DENY_TEXT='castiel-dev|build-engine|plans/|submissions/'   # never allowed in commit msgs / PR text
+# ALLOW_PATHS='^amk/.*(\.md|/VERSION|/COMPLIANCE_MAPPINGS_VERSION)$|^README\.md$'  # castiel is abstract/docs-only: refuse anything else
+# ALLOW_EMAIL_RE='@users\.noreply\.github\.com$'             # restrict author/committer emails
+# GIT_NAME=cbridge
+# GIT_EMAIL=cbridge@users.noreply.github.com
