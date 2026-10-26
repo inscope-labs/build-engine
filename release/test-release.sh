@@ -20,8 +20,15 @@ echo "release machinery self-test"
 fresh; must_pass "clean tree packages" build
 must_pass "clean artifact verifies" "$R/release/verify.sh" "$(ART)"
 a="$(sha256sum "$(ART)" | cut -d' ' -f1)"; build; [[ "$a" == "$(sha256sum "$(ART)" | cut -d' ' -f1)" ]] && ok "packaging is reproducible" || bad "packaging is not reproducible"
-must_fail "release gate refuses an UNSET abstract version / undated changelog" "UNSET" "$R/release/verify.sh" "$(ART)" --release
+must_fail "release gate refuses an undated changelog entry" "no dated" "$R/release/verify.sh" "$(ART)" --release
 [[ -z "$(tar -tzf "$(ART)" | grep -E '(^|/)(gateway/|ctxgate\.py|test_ctxgate\.py)')" ]] && ok "clean artifact has no gateway file" || bad "clean artifact contains gateway files"
+
+fresh; python3 - "$R" <<'PY'
+import json, sys
+p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "UNSET"; json.dump(d, open(p, "w"))
+PY
+build
+must_fail "release gate refuses an UNSET protocol" "protocol is missing or UNSET" "$R/release/verify.sh" "$(ART)" --release
 
 fresh; cp "$R/gateway/read/reference/ctxgate.py" "$R/template/engine/tools/ctxgate.py"; build
 must_fail "gateway copied into an allowlisted directory is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"

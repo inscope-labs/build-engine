@@ -39,13 +39,15 @@ The write gateway is **in-scope and mandatory** for the 0.5.0 first release (sam
 - Retain structured redacted events (type, task/order id, outcome, timestamp, safe summaries).
 - Retention and query access are operator-controlled; hygiene is tested with sentinel injection.
 
-## 1.4.6 — GitHub write boundary
+## 1.4.6 — GitHub write boundary (amended 2026-10-26; supersedes the earlier choice (c))
 
-- **Choice (c):** the existing private repository with **server-enforced path allow-listing only**.
-- The work order supplied to the agent states the plan-id, the repository, and the task submission path. That folder must already exist.
-- Write scope is **only** that folder. Full file CRUD inside it; no write access outside it.
-- A fine-grained PAT remains repository-scoped; path restriction is enforced solely by gateway code. Documentation must not claim the credential itself is path-scoped.
-- Prefer least-privilege credentials, short lifetime, and operator-controlled rotation (standard practice).
+- **Choice:** a **dedicated, isolated submissions repository** and an **isolated branch** in it, as the plan preferred. The earlier choice (c), the existing private repository with path allow-listing only, is withdrawn.
+- **Fixed destination:** gateway configuration names exactly one repository and one branch. The gateway's credential is scoped to the submissions repository only and has no access to the private consumer repository. No request may select a repository, branch or path outside the configured destination.
+- **Pre-created, never created by the gateway:** the submissions branch and the task submission folder (named by plan-id/task-id) must already exist before the work order is issued. The gateway never creates repositories, branches or folders. A request for a folder that does not exist fails with a defined error (specified in Phase 5.1). Git does not store empty folders, so "already exists" means the operator has committed a placeholder file in it; the gateway treats that placeholder as non-deliverable (exact handling specified in Phase 5.1).
+- **Write scope:** only that task folder on that branch; full file create/read/replace/delete within it. Path allow-listing in gateway code stays as defense in depth.
+- **Blast radius:** a leaked token could modify anything in the submissions repository, i.e. other tasks' submissions, but cannot reach the private consumer repository. The documentation must still not describe the credential itself as path-scoped.
+- **Consequence for the workflow:** deliverables now land in the submissions repository, not the private consumer repository. The operator's review and sync step must bring accepted files into the consumer repository (Stage 1.1.2 steps 4-6). That transfer path, and the operator tooling that creates the branch and task folder at work-order issue time, are **not yet designed and not yet in the plan** (register R0-011).
+- `gateway/write/.dev.vars.example` (`GITHUB_REPO=OWNER/PROJECT-dev`) and `wrangler.toml` placeholders are updated in Stage 5.2.2 / 5.4.6.
 
 ## 1.4.7 — Commit, seal, revoke, and post-close behaviour
 

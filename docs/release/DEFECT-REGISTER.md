@@ -5,7 +5,8 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Submitted for operator review via PR; not yet approved**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
+- Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 
 ## Status and evidence rules
 
@@ -88,25 +89,149 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Planned phase: Phase 1.
 - Closure evidence: recorded decision and consistent metadata, docs, schemas, tooling, and tests.
 
+## A2. Additional confirmed findings (extended audit, 2026-10-26)
+
+Added after the operator asked for a register that omits no known defect. Method and coverage are in section G. IDs continue the F0 series. "Executed" means a command was run and its output inspected in a throwaway copy of the repository; "source" means confirmed by reading the code.
+
+### F0-008 — Main CI is red: Stage 1.2 stripped executable bits from three release scripts
+- Severity: S1 (gate integrity). Status: CONFIRMED (executed; fixed in this PR).
+- Evidence: commit `6bb3f10` changed `release/verify.sh`, `release/test-release.sh`, `release/set-version.sh` from 100755 to 100644. CI run on `3e8a8ed` and `35172ab` failed at "Release machinery self-test" (5 of 21 checks passing; "Permission denied"). The consumer update test also failed (6 of 22). PRs #4 and #5 merged on red because `main` is unprotected (R0-004). A second, stale assertion remained: the self-test still expected the old `UNSET abstract version` message after the field migration.
+- Resolution (this PR): modes restored; the gate test split into an undated-changelog negative test and an UNSET-protocol negative test. Local result after fix: self-test 22/22, update test 22/22.
+- Owner: implementation. Planned phase: fixed in this PR; permanent guard (mode check in CI/self-test) in Stage 3.3.1 / 3.4.3.
+- Closure evidence: CI green on this PR and on `main` after merge.
+
+### F0-009 — Write gateway is a scaffold at file level, not just a 501 handler (extends F0-004)
+- Severity: S1 for the approved release scope (write gateway is mandatory per Stage 1.4). Status: CONFIRMED (executed count, 2026-10-26).
+- Evidence:
+  - `gateway/write/src`: 48 files; 46 contain only a comment and `export {}`; the other 2 (`index.ts`, `session/task-session.ts`) are handlers that return HTTP 501.
+  - `gateway/write/tests`: 32 `.ts` files (unit, integration, chaos, load, helpers); all 32 contain only a comment and `export {}`. No test of any kind exists.
+  - `gateway/write/scripts`: 4 files, 4 stubs (`check-token-scope`, `mint-root-url`, `seed-test-repo`, `verify-log-hygiene`).
+  - `gateway/write/ci/*.yml`: 6 stub workflows (unit, integration, lint, load, chaos, deploy-gate). They sit outside `.github/workflows/`, so none of them can run.
+  - `package.json` has no `test` script and no test runner or Miniflare/Workers test dependency; only `typescript`, `wrangler`, `@cloudflare/workers-types`. CI "write gateway" job runs typecheck and a bundle dry run only, which pass on empty files.
+  - `src/config/type-policy.json` and the three `tests/fixtures/*.json` files are `_status: scaffold` placeholders; `src/config/quotas.json` still carries the "KB undefined" note that Stage 1.4.8 decided (KiB, bytes authoritative) but the file was not updated.
+  - `.dev.vars.example` names are marked PROVISIONAL; `wrangler.toml` is marked "not deployable yet".
+- Consequence: no write-gateway behaviour exists or is tested; passing typecheck/bundle says nothing about function. Ownership is Phase 5 (below), not Phase 2/3.
+- Owner: implementation team. Planned phase: Phase 5 - 5.1 (contract), 5.2 (core/session), 5.3 (GitHub commit), 5.4 (audit/ops, scripts), 5.5 (all test stubs, runner, CI wiring); deploy-gate wiring also 5.4.6.
+- Closure evidence: Phase 5 exit gate: "No 501 handler or placeholder source/test stubs remain in any feature claimed as supported", plus passing suites.
+
+### F0-010 — `verify.sh` executes code from the artifact it is verifying
+- Severity: S2. Status: CONFIRMED (executed).
+- Evidence: step 7 of `release/verify.sh` runs `python3 -m compileall` and `python3 -m unittest discover` inside the extracted payload. A planted `engine/tools/test_*.py` wrote a marker file outside the extraction directory during `verify.sh`, and the script still reported OK.
+- Consequence: running the independent verifier on an untrusted or tampered artifact executes that artifact's code with the verifier's privileges; verification is not independent of the thing verified.
+- Required resolution: perform all static/integrity checks first and treat payload tests as a separate, explicitly sandboxed or opt-in step; never run payload code as part of default verification of a downloaded artifact.
+- Owner: implementation. Planned phase: Phase 3 - Stage 3.2.7 (verify independently), 3.4.1 (negative test).
+- Closure evidence: a negative test with a planted payload test proving verification does not execute it.
+
+### F0-011 — Packaging includes untracked files from `template/` and verification passes them
+- Severity: S2. Status: CONFIRMED (executed).
+- Evidence: untracked files `template/docs/.scratch-local.txt` and `template/engine/tools/local-notes.txt` were included in the tarball (43 files vs 41) and `verify.sh` reported OK. `package.sh` expands manifest directories with `find`, not from the git index; verify only matches path/content patterns.
+- Consequence: a local build can ship stray files, including secrets that are not credential-shaped. CI builds from a clean checkout, which mitigates but does not remove the local-build path (the operator builds from Termux).
+- Required resolution: package from tracked files only (`git ls-files`) or refuse a dirty template tree; add a negative test.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.2, 3.1.5, 3.4.1.
+- Closure evidence: dirty-tree test fails closed; positive test packages the clean tree.
+
+### F0-012 — Tarball bytes depend on the builder's umask
+- Severity: S2. Status: CONFIRMED (executed).
+- Evidence: the same git tree packaged under umask 022 and under a group-writable checkout (umask 002) produced two different SHA-256 values. Modes are copied from the working tree.
+- Consequence: Stage 3.1.4 "byte-identical rebuilds" fails across environments; Termux's stricter default umask will likely produce a different artifact from CI. The release contract's "deterministic tarball" claim is not met.
+- Required resolution: normalise modes in the archive (explicit 0644/0755 from the manifest or git mode) rather than inheriting them.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.4.
+- Closure evidence: identical hashes across at least two umasks, tested in `test-release.sh`.
+
+### F0-013 — Managed `engine/ENGINE.json` and seed `engine/engine.json` differ only by case
+- Severity: S2. Status: CONFIRMED (source: `release/manifest.txt` lines 9 and 15, both files present in `template/engine/`).
+- Evidence: the two names collide on case-insensitive filesystems (default macOS and Windows volumes, FAT/exFAT and some Android storage). One cannot check out both; an install or update could overwrite the seed (consumer configuration) with managed metadata or the reverse.
+- Consequence: potential loss of consumer-owned configuration, contradicting G-04.
+- Operator decision 2026-10-26: names are to be lowercase. Literal lowercase of `ENGINE.json` equals the seed `engine.json`, so the managed file needs a distinct lowercase name (**pending confirmation; proposed `engine/release.json`**). No consumer migration is needed because nothing has been released.
+- Required resolution: rename the managed file (touches `release/manifest.txt`, `set-version.sh`, `verify.sh`, `test-release.sh`, and five docs); add a case-fold duplicate check to packaging and verification.
+- Owner: operator (decision), implementation. Planned phase: decision in Phase 2.4 planning; implementation 2.4 and 3.1.2.
+- Closure evidence: no two manifest paths equal under case folding; update test covers migration.
+
+### F0-014 — Shipped shell tooling requires bash 4+ and GNU tools, but the draft contract named macOS as a primary target
+- Severity: S2. Status: CONFIRMED by source; not executed on macOS.
+- Evidence: `engine/bin/update.sh` uses `declare -A` (not in the bash 3.2 that macOS ships) and requires `sha256sum`; `release/package.sh` uses GNU `tar` options (`--sort`, `--mtime`, `--owner`, `--numeric-owner`) and `sha256sum`; the operator README describes `cbridge` as a Termux script.
+- Consequence: the documented supported environments and the real requirements disagree. The redrafted Stage 1.1 contract states the requirement explicitly.
+- Operator response 2026-10-26: asked for an explanation. Default applied: macOS is not claimed as supported (revisit on request).
+- Required resolution: state the requirement (bash >= 4, GNU coreutils/tar) and add a preflight check with a clear error so unsupported shells fail clearly.
+- Owner: operator (environment decision), implementation. Planned phase: Phase 1.1 contract (this PR), Phase 2.4 preflight.
+- Closure evidence: preflight test on an older-bash stub; docs state the requirement.
+
+### F0-015 — `update.sh` is not transactional
+- Severity: S2. Status: CONFIRMED by source; interruption not executed.
+- Evidence: the apply loop copies files one by one and writes `.build-engine.lock` only at the end. An interrupted update leaves some files at the new version with the lock still describing the old one; the next run classifies those files as "edited locally" conflicts.
+- Consequence: recoverability gap; the operator would be pushed to `--force`. Stage 2.4.7 requires all-or-nothing behaviour or a staged backup/rollback.
+- Owner: implementation. Planned phase: Phase 2.4 - 2.4.4, 2.4.5, 2.4.7.
+- Closure evidence: interrupted-update test that recovers without `--force`.
+
+### F0-016 — Path checks use the substring glob `*..*` (confirms R0-001)
+- Severity: S3 (latent: no current file name contains `..`). Status: CONFIRMED (executed).
+- Evidence: `docs/notes..v2.md` packaged successfully and was then rejected by `verify.sh` ("unsafe path in tar"). The same pattern appears in `package.sh:22`, `verify.sh:30` and three places in `update.sh`.
+- Consequence: a legitimate file name containing two consecutive dots passes packaging and then blocks release, and would also make `update.sh` refuse the artifact.
+- Required resolution: reject only a `..` path component (split on `/`), keep rejecting real traversal; add positive and negative tests.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.2, 3.4.2; and 2.4 for `update.sh`.
+- Closure evidence: safe `a..b` name accepted; `../x` and `a/../b` rejected, in all three scripts.
+
+### F0-017 — Checksum sidecar proves integrity, not authenticity or provenance
+- Severity: S3. Status: CONFIRMED by design (source).
+- Evidence: `verify.sh` and `update.sh` check the tarball against a `.sha256` file published beside it. Anyone able to replace the tarball can replace the sidecar. No signature or attestation exists.
+- Consequence: an updater cannot detect a replaced release; documentation must not describe the checksum as tamper-proof.
+- Required resolution: Stage 3.3.8 provenance (source commit, version, checksum, workflow run). Claim no cryptographic attestation unless generated and verified; document the limitation plainly.
+- Owner: implementation/operator. Planned phase: Phase 3 - 3.3.8; wording in Phase 2.1.4.
+- Closure evidence: provenance record published; docs state exactly what the checksum does and does not prove.
+
+### F0-018 — Shipped file modes are inconsistent: `operator/cbridge` and `operator/install.sh` are 0644
+- Severity: S3. Status: CONFIRMED (executed: `tar tv`).
+- Evidence: `engine/bin/update.sh` ships 0755 while `operator/cbridge` and `operator/install.sh` ship 0644; `update.sh` preserves modes with `cp -p`. The operator README instructs `chmod +x` after download.
+- Consequence: the vendored copies cannot be run directly; the documented flow works only because it fetches a separate copy.
+- Required resolution: decide the intended modes, set them explicitly (ties to F0-012), and make docs match.
+- Owner: implementation. Planned phase: Phase 2.3 / 2.1.3 (docs), 3.1.4 (modes).
+- Closure evidence: tarball modes match the manifest-declared modes; docs agree.
+
+### F0-019 — Stale post-Stage-1.2 status text (compatibility field)
+- Severity: S2 for documentation accuracy (Stage 2.1.3/2.1.4). Status: CONFIRMED (source).
+- Evidence: `ENGINE.json` now carries `protocol: build-engine/0.5`, but `README.md` lines 192 and 202 and `docs/STATUS.md` lines 5, 21 and 127 still say `protocol`/`implements_abstract` is `UNSET` or must still be recorded; `docs/STATUS.md:21` still describes an "Abstract-PROJECT mapping".
+- Consequence: contradictory status claims in the repository's own documents.
+- Owner: documentation. Planned phase: Phase 2 - 2.1.3, 2.1.4. (2.1.2 stays out until release-candidate time.)
+- Closure evidence: grep for stale terms returns only intentional uses (the `UNSET` sentinel in `COMPATIBILITY.md`).
+
+### F0-020 — Stage 1.1 product contract contradicted the later decisions and is still marked DRAFT
+- Severity: S1 for the Phase 1 exit gate. Status: CONFIRMED (source).
+- Evidence: the merged `PHASE-1.1-PRODUCT-CONTRACT.md` says the write gateway "is out of scope" and the Class B path is not part of the first release; Stages 1.3 and 1.4 record the operator's decision that both gateways are in scope and mandatory. The contract also says the `implements_abstract` decision is still open.
+- Resolution (this PR): contract redrafted to match the operator decision; approval still required.
+- Owner: operator (approval). Planned phase: Phase 1.1 (re-submitted here); Phase 2 may not start until approved.
+- Closure evidence: operator approval recorded on the redrafted contract.
+
+### F0-021 — Reference gateway lint
+- Severity: S3. Status: CONFIRMED (executed: pyflakes).
+- Evidence: `gateway/read/reference/ctxgate.py:30` imports `ctxlink.SCHEME` and `ctxlink.mint` without using them.
+- Owner: implementation. Planned phase: Phase 4 (reference/production alignment). Not shipped.
+
+### F0-022 — Write-gateway development dependencies carry known advisories
+- Severity: S3 (dev tooling only; `npm audit --omit=dev` reports 0). Status: CONFIRMED (executed: `npm audit`).
+- Evidence: 3 advisories (1 high, 2 moderate) via `wrangler 4.149.0` -> `miniflare` -> `undici`, including denial-of-service and subresource-integrity issues in `undici`; `npm audit` lists `wrangler@4.153.0` as the fixed version, which is newer than the pin.
+- Owner: implementation. Planned phase: Phase 3 - 3.3.2 (dependency audit), and 5.5.1 when the test runner is pinned.
+- Closure evidence: clean `npm audit` at the chosen pins or a documented accepted exception.
+
+### F0-023 — Release workflow does not enforce all gates it relies on (confirms R0-003)
+- Severity: S2. Status: CONFIRMED (source: `.github/workflows/release.yml`).
+- Evidence: the release job re-runs tests but not the shell-syntax or write-gateway checks, has no `needs` dependency on the `ci` workflow, grants `contents: write` for the whole workflow, and its tag check (`merge-base --is-ancestor`) accepts any commit reachable from `main`, not only its tip. Third-party actions in both workflows are pinned to mutable tags (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/setup-node@v4`), not commit SHAs.
+- Owner: implementation/administrator. Planned phase: Phase 3 - 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7.
+- Closure evidence: a tag on a commit with failed or missing CI publishes nothing, shown by a dry-run test.
+
 ## B. Risks and verification gaps (not proven defects)
 
 ### R0-001 — Path validation may reject safe names containing `..`
-- Severity: S2; Status: RISK TO TEST.
-- Evidence: `release/verify.sh:30` and `release/package.sh:22` use the glob `*..*`, a substring match, so any name containing two consecutive dots is rejected, not only `..` path components. Pattern confirmed by source; a behavioural test with a safe `a..b` name has not yet been executed.
-- Required action: add positive tests for safe names and negative tests for traversal; adjust validation only if the issue is confirmed.
-- Planned phase: Phase 2 or release-hardening work.
+- Status: **SUPERSEDED by F0-016** (now confirmed by execution). Original text retained in PR #1 history.
 
 ### R0-002 — Archive and manifest adversarial cases need executed evidence
 - Severity: S2; Status: RISK TO TEST.
 - Cases: duplicate archive entries; symlink, hardlink and special entries; duplicate manifest paths; omitted/unlisted files; malformed checksums; path normalization.
-- Required action: run or add negative tests and record outputs.
-- Planned phase: Phase 2/3.
+- Executed so far (A2): a duplicate archive member with different content is rejected by `verify.sh` (hash mismatch); a filename containing a newline makes `package.sh` fail closed (exit 2). **Still untested:** symlink/hardlink/special entries, truncated archives, duplicate manifest paths, malformed checksum lines, identical-content duplicate members.
+- Required action: run or add negative tests for the remaining cases and record outputs (Stage 3.2.1, 3.2.3, 3.4.1).
+- Planned phase: Phase 3.
 
 ### R0-003 — Release workflow dependency on all required CI checks is unproven
-- Severity: S2; Status: NOT VERIFIED.
-- Evidence: workflow source does not itself visibly repeat every CI check. Settings/branch/tag policy was not available to confirm whether the tag commit must have all required checks.
-- Required action: verify the required-check and release-workflow dependency configuration.
-- Planned phase: Phase 2/7 release hardening.
+- Status: **SUPERSEDED by F0-023** (confirmed from workflow source).
 
 ### R0-004 — Repository branch/tag protections are absent; Actions settings permissive
 - Severity: S2; Status: CONFIRMED (verified 2026-10-26 via GitHub API with an operator-supplied token).
@@ -126,6 +251,13 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Risk: server-side path checks do not limit a repository token's blast radius if compromised.
 - Required action: assess a dedicated submission repository or isolated repository/branch and fixed server-enforced destination; document least privilege.
 - Planned phase: Phase 1/5.
+- Update (A2): Stage 1.4.6 originally chose the existing private repository with path allow-listing only. **Operator decision 2026-10-26: not accepted; Stage 1.4.6 amended to a dedicated isolated submissions repository and branch**, with the branch and task folder pre-created and never created by the gateway. Residual risk is now limited to the submissions repository. Closure evidence: Phase 5.1.6 contract and a credential-scope check (`scripts/check-token-scope.ts`) in Phase 5.
+
+### R0-011 — Submissions-to-consumer transfer path and pre-creation tooling are undefined
+- Severity: S1 for the approved workflow; Status: DESIGN GAP (consequence of the amended Stage 1.4.6).
+- Evidence: with an isolated submissions repository, accepted deliverables must move into the private consumer repository, and the operator must create the submissions branch and the task folder (with a placeholder file) before issuing a work order. `RELEASE-PLAN.md` has no stage for either; `cbridge upload/sync` currently targets the consumer repository only.
+- Required action: operator decision to add both items to the plan (Stage 5.1 contract and Stage 2.3 / 6.2 tooling); define placeholder-file handling and the error for a missing folder; test in the Phase 6 pilot.
+- Owner: operator (plan change), implementation. Planned phase: Stage 5.1 and 2.3 (to be added), 6.2.
 
 ### R0-007 — Ephemeral staging and ambiguous commit outcomes need a recovery model
 - Severity: S2; Status: DESIGN RISK.
@@ -133,19 +265,37 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Required action: define and test recovery states including not committed, committed-but-response-lost, sealed, revoked, and unknown/reconcile-required.
 - Planned phase: Phase 5/6.
 
+### R0-008 — Worker deployment defaults not pinned
+- Severity: S2; Status: RISK TO TEST (source only).
+- Evidence: `wrangler.toml` leaves `routes`/`workers_dev` unset ("intentionally unset until a deployment decision") and pins `compatibility_date = "2025-09-01"`. A first deploy could expose a public `workers.dev` URL by default, and the runtime date is over a year old.
+- Required action: set `workers_dev` and routes explicitly per the staging/production decision; review and bump the compatibility date deliberately; test the dry-run output.
+- Planned phase: Phase 4/5 deployment stages (5.4.6, 5.1.6).
+
+### R0-009 — Updater can silently downgrade
+- Severity: S3; Status: RISK TO TEST (source only).
+- Evidence: `update.sh` records `LOCK_VERSION` but never compares it with the target version.
+- Required action: refuse or warn on a lower version unless a flag is passed; add a test.
+- Planned phase: Phase 2.4 (2.4.5 "wrong version").
+
+### R0-010 — Updater path handling around symlinks and empty parents
+- Severity: S3; Status: RISK TO TEST (source only).
+- Evidence: `cp -p` writes through a symlinked destination directory; `rmdir -p` removes empty ancestor directories of dropped files, which may include consumer-owned empty directories.
+- Required action: refuse symlinked managed paths; remove only directories the lock file recorded.
+- Planned phase: Phase 2.4 (2.4.2, 2.4.5).
+
 ## C. Release scope classification — proposed for operator approval
 
 | Capability | Proposed classification | Reason / gate |
 |---|---|---|
 | Consumer package, checksum, artifact verification, install/update | REQUIRED FOR FIRST RELEASE | Existing release machinery and CI exercise this path; release-mode gate still blocked by F0-001/F0-002. |
 | Operator-controlled plan/order/context-link tooling and `cbridge` workflow | REQUIRED FOR FIRST RELEASE, subject to acceptance tests | Core shipped workflow; verify against documented claims and consumer tests. |
-| Production Class B read gateway | REQUIRED for a claim of complete end-to-end Class B operation; otherwise explicitly OUT OF SCOPE for a narrower artifact release | Production path is not started; do not imply it is operational. |
-| Agent-side write gateway | REQUIRED for a claim that agent-side submission is operational; otherwise explicitly OUT OF SCOPE | Current implementation returns HTTP 501. Operator must approve the supported release boundary. |
-| Shared conformance harness | REQUIRED before claiming cross-implementation conformance | Current vectors/harness incomplete. |
-| Real end-to-end pilot | REQUIRED before claiming complete end-to-end readiness | Pilot not started. |
+| Production Class B read gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.3)** | Not started; Phase 4. |
+| Agent-side write gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.4)** | Scaffold only; Phase 5. |
+| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | Current vectors/harness incomplete. |
+| Real end-to-end pilot | **REQUIRED** (Phase 6) | Pilot not started. |
 | Object-storage variant | REJECTED | Explicitly rejected in Stage 1.3. |
 
-This table is a proposal, not approval. No capability should be described as fully working unless its acceptance evidence exists or the capability is explicitly excluded/qualified in the release documentation.
+This table was a proposal in PR #1. The gateway, conformance and pilot rows now reflect the operator's decision recorded in Stages 1.3 and 1.4. No capability should be described as fully working unless its acceptance evidence exists or the capability is explicitly excluded/qualified in the release documentation.
 
 ## D. Baseline evidence recorded
 
@@ -167,5 +317,41 @@ Phase 0 is **not formally closed** until all of the following are satisfied:
 3. Repository protection settings: now verified as absent (R0-004). Operator either configures them now or records an approved exception deferring to Phase 3.3.7.
 4. Operator reviews and approves the defect register and proposed release scope, or records required changes.
 5. Every finding is classified with an owner, planned phase, and closure evidence; no untested suspicion is represented as a confirmed defect.
+6. Addendum A2 (extended audit) and the stage ownership index (section F) are reviewed by the operator.
 
 No release-blocker metadata has been changed, no release has been published, and no later-phase implementation is claimed complete.
+
+## F. Stage ownership index (every finding to the plan stage that closes it)
+
+| Finding | Closed in | Notes |
+|---|---|---|
+| F0-001, F0-007 | Phase 1.2 (done) + 2.1.1 | Field migrated to `protocol`; remaining doc sync in F0-019 |
+| F0-002 | Phase 2.1.2 / 7.1 | Only at release-candidate time |
+| F0-003 | Phase 4 (4.1-4.3) | Production read gateway, conformance, deployment |
+| F0-004, F0-009 | Phase 5 (5.1-5.5) | Write gateway, all stub source/tests/scripts/CI; exit gate forbids stubs |
+| F0-005 | Phase 4.1 | Vectors and harness |
+| F0-006 | Phase 6 | Real pilot |
+| F0-008 | This PR + 3.3.1/3.4.3 | Fix now, guard later |
+| F0-010 to F0-012, F0-016, F0-017, F0-023 | Phase 3 | Packaging, verify, workflow |
+| F0-013, F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Install/update (F0-013/F0-014 need operator decisions) |
+| F0-018 | Phase 2.3 / 3.1.4 | Modes |
+| F0-019 | Phase 2.1.3-2.1.4 | Documentation |
+| F0-020 | Phase 1.1 (this PR) | Needs operator approval |
+| F0-021, F0-022 | Phase 4 / 3.3.2 | Lint and dev dependencies |
+| R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
+| R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
+| R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
+| R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
+| R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
+
+## G. Audit method and coverage (what "complete" can and cannot mean)
+
+This register lists every defect known at the audited commit. It cannot prove that no other defect exists; it records what was examined so gaps are visible, and the process is that any later finding is appended here with an ID, evidence and owning stage before it is fixed (G-03, G-10).
+
+Examined in A2: all of `release/*` (read in full, edge cases executed), `template/engine/bin/update.sh` (read in full), both GitHub workflows, `gateway/write` (every source, test, script, CI, config and package file inventoried), `docs/` and `template/` links (no broken relative links found), shell static analysis (shellcheck: no warnings at warning level on `release/`, `tests/`, `update.sh`, `install.sh`, `cbridge`), Python static analysis (pyflakes: 2 unused imports; bandit: no medium-or-higher issue in shipped code), `npm audit`, Phase 1 documents against each other.
+
+Run and passing at the audited commit after this PR's fix: shipped tool tests (70), reference gateway tests (15), release self-test (22), update test (22), package, verify, write-gateway typecheck and bundle.
+
+Not audited line by line (covered only by their existing tests and static analysis): `template/engine/tools/plan_tool.py` (1236 lines), `template/operator/cbridge` (309 lines), `template/engine/tools/ctxlink.py`, `gateway/read/reference/ctxgate.py`. Stages 2.2.1 and 2.3.1 are the dedicated audits for these; anything they find is appended as F0-0xx.
+
+Not verifiable from this environment: macOS behaviour (F0-014), environment approvals and the default workflow token permission (R0-004).
