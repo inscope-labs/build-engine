@@ -446,7 +446,7 @@ class TestOrder(Base):
         t = o["tasks"][0]
         self.assertEqual((t["branch"], t["task_dir"]), ("task-" + T(201), T(201)))
         self.assertEqual(t["context"], [{"label": "Spec A", "path": "specs/a.md", "role": "read", "ref": self.REF, "repo_path": "specs/a.md",
-            "url": "https://raw.githubusercontent.com/inscope-labs/castiel-dev/%s/specs/a.md" % self.REF}])
+            "url": "https://raw.githubusercontent.com/OWNER/PROJECT-dev/%s/specs/a.md" % self.REF}])
         self.assertNotIn('"content":', json.dumps(o))  # URLs only, never inline content
         self.assertEqual(len(o["report_headings"]), 9)
 
@@ -472,7 +472,7 @@ class TestOrder(Base):
         pref = "b" * 40
         o = self.order_json(T(201), plan=pref)
         self.assertEqual(o["tasks"][0]["context"][0]["url"],
-                         "https://raw.githubusercontent.com/inscope-labs/castiel-dev/%s/plans/demo/package/notes.md" % pref)
+                         "https://raw.githubusercontent.com/OWNER/PROJECT-dev/%s/plans/demo/package/notes.md" % pref)
         self.assertEqual(o["plan_ref"], pref)
         cfg = json.loads((self.tmp / "engine" / "engine.json").read_text())
         cfg["context"]["gateway_template"] = "https://gw.example/get?u={url}"
@@ -482,7 +482,7 @@ class TestOrder(Base):
         self.assertIn("(gateway: https://gw.example", self.run_ok("order", "demo", T(201), "--ref", self.REF, "--plan-ref", pref))
 
     def test_signed_gateway_links_are_minted_at_print_time_only(self):
-        import ctxgate
+        import ctxlink
         cfg = json.loads((self.tmp / "engine" / "engine.json").read_text())
         cfg["context"]["gateway"] = {"base": "https://gw.example", "kid": "k1", "ttl_seconds": 600, "secret_env": "CTXGATE_SECRET"}
         pt.write_json(self.tmp / "engine" / "engine.json", cfg)
@@ -491,7 +491,7 @@ class TestOrder(Base):
         try:
             o = self.order_json(T(201))
             c = o["tasks"][0]["context"][0]
-            self.assertEqual(c["gateway_url"], ctxgate.mint("https://gw.example", b"test-secret", "k1", PN + "-S001", self.REF, ["specs/a.md"], 600, at=1000)[0])
+            self.assertEqual(c["gateway_url"], ctxlink.mint("https://gw.example", b"test-secret", "k1", PN + "-S001", self.REF, ["specs/a.md"], 600, at=1000)[0])
             self.assertTrue(c["gateway_url"].startswith("https://gw.example/v1/k1/1600/%s-S001/" % PN))
             out = self.run_ok("order", "demo", T(201), "--write", "--ref", self.REF)
             self.assertIn("gateway: https://gw.example/v1/k1/1600/", out)
@@ -697,7 +697,7 @@ class TestCheckSubmission(Base):
         self.assertIn("headings", self.run_fail(*self.check("--no-upload-record")))
 
     def test_secret_detected(self):
-        (self.sdir / T(201) / "files" / "src" / "a.ts").write_text("k = 'ghp_abcdefghijklmnopqrstuvwxyz0123'\n")
+        (self.sdir / T(201) / "files" / "src" / "a.ts").write_text("k = '" + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123" + "'\n")
         self.assertIn("secret pattern", self.run_fail(*self.check("--no-upload-record")))
 
     def test_blocked_requires_reason_and_order_coverage(self):

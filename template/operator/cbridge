@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# cbridge 1.0.0 - operator bridge: private castiel-dev  <->  public castiel
+# cbridge 1.0.0 - operator bridge: private <project>-dev  <->  public <project>
 #
 # The ONLY component that crosses the public/private boundary.
 # Agents get a token for the private repo only; nothing here is ever given to them.
 #
 #   init | bootstrap | doctor | sync | verify-main | status
 #   upload <plan_id> <dir|zip>      commit a worker submission to build-engine
-#   publish <task-branch> [...]     guard, push to outbox, open PR in castiel
+#   publish <task-branch> [...]     guard, push to outbox, open PR upstream
 #   reconcile <plan_id> <submission_id> <task-branch>...
 #   halt [plan_id] | resume [plan_id]
 set -euo pipefail
@@ -23,7 +23,7 @@ warn() { echo "WARN: $*" >&2; }
 WORKDIR="${WORKDIR:-$HOME/cbridge/work}"
 ENGINE_WT="${ENGINE_WT:-$HOME/cbridge/engine}"
 DENY_PATHS="${DENY_PATHS:-^(engine/|plans/|\.github/)}"
-DENY_TEXT="${DENY_TEXT:-castiel-dev|build-engine|plans/|submissions/}"
+DENY_TEXT="${DENY_TEXT:-${PRIVATE_SLUG##*/}|build-engine|plans/|submissions/}"
 ALLOW_PATHS="${ALLOW_PATHS:-}"          # optional allowlist regex: every changed path must match it
 ALLOW_EMAIL_RE="${ALLOW_EMAIL_RE:-}"
 GIT_NAME="${GIT_NAME:-cbridge}"

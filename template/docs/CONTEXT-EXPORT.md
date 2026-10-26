@@ -112,7 +112,7 @@ path, not the query string, so a GET-only proxy that strips queries still works.
 Compatibility vector (any implementation must reproduce it): secret `test-secret`, kid `k1`, exp `2000000000`,
 order `10008-S001`, ref forty `a`, path `amk/amk-ssot.md` gives
 `b5aVA1G6MJDhZy5mkIkSFeUMFBM0W-tixIb2w4XHEU8`. A second vector with a space and a non-ASCII character is in
-`engine/tools/test_ctxgate.py`.
+`engine/tools/test_ctxlink.py`.
 
 ## 6. Gateway rules
 
@@ -180,9 +180,11 @@ Each context item in an order carries: `url` (private raw URL, for class A), `re
 
 ## 10. The proof of concept
 
-Built and tested in `engine/tools/`: `ctxgate.py` (signing, gateway rules, a local-git file source, a runnable HTTP
-server, `mint`, `serve`, `revoke`, `audit`), `test_ctxgate.py` (17 tests), the work-order integration in
-`plan_tool.py` (with tests). Whole suite: 82 tests passing.
+Two programs, split on purpose. **Shipped with every release:** `engine/tools/ctxlink.py` (the link scheme and `mint`) with
+`test_ctxlink.py`, and the work-order integration in `plan_tool.py` (with tests). **Not shipped:** the gateway itself,
+`ctxgate.py` (gateway rules, a local-git file source, a runnable HTTP server, `serve`, `revoke`, `audit`) with its tests,
+lives only in the build-engine source repository under `gateway/`. Run the `ctxgate.py` commands below from a checkout
+of that repository.
 
 End-to-end run on the real Castiel plan (task `10008-1-102-00`), real Castiel files as the source, a plain `curl`
 client with no credentials, links with a 4-second lifetime:
@@ -233,7 +235,7 @@ presigning needs an S3-compatible client or hand-rolled signing, which should be
 
 ## Appendix B: gateway behaviours a production port must pass
 
-Each is covered by `engine/tools/test_ctxgate.py`:
+Each is covered by `gateway/test_ctxgate.py` in the build-engine source repository:
 
 1. Valid link returns the exact bytes, correct hash header, `no-store`.
 2. HEAD returns headers and no body; POST, PUT, DELETE, PATCH return 405.

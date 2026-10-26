@@ -1,10 +1,12 @@
 #!/usr/bin/env sh
-# Install or update the operator script from the private castiel-dev repo (build-engine branch).
-# Requires: gh (logged in with access to inscope-labs/castiel-dev), git, jq.
+# Install or update the operator script from the private <project>-dev repo (build-engine branch).
+# Requires: gh (logged in with access to the private repo), git, jq.
+# Usage: CBRIDGE_REPO=OWNER/PROJECT-dev sh install.sh
 #   pkg install gh git jq unzip coreutils python
 #   gh auth login
 set -eu
-REPO="inscope-labs/castiel-dev"
+REPO="${CBRIDGE_REPO:-OWNER/PROJECT-dev}"
+case "$REPO" in OWNER/*) echo "set CBRIDGE_REPO to the private <project>-dev repo (owner/name)" >&2; exit 1 ;; esac
 REF="build-engine"
 BIN="${CBRIDGE_BIN:-$HOME/bin}"
 CFG="${CBRIDGE_CONFIG_DIR:-$HOME/.config/cbridge}"

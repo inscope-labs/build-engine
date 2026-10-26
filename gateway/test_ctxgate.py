@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for ctxgate.py (context gateway proof of concept)."""
+"""Tests for gateway/ctxgate.py (context gateway proof of concept). Not shipped in releases."""
 import hashlib
 import io
 import json
@@ -15,7 +15,8 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ctxgate as cg  # noqa: E402
+import ctxgate as cg  # noqa: E402  (also puts the shipped ctxlink on sys.path)
+import ctxlink  # noqa: E402
 
 SECRET = b"test-secret"
 ORDER = "10008-S001"
@@ -58,34 +59,6 @@ class Fixture(unittest.TestCase):
 
     def get(self, path_url, at=1000, method="GET"):
         return self.gw.handle(method, path_url, at=at)
-
-
-class TestSigning(unittest.TestCase):
-    def test_known_vector_for_other_implementations(self):
-        # A non-Python gateway (e.g. an edge function) must reproduce these exact values.
-        self.assertEqual(cg.sign(SECRET, "k1", 2000000000, ORDER, "a" * 40, "amk/amk-ssot.md"),
-                         "b5aVA1G6MJDhZy5mkIkSFeUMFBM0W-tixIb2w4XHEU8")
-        self.assertEqual(
-            cg.mint("https://gw.example", SECRET, "k1", ORDER, "a" * 40, ["amk/amk-ssot.md", "dir with space/\u00e9.md"], ttl=60, at=1999999940),
-            ["https://gw.example/v1/k1/2000000000/10008-S001/b5aVA1G6MJDhZy5mkIkSFeUMFBM0W-tixIb2w4XHEU8/" + "a" * 40 + "/amk/amk-ssot.md",
-             "https://gw.example/v1/k1/2000000000/10008-S001/4uVmL-XTNscad03rgK7xgPnBv7rnzqWHGF5GDa2lyc4/" + "a" * 40 + "/dir%20with%20space/%C3%A9.md"])
-
-    def test_mint_rejects_bad_inputs(self):
-        for kw in ({"order": "bad order"}, {"ref": "main"}, {"kid": "k 1"}):
-            args = dict(kid="k1", order=ORDER, ref="a" * 40)
-            args.update(kw)
-            with self.assertRaises(ValueError):
-                cg.mint("https://g", SECRET, args["kid"], args["order"], args["ref"], ["a.md"])
-        for bad in ("../x", "/abs", "a//b", "a/./b", "a\\b", ""):
-            with self.assertRaises(ValueError):
-                cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, [bad])
-
-    def test_signature_binds_every_field(self):
-        base = cg.sign(SECRET, "k1", 5, ORDER, "a" * 40, "p.md")
-        for args in (("k2", 5, ORDER, "a" * 40, "p.md"), ("k1", 6, ORDER, "a" * 40, "p.md"), ("k1", 5, "10008-S002", "a" * 40, "p.md"),
-                     ("k1", 5, ORDER, "b" * 40, "p.md"), ("k1", 5, ORDER, "a" * 40, "q.md")):
-            self.assertNotEqual(base, cg.sign(SECRET, *args))
-        self.assertNotEqual(base, cg.sign(b"other", "k1", 5, ORDER, "a" * 40, "p.md"))
 
 
 class TestGateway(Fixture):
@@ -212,10 +185,7 @@ class TestCli(Fixture):
             os.environ.update(old)
         return rc, out.getvalue()
 
-    def test_mint_and_revoke_and_audit_commands(self):
-        rc, out = self.run_cli("mint", "--base", "https://gw.example", "--order", ORDER, "--ref", self.ref, "amk/spec.md", env={"CTXGATE_SECRET": "test-secret", "CTXGATE_NOW": "1000"})
-        self.assertEqual(rc, 0)
-        self.assertTrue(out.startswith("https://gw.example/v1/k1/87400/%s/" % ORDER))  # 1000 + 86400
+    def test_revoke_and_audit_commands(self):
         cfg = self.tmp / "gw.json"
         cfg.write_text(json.dumps({"keys": {"k1": "test-secret"}, "revoked_path": str(self.revoked)}))
         self.run_cli("revoke", "--config", str(cfg), ORDER)
@@ -223,6 +193,11 @@ class TestCli(Fixture):
         self.get(self.url("amk/spec.md"))
         rc, out = self.run_cli("audit", "--log", str(self.audit), "--order", ORDER, "--expect", "amk/spec.md")
         self.assertEqual(json.loads(out)["served"], {})  # the fetch above was refused: the order is revoked
+
+    def test_links_minted_by_the_shipped_client_are_accepted(self):
+        u = ctxlink.mint("https://gw.example", SECRET, "k1", ORDER, self.ref, ["amk/spec.md"], ttl=600, at=1000)[0]
+        status, _, body = self.get(u[len("https://gw.example"):])
+        self.assertEqual((status, body), (200, b"normative text\n"))
 
 
 if __name__ == "__main__":

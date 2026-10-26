@@ -808,11 +808,11 @@ def with_gateway(order):
         secret = os.environ.get(env_name)
         if not secret:
             raise ToolError("context.gateway is configured: set %s (the signing secret, never stored in the repo)" % env_name)
-        import ctxgate
+        import ctxlink
     for t in out["tasks"]:
         for c in t["context"]:
             if secret:
-                c["gateway_url"] = ctxgate.mint(gw["base"], secret.encode(), gw.get("kid", "k1"), out["submission_id"],
+                c["gateway_url"] = ctxlink.mint(gw["base"], secret.encode(), gw.get("kid", "k1"), out["submission_id"],
                                                 c["ref"], [c["repo_path"]], int(gw.get("ttl_seconds", 86400)))[0]
             else:
                 c["gateway_url"] = tpl.replace("{url}", c["url"])

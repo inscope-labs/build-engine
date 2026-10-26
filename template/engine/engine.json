@@ -1,8 +1,7 @@
 {
-  "engine_version": "0.4.0",
-  "private_slug": "inscope-labs/castiel-dev",
+  "private_slug": "OWNER/PROJECT-dev",
   "target": {
-    "upstream_slug": "inscope-labs/castiel",
+    "upstream_slug": "OWNER/PROJECT",
     "base_branch": "main",
     "pr_base": "main"
   },
@@ -34,8 +33,8 @@
     "max_open_orders": 0
   },
   "context": {
-    "target_base": "https://raw.githubusercontent.com/inscope-labs/castiel-dev",
-    "plan_base": "https://raw.githubusercontent.com/inscope-labs/castiel-dev",
+    "target_base": "https://raw.githubusercontent.com/OWNER/PROJECT-dev",
+    "plan_base": "https://raw.githubusercontent.com/OWNER/PROJECT-dev",
     "gateway_template": "",
     "gateway": {
       "base": "",

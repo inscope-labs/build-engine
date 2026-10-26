@@ -1,83 +1,35 @@
 #!/usr/bin/env python3
-"""ctxgate - signed, expiring, read-only context links for agents that can only make HTTPS GET requests.
+"""ctxgate - the context GATEWAY: verifies signed links and serves one file per link.
 
-PROOF OF CONCEPT. The signing scheme and the gateway rules are the contract; this file is a reference
-implementation (Python, standard library only) that a production gateway must match. The production source
-adapter (GitHub contents API) is described in docs/CONTEXT-EXPORT.md and is NOT implemented here.
-
-Link format (all parts are path segments, so GET-only proxies that drop query strings still work):
-
-    {base}/v1/{kid}/{exp}/{order}/{sig}/{ref}/{path...}
-
-    kid    key id (selects the signing secret)             exp    unix seconds, link is dead after this
-    order  work order id the link was minted for           ref    40-hex commit sha (immutable content)
-    sig    base64url(HMAC-SHA256(secret, message))         path   repo-relative path of ONE file
-
-    message = "ctxgate-v1\\n" + kid + "\\n" + exp + "\\n" + order + "\\n" + ref + "\\n" + path   (UTF-8)
+PROOF OF CONCEPT. NOT PART OF ANY RELEASE: this program lives only in the build-engine source repository
+(`gateway/`). The link scheme it enforces is defined once, in `template/engine/tools/ctxlink.py`, which is what
+ships and what mints links. The production source adapter (GitHub contents API) is described in
+docs/CONTEXT-EXPORT.md and is NOT implemented here.
 
 Commands:
-  mint     --base URL --kid K --order ID --ref SHA [--ttl S] PATH...     (secret from $CTXGATE_SECRET)
   serve    --config gw.json --repo GIT_DIR [--host H] [--port P]         (reference gateway over a local git repo)
   revoke   --config gw.json ORDER                                         (kill every link minted for an order)
   audit    --log FILE --order ID [--expect PATH...]                       (what was fetched, what was refused)
+
+Minting is done with `ctxlink.py mint` (shipped) or plan_tool.py.
 """
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import hmac
 import json
-import os
 import re
 import subprocess
 import sys
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 
-SCHEME = "ctxgate-v1"
-REF_RE = re.compile(r"^[0-9a-f]{40}$")
-ORDER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
-KID_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "template" / "engine" / "tools"))
+from ctxlink import KID_RE, ORDER_RE, REF_RE, SCHEME, mint, now, safe_path, sign  # noqa: E402,F401  (single source of truth for the scheme)
+
 DEFAULT_DENY = [r"(^|/)\.git(/|$)", r"(^|/)\.github/", r"(^|/)\.env", r"(?i)(^|/)(secrets?|credentials?)(\.|/|$)", r"\.(pem|key|p12)$"]
-
-
-def now():
-    return int(os.environ.get("CTXGATE_NOW") or time.time())
-
-
-def b64u(b):
-    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
-
-
-def message(kid, exp, order, ref, path):
-    return "\n".join([SCHEME, kid, str(exp), order, ref, path]).encode("utf-8")
-
-
-def sign(secret, kid, exp, order, ref, path):
-    return b64u(hmac.new(secret, message(kid, exp, order, ref, path), hashlib.sha256).digest())
-
-
-def safe_path(path):
-    if not path or path.startswith("/") or "\\" in path or "\x00" in path:
-        return False
-    return all(p not in ("", ".", "..") for p in path.split("/"))
-
-
-def mint(base, secret, kid, order, ref, paths, ttl=86400, at=None):
-    """Return one signed URL per path. Pure function: no network, no state."""
-    if not KID_RE.match(kid) or not ORDER_RE.match(order) or not REF_RE.match(ref):
-        raise ValueError("bad kid, order or ref")
-    exp = (now() if at is None else at) + int(ttl)
-    urls = []
-    for p in paths:
-        if not safe_path(p):
-            raise ValueError("unsafe path: %r" % p)
-        sig = sign(secret, kid, exp, order, ref, p)
-        urls.append("%s/v1/%s/%d/%s/%s/%s/%s" % (base.rstrip("/"), kid, exp, order, sig, ref, "/".join(quote(x, safe="") for x in p.split("/"))))
-    return urls
 
 
 class NotFound(Exception):
@@ -228,20 +180,11 @@ def summarize_audit(log_path, order, expected=()):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="ctxgate.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = p.add_subparsers(dest="cmd", required=True)
-    s = sp.add_parser("mint"); s.add_argument("--base", required=True); s.add_argument("--kid", default="k1")
-    s.add_argument("--order", required=True); s.add_argument("--ref", required=True); s.add_argument("--ttl", type=int, default=86400)
-    s.add_argument("paths", nargs="+")
     s = sp.add_parser("serve"); s.add_argument("--config", required=True); s.add_argument("--repo", required=True)
     s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8787)
     s = sp.add_parser("revoke"); s.add_argument("--config", required=True); s.add_argument("order")
     s = sp.add_parser("audit"); s.add_argument("--log", required=True); s.add_argument("--order", required=True); s.add_argument("--expect", nargs="*", default=[])
     a = p.parse_args(argv)
-    if a.cmd == "mint":
-        secret = os.environ.get("CTXGATE_SECRET")
-        if not secret:
-            sys.exit("ERROR: set CTXGATE_SECRET")
-        print("\n".join(mint(a.base, secret.encode(), a.kid, a.order, a.ref, a.paths, a.ttl)))
-        return 0
     if a.cmd in ("serve", "revoke"):
         cfg = json.loads(Path(a.config).read_text())
         if a.cmd == "revoke":
