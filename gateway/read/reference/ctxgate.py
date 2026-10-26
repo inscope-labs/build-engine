@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import os
 import re
 import subprocess
 import sys
@@ -141,7 +142,7 @@ class Gateway:
 def make_server(gateway, host="127.0.0.1", port=0):
     class H(BaseHTTPRequestHandler):
         def _go(self):
-            status, headers, body = gateway.handle(self.command, self.path)
+            status, headers, body = gateway.handle(self.command, self.path, at=self._conformance_now())
             self.send_response(status)
             for k, v in headers.items():
                 self.send_header(k, v)
@@ -150,6 +151,16 @@ def make_server(gateway, host="127.0.0.1", port=0):
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
+
+        def _conformance_now(self):
+            """Test clock (conformance/SCHEME.md section 11). Inert unless CTXGATE_CONFORMANCE=1.
+
+            A production deployment MUST NOT set that variable: the override would let a caller
+            extend the life of an expired link."""
+            if os.environ.get("CTXGATE_CONFORMANCE") != "1":
+                return None
+            v = self.headers.get("X-Conformance-Now")
+            return int(v) if v and v.isdigit() else None
 
         do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _go
 
