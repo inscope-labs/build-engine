@@ -28,7 +28,7 @@ WHAT STAGE 4.1 ASKED FOR, AND WHAT EXISTS NOW
          imposes no runtime on a port: a port in any language is driven the same way.
 
   4.1.4  Turn behaviours B1-B11 into executable cases.
-         DONE for B1-B10 (conformance/cases/behaviours.json, 33 cases) and B11 (the signing vectors).
+         DONE for B1-B10 (conformance/cases/behaviours.json, 53 cases) and B11 (the signing vectors).
 
   4.1.5  Ensure the Python client and reference gateway pass the same shared vectors and tests.
          DONE. conformance/test_conformance.py is the CI gate; it fails if the shipped client and

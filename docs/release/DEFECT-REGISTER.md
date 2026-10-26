@@ -307,7 +307,7 @@ Added after the operator asked for a register that omits no known defect. Method
 | Operator-controlled plan/order/context-link tooling and `cbridge` workflow | REQUIRED FOR FIRST RELEASE, subject to acceptance tests | Core shipped workflow; verify against documented claims and consumer tests. |
 | Production Class B read gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.3)** | Not started; Phase 4. |
 | Agent-side write gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.4)** | Scaffold only; Phase 5. |
-| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | **Complete as of 2026-10-26** — `conformance/SCHEME.md`, 17 valid + 19 invalid signing vectors, 33 executable cases for B1-B10, a runner that drives any gateway over HTTP and any signer over a JSON-lines contract, and a CI gate. See `docs/release/PHASE-4.1-CLOSEOUT.md`. The production port must still pass it (Stage 4.2). |
+| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | **Complete as of 2026-10-26** — `conformance/SCHEME.md`, 17 valid + 19 invalid signing vectors, 53 executable cases for B1-B10, a runner that drives any gateway over HTTP and any signer over a JSON-lines contract, and a CI gate. See `docs/release/PHASE-4.1-CLOSEOUT.md`. The production port must still pass it (Stage 4.2). |
 | Real end-to-end pilot | **REQUIRED** (Phase 6) | Pilot not started. |
 | Object-storage variant | REJECTED | Explicitly rejected in Stage 1.3. |
 
