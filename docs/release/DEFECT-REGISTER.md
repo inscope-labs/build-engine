@@ -108,12 +108,12 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Required action: verify the required-check and release-workflow dependency configuration.
 - Planned phase: Phase 2/7 release hardening.
 
-### R0-004 — Repository branch/tag protections and Actions settings could not be verified
-- Severity: S2; Status: NOT VERIFIED.
-- Evidence: GitHub integration returned HTTP 403 for the branch-protection endpoint.
-- Required action: repository administrator provides settings evidence or grants the integration read permission sufficient to inspect protections, required checks, tag rules, Actions permissions, and environment approvals.
-- Owner: repository administrator.
-- Planned phase: Phase 0 evidence requirement if the exit gate requires settings verification; otherwise must be completed before release approval.
+### R0-004 — Repository branch/tag protections are absent; Actions settings permissive
+- Severity: S2; Status: CONFIRMED (verified 2026-10-26 via GitHub API with an operator-supplied token).
+- Evidence: `GET branches/main/protection` returned 404 "Branch not protected"; `GET rulesets` returned an empty list (so no tag rules either); `GET actions/permissions` returned `allowed_actions: all`, `sha_pinning_required: false`. Environment approvals and the default workflow-token permission were not checked.
+- Consequence: nothing server-side enforces PRs, required checks or tag restrictions; plan R-10 and Stage 3.3.7 are unmet today. Plan G-05 (branch + PR per work package) is currently convention only.
+- Required action: configure protection/rulesets for `main` and `v*` tags (require PR, required `ci` check, restrict tag creation) and evidence it; decide on Actions allow-list and SHA pinning (Stage 3.3.3).
+- Owner: repository administrator. Planned phase: Phase 3 (3.3.7); may be done earlier.
 
 ### R0-005 — GET-based mutation may expose payloads or trigger unintended side effects
 - Severity: S1 for production write-gateway acceptance; Status: DESIGN DECISION.
@@ -156,7 +156,7 @@ This table is a proposal, not approval. No capability should be described as ful
 - No published GitHub releases were listed at the time of inspection.
 - Local baseline commands were run on 2026-10-26 at `ee654cd`: all 7 documented commands exit 0 (exact commands, environment and results in `docs/release/PHASE-0-BASELINE.md`). This supersedes the earlier "not run" note.
 - `release/verify.sh dist/build-engine-v0.5.0.tar.gz --release` was run locally: exit 1, `ENGINE.json implements_abstract is UNSET` (confirms F0-001 as executed evidence).
-- Branch protection/settings were not verified because the GitHub integration returned HTTP 403.
+- Branch protection/settings: verified via API on 2026-10-26: main unprotected, no rulesets (see R0-004).
 
 ## E. Phase 0 closure conditions
 
@@ -164,7 +164,7 @@ Phase 0 is **not formally closed** until all of the following are satisfied:
 
 1. This register and the requirement-to-test traceability document are committed to the repository: submitted in this PR; satisfied on merge.
 2. ~~Baseline test evidence is recorded~~ DONE in this PR: `PHASE-0-BASELINE.md` records command, environment, exit code and output for all 7 commands. CI-step-to-command mapping is not yet independently verified.
-3. Unverified repository protection settings are either verified or explicitly accepted as a documented limitation if the phase owner determines they are not a Phase 0 prerequisite.
+3. Repository protection settings: now verified as absent (R0-004). Operator either configures them now or records an approved exception deferring to Phase 3.3.7.
 4. Operator reviews and approves the defect register and proposed release scope, or records required changes.
 5. Every finding is classified with an owner, planned phase, and closure evidence; no untested suspicion is represented as a confirmed defect.
 

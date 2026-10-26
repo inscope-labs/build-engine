@@ -17,12 +17,13 @@ WHAT IS CONFIRMED
 - ENGINE.json has implements_abstract = UNSET and CHANGELOG.md says 0.5.0 is unreleased. These remain release blockers; Phase 0 does not authorize inventing a compatibility value or falsely marking the release as published.
 - Production read gateway is not started/deployed; write gateway is scaffold-only and returns HTTP 501; conformance vectors/harness are incomplete; the real end-to-end pilot has not started.
 
-WHAT WAS VERIFIED LOCALLY (new)
+WHAT WAS VERIFIED (new)
+- Repo settings via API: main has no branch protection, no rulesets, Actions allow all with no SHA pinning (R0-004, now a confirmed gap). CI passed on the PR branch.
 - All 7 documented baseline commands were run at ee654cd and exited 0 (see docs/release/PHASE-0-BASELINE.md).
 - release/verify.sh ... --release exits 1 on implements_abstract = UNSET, as expected (F0-001).
 
 WHAT IS NOT VERIFIED
-- Branch protection, tag rules, required checks, Actions permissions and environment approvals (GitHub integration returned HTTP 403).
+- Environment approvals and default workflow-token permission.
 - CI-step-to-command mapping; adversarial archive/manifest cases (R0-001..R0-003).
 
 REQUIRED TO CLOSE PHASE 0
