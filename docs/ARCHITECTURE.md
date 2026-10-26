@@ -23,6 +23,12 @@ other directories.
    strings, on anything not allowlisted, on a manifest or version mismatch, and on a payload that fails its own tests.
    `release/test-release.sh` proves each of these failures is actually detected.
 
+The write gateway (`gateway/write`, a Cloudflare Worker proposed for Class B agents to submit deliverables) sits under the
+same rule: it is in `gateway/`, so it is excluded by structure, by the allowlist and by `verify.sh`, which also carries
+Worker-specific rules (`wrangler.toml`, `.dev.vars`, `node_modules`, `cloudflare:workers`). It would also change an
+engine invariant (agents hold no write credential), which is why adopting it needs `template/engine/AGENTS.md` and
+`template/docs/SECURITY.md` updated first.
+
 ## What an update does
 
 `engine/bin/update.sh` verifies the checksum and the release manifest, then replaces the **managed** files as a set.

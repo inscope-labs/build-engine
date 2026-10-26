@@ -8,7 +8,7 @@ PASS=0; FAILN=0
 ok()   { PASS=$((PASS+1)); echo "  ok   $1"; }
 bad()  { FAILN=$((FAILN+1)); echo "  FAIL $1" >&2; }
 
-fresh() { rm -rf "$T/r"; mkdir "$T/r"; (cd "$SRC" && tar --exclude=.git --exclude=dist -cf - .) | tar -C "$T/r" -xf -; R="$T/r"; }
+fresh() { rm -rf "$T/r"; mkdir "$T/r"; (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/r" -xf -; R="$T/r"; }
 build() { rm -rf "$R/dist"; "$R/release/package.sh" "$R/dist" >"$T/pkg.out" 2>&1; }
 ART() { echo "$R/dist/build-engine-v$(tr -d ' \n' < "$R/VERSION").tar.gz"; }
 # must_fail "<name>" "<expected text>" cmd...
@@ -31,6 +31,15 @@ must_fail "gateway under a different name is caught by its code" "forbidden cont
 
 fresh; mkdir "$R/template/gateway"; echo x > "$R/template/gateway/readme.txt"; echo "managed gateway" >> "$R/release/manifest.txt"; build
 must_fail "gateway directory added to the manifest is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+
+fresh; cp "$R/gateway/write/wrangler.toml" "$R/template/engine/tools/wrangler.toml"; build
+must_fail "Worker config copied into the payload is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+
+fresh; cp "$R/gateway/write/src/session/task-session.ts" "$R/template/engine/tools/session.ts"; build
+must_fail "Worker code under another name is caught by its content" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+
+fresh; mkdir -p "$R/template/docs/node_modules/x"; echo '{}' > "$R/template/docs/node_modules/x/package.json"; build
+must_fail "node_modules in the payload is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 
 fresh; echo "managed does/not/exist" >> "$R/release/manifest.txt"
 must_fail "manifest entry that does not exist stops packaging" "does not exist" "$R/release/package.sh" "$R/dist"

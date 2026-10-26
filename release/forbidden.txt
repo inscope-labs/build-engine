@@ -12,6 +12,14 @@ text: ^class Gateway[(:]
 text: ^class GitSource[(:]
 text: ^def make_server\(
 
+# -- the write gateway (gateway/write, a Cloudflare Worker), by location, config and code
+path: (^|/)wrangler\.toml$
+path: (^|/)\.dev\.vars
+path: (^|/)\.wrangler(/|$)
+path: (^|/)node_modules(/|$)
+text: cloudflare:workers
+text: DurableObjectState
+
 # -- repository internals, local state, key material
 path: (^|/)\.git(/|$)
 path: (^|/)\.env

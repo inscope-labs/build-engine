@@ -10,7 +10,7 @@ install a **release artifact** with `engine/bin/update.sh`.
 | Path | Role | In a release? |
 |---|---|---|
 | `template/` | The product. Its contents map 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | yes, by allowlist only |
-| `gateway/` | The signed-link context gateway (`ctxgate.py`) and its tests. | **never** |
+| `gateway/` | Context gateways: the read gateway (`ctxgate.py`, tested PoC) and the proposed Cloudflare write gateway (`write/`, scaffold). | **never** |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | no |
 | `tests/` | Consumer install/update flow test. | no |
 | `docs/` | Maintainer docs (`ARCHITECTURE.md`, `RELEASING.md`) and `proposals/`. | no |
@@ -39,4 +39,5 @@ Known gaps, in the order they matter:
 2. The prose in `template/docs/`, `engine/AGENTS.md` and `engine/prompts/` is still written around Castiel as the worked
    example. Machine-read config (`engine.json`, `cbridge.config.example`, `install.sh`) is already placeholder-based.
 3. GitHub settings are not configured from here: branch protection on `main`, tag protection for `v*`.
-4. The gateway is a proof of concept; a production gateway is not built (see `template/docs/CONTEXT-EXPORT.md`).
+4. The read gateway is a proof of concept and the write gateway (`gateway/write`) is a scaffold: neither is deployable
+   (see `template/docs/CONTEXT-EXPORT.md` and `gateway/write/README.md`, which lists its open design questions).

@@ -13,7 +13,7 @@ must_fail() { local name="$1" want="$2"; shift 2; local out; out="$("$@" 2>&1)";
   if [[ $rc -ne 0 && "$out" == *"$want"* ]]; then ok "$name"; else bad "$name (rc=$rc, wanted '$want', got: $(echo "$out" | tail -2 | tr '\n' ' '))"; fi; }
 
 # a private copy of the source repo so the test can build two releases
-mkdir "$T/src"; (cd "$SRC" && tar --exclude=.git --exclude=dist -cf - .) | tar -C "$T/src" -xf -
+mkdir "$T/src"; (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/src" -xf -
 "$T/src/release/package.sh" "$T/d1" >/dev/null
 V1="$(tr -d ' \n' < "$T/src/VERSION")"
 
