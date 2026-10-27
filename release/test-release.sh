@@ -206,17 +206,28 @@ fresh; printf 'def make_server(gateway):\n    pass\n' > "$R/template/engine/tool
 must_fail "a copy of the gateway entry point is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
 fresh; printf '{"vectors_version": 1, "vectors": []}\n' > "$R/template/docs/vectors.json"; plant; build
 must_fail "a renamed copy of the conformance vectors is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'lock\n' > "$R/template/docs/.build-engine.lock"; plant; build
-must_fail "a local state file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'SECRET=1\n' > "$R/template/engine/tools/.env"; plant; build
-must_fail "an .env file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'key\n' > "$R/template/docs/server.pem"; plant; build
-must_fail "a key file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'vars\n' > "$R/template/engine/tools/.dev.vars"; plant; build
-must_fail "a Worker secrets file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 # a credential hidden in a binary file: the content rules are matched against binary files too
 fresh; { printf 'token: ghp_%s' "$(printf 'A%.0s' $(seq 36))"; printf '\000\001\002\003'; } > "$R/template/docs/blob.bin"; plant; build
 must_fail "a credential in a binary file is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+# the path rules are checked on a crafted artifact: the packager would refuse some of these files first,
+# but the verifier must catch them however they got in
+fresh; build
+hostile file "docs/.build-engine.lock"
+must_fail "a local state file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/.env"
+must_fail "an .env file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "docs/server.pem"
+must_fail "a key file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/.dev.vars"
+must_fail "a Worker secrets file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/wrangler.toml"
+must_fail "a Worker config is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "docs/node_modules/x/package.json"
+must_fail "a node_modules tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "variants/object-storage/README.md"
+must_fail "a variants tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "conformance/signing-vectors.json"
+must_fail "a conformance tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 
 # ---------------------------------------------------------------- the release gate
 fresh; python3 - "$R" <<'PY'
