@@ -109,8 +109,8 @@ tar -tvzf "$(ART)" | grep -v '^-rw-r--r--' | grep -v '^-rwxr-xr-x' | grep -q . &
 # ---------------------------------------------------------------- Stage 3.2: the verifier
 # The verifier must fail closed on a hostile artifact, and must not run the artifact's code while doing it.
 fresh; build
-PRISTINE="$T/pristine.tar.gz"; cp "$(ART)" "$PRISTINE"
-restore() { cp "$PRISTINE" "$(ART)"; cp "$PRISTINE.sha256" "$(ART).sha256"; }
+PRISTINE="$T/pristine.tar.gz"; cp "$(ART)" "$PRISTINE"; cp "$(ART).sha256" "$T/pristine.sha256"
+restore() { cp "$PRISTINE" "$(ART)"; cp "$T/pristine.sha256" "$(ART).sha256"; }
 hostile() { restore; python3 "$R/release/test-fixtures.py" add-member "$(ART)" "$@"; }
 patch_artifact() { restore; python3 "$R/release/test-fixtures.py" patch-file "$(ART)" "$1"; }
 # the release manifest as it sits inside the artifact
@@ -170,11 +170,11 @@ restore; grep -v '^# build-engine release manifest' <(tar -xzOf "$(ART)" engine/
 must_fail "a release manifest without a header is refused" "no header" "$R/release/verify.sh" "$(ART)"
 
 # the policy file (the allowlist) is an input too: it may not contradict itself
-fresh; printf 'managed engine/VERSION\n' >> "$R/release/manifest.txt"
+fresh; build; printf 'managed engine/VERSION\n' >> "$R/release/manifest.txt"
 must_fail "an allowlist that declares a path twice is refused" "declares engine/VERSION twice" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'managed engine/Version\n' >> "$R/release/manifest.txt"
+fresh; build; printf 'managed engine/Version\n' >> "$R/release/manifest.txt"
 must_fail "an allowlist with a case-folded duplicate is refused" "equal under case folding" "$R/release/verify.sh" "$(ART)"
-fresh; printf 'managed engine/../engine/tools\n' >> "$R/release/manifest.txt"
+fresh; build; printf 'managed engine/../engine/tools\n' >> "$R/release/manifest.txt"
 must_fail "an allowlist with an unsafe path is refused" "unsafe path" "$R/release/verify.sh" "$(ART)"
 
 # the verifier must not run the artifact's code
@@ -246,7 +246,7 @@ fresh; echo "this is not python (" > "$R/template/engine/tools/broken.py"; plant
 must_fail "a payload module that does not compile is caught" "does not compile" "$R/release/verify.sh" "$(ART)"
 
 fresh; printf 'import unittest\nclass T(unittest.TestCase):\n    def test_x(self): self.fail("boom")\n' > "$R/template/engine/tools/test_broken.py"; plant; build
-must_fail "a payload that fails its own tests is caught" "payload tests fail" "$R/release/verify.sh" "$(ART)"
+must_fail "a payload that fails its own tests is caught" "payload tests fail" "$R/release/verify.sh" "$(ART)" --test-payload
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
