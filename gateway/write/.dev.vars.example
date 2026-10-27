@@ -1,7 +1,31 @@
-# Local secrets template. Copy to .dev.vars (gitignored). Names are PROVISIONAL until src/config/env.ts exists.
-# Signing secret per key id (the same scheme as the read gateway: see ../../template/engine/tools/ctxlink.py).
-CTXGATE_SECRET_K1=
-# GitHub credential for the commit step. Scope it as narrowly as GitHub allows (see README, "Open questions").
+# Local secrets template. Copy to .dev.vars (gitignored). NEVER put a secret in wrangler.toml.
+#
+# The names here are the ones src/config/env.ts reads. A missing or malformed setting makes the
+# gateway fail closed: it serves nothing and names the setting that is wrong.
+
+# The signing secrets, as a JSON object of key id to secret. The key id is a selector, not a
+# secret: it names the key so that a key can be rotated without an outage. Several may be served
+# at once. The scheme is the same family as the read gateway's, with its own domain separator:
+# see ../../template/engine/tools/ctxlink.py for the read side and docs/protocol.md section 3 for
+# this one.
+SIGNING_KEYS={"k1":"dev-only-signing-secret"}
+
+# The GitHub credential for the commit step (Stage 5.3). Scope it to the submissions repository
+# only, and as narrowly as GitHub allows. It is repository-scoped, NOT path-scoped: a leak could
+# modify any task's submissions in that repository, and nothing else. See docs/protocol.md
+# section 12.4.
 GITHUB_TOKEN=
-GITHUB_REPO=OWNER/PROJECT-dev
-GITHUB_BRANCH=build-engine
+
+# The operator credential for /admin/*. A different secret from the signing keys: holding a
+# signing key does not grant operator rights, and holding this does not mint capabilities.
+OPERATOR_TOKEN=
+
+# The non-secret settings live in wrangler.toml's [vars]. The two that are deployment-specific
+# are here so that a local run can differ from the deployment:
+# MAX_TTL_SECONDS=604800
+# LEASE_SECONDS=300
+
+# The test clock. A local development convenience ONLY. A production deployment MUST NOT set it:
+# it would let a caller extend the life of an expired capability. The health endpoint reports
+# whether it is engaged.
+# CTXGATE_TEST_CLOCK=
