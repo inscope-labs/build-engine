@@ -91,16 +91,13 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   [[ "$path" != *[[:space:]]* ]] || die "manifest line $lineno: path '$path' contains whitespace"
 
   # Every component of a manifest path is checked on its own: an empty component, a '.' and a
-  # '..' are each refused.
+  # '..' are each refused. A name that merely contains two dots ("notes..v2.md") is fine: the same
+  # check is used by release/verify.sh and by the shipped engine/bin/update.sh (F0-016).
   IFS='/' read -r -a parts <<< "$path"
   for part in "${parts[@]}"; do
     [[ -n "$part" ]] || die "manifest line $lineno: path '$path' has an empty component"
     [[ "$part" != "." && "$part" != ".." ]] || die "manifest line $lineno: path '$path' has a '$part' component"
   done
-  # F0-016: the substring rule below is deliberately stricter than the component rule above. It can
-  # only be relaxed together with verify.sh and update.sh (Stage 3.2.2 / 2.4), otherwise packaging
-  # would produce an artifact that the verifier refuses.
-  [[ "$path" != *..* ]] || die "manifest line $lineno: path '$path' contains '..' (F0-016, relaxed in Stage 3.2.2)"
 
   if [[ -n "${DECL_MODE[$path]:-}" ]]; then
     [[ "${DECL_MODE[$path]}" == "$mode" ]] \

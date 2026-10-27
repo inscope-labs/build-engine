@@ -17,6 +17,19 @@
 set -euo pipefail
 LOCK=".build-engine.lock"
 die() { echo "update: $*" >&2; exit 1; }
+# A path is safe when it is relative and every one of its components is a plain name. A name that merely
+# contains two dots ("notes..v2.md") is safe; a ".." component is not. The same check is used by
+# release/package.sh and release/verify.sh (F0-016) - keep the three in step.
+safe_component_path() {
+  local p="$1" part
+  local -a parts
+  [[ -n "$p" && "$p" != /* ]] || return 1
+  IFS='/' read -r -a parts <<< "$p"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" && "$part" != "." && "$part" != ".." ]] || return 1
+  done
+  return 0
+}
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 ROOT="" VERSION="" REPO="" FROM_DIR="" FORCE=0 DRY=0
@@ -75,13 +88,13 @@ NAME="build-engine-v$VERSION.tar.gz"
 # --- verify before anything is unpacked into the repository
 (cd "$WORK/dl" && sha256sum -c "$NAME.sha256" >/dev/null) || die "checksum mismatch for $NAME: refusing"
 while read -r line; do [[ "${line:0:1}" == "-" ]] || die "artifact contains a non-regular entry: refusing"; done < <(tar -tvzf "$WORK/dl/$NAME")
-while read -r n; do [[ "$n" != /* && "$n" != *..* ]] || die "artifact has an unsafe path ($n): refusing"; done < <(tar -tzf "$WORK/dl/$NAME")
+while read -r n; do safe_component_path "$n" || die "artifact has an unsafe path ($n): refusing"; done < <(tar -tzf "$WORK/dl/$NAME")
 tar -xzf "$WORK/dl/$NAME" -C "$WORK/x" --no-same-owner
 RM="$WORK/x/engine/RELEASE-MANIFEST"; [[ -f "$RM" ]] || die "artifact has no engine/RELEASE-MANIFEST"
 declare -A NEW=() MODE=()
 while read -r sha mode path; do
   [[ -z "${sha:-}" || "$sha" == \#* ]] && continue
-  [[ "$path" != /* && "$path" != *..* ]] || die "manifest has an unsafe path: $path"
+  safe_component_path "$path" || die "manifest has an unsafe path: $path"
   [[ -f "$WORK/x/$path" && "$(sha256sum "$WORK/x/$path" | cut -d' ' -f1)" == "$sha" ]] || die "manifest does not match the artifact: $path"
   NEW["$path"]="$sha"; MODE["$path"]="$mode"
 done < "$RM"
