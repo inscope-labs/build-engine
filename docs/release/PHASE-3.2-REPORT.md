@@ -59,15 +59,15 @@ widens the allowlist and shows the rule still refuses.
 
 Baseline: `3149df0` (Stage 3.1). Every baseline claim is an executed command.
 
-| # | Baseline behaviour (executed) | After Stage 3.2 |
+| # | Baseline behaviour (executed against `3149df0`) | After Stage 3.2 |
 |---|-------------------------------|------------------|
-| F0-010 | A planted `engine/tools/test_*.py` wrote a marker file outside the extraction directory during `verify.sh`, and the script still reported OK | The marker does not appear: `verification does not execute the payload`. With `--test-payload` it does: `the payload tests are run when they are asked for` |
-| F0-016 | `docs/notes..v2.md` was packaged successfully and then rejected by `verify.sh` ("unsafe path in tar") | The same file is packaged and verified; the packer, the verifier and the shipped updater all accept it, and all three refuse a `..` component |
-| F0-040 | A sidecar naming a different file left the artifact unverified | `the checksum sidecar describes 'other-file.tar.gz', not build-engine-v0.5.0.tar.gz` |
-| F0-041 | A member listed twice with identical content passed every check | `duplicate archive member: engine/tools/dup.txt` |
-| F0-042 | An indented copy of the gateway code matched no rule; a credential in a file with a NUL byte was not detected | Both are caught: `forbidden content rule hit` |
-| F0-043 | A manifest with a duplicated entry, a malformed hash or an extra field was accepted | Each is refused with its own message |
-| F0-044 | An allowlist declaring a path twice was used as a policy without complaint | `the allowlist declares engine/VERSION twice` |
+| F0-010 | A planted `engine/tools/test_*.py` wrote a marker file outside the extraction directory during `verify.sh` | The marker does not appear: `the marker is absent: verification did not execute the payload`. With `--test-payload` it does: `the payload tests are run when they are asked for` |
+| F0-016 | `docs/notes..v2.md` was packaged successfully and then rejected: `verify: FAIL: unsafe path in tar: docs/notes..v2.md` | `verify: OK`; the packer, the verifier and the shipped updater all accept the name, and all three refuse a `..` component |
+| F0-040 | A sidecar naming another file that existed and matched left the artifact unverified: `verify: OK (41 files, version 0.5.0)` | `verify: FAIL: the checksum sidecar describes 'some-other-file.tar.gz', not build-engine-v0.5.0.tar.gz` |
+| F0-041 | A duplicated member was caught only as a side effect, with the wrong message ("artifact files and release manifest disagree"), and a duplicated `engine/RELEASE-MANIFEST` passed: `verify: OK (42 files, version 0.5.0)` for a 41-file artifact | `duplicate archive member: engine/VERSION`, and `duplicate archive member: engine/RELEASE-MANIFEST` |
+| F0-042 | An indented `class Gateway:` matched no rule (`verify: OK`), and a file with a NUL byte holding a `ghp_` token was not detected (`verify: OK`) | `forbidden content rule hit: class[[:space:]]+Gateway[(:]` and `forbidden content rule hit: ghp_[A-Za-z0-9]{36}` |
+| F0-043 | A duplicated manifest entry was caught only as a set mismatch ("artifact files and release manifest disagree"), a malformed hash as "hash mismatch", an extra field as "manifest lists a file that is not in the artifact: ... surprise" - and a manifest with **no header at all** passed: `verify: OK` | Each is refused with its own message, e.g. `the release manifest lists plans/README.md twice`, `the release manifest has a malformed hash for ...`, `the release manifest has an unexpected field for ...`, `the release manifest has no header` |
+| F0-044 | An allowlist declaring a path twice was used as a policy without complaint: `verify: OK` | `the allowlist declares engine/VERSION twice` |
 
 Test suites, all run and inspected:
 
