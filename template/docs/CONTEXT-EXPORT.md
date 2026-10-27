@@ -199,29 +199,38 @@ audit                        -> served 8, never fetched 0, refused: bad-signatur
 signed links stored in the committed order file: 0
 ```
 
-Not proven (and not claimed): a deployed gateway on any provider; the GitHub-backed source adapter (the proof of
-concept reads a local git repository); rate limiting; behaviour behind your agents' actual GET-only proxy; the
-rejected object-storage approach.
+Not proven (and not claimed) **by the proof of concept**: a deployed gateway on any provider, the
+GitHub-backed source adapter, and rate limiting. The last two now exist in the build-engine source
+repository (`gateway/read/production`, Stage 4.2): the adapter reads the GitHub contents API and the
+gateway bounds its own work. That is not a claim that a gateway is deployed — it is not. Still not
+proven: behaviour behind your agents' actual GET-only proxy, and the rejected object-storage
+approach, which remains rejected.
 
 ## 11. Production path
 
-| Step | What | Done when |
-|---|---|---|
-| 1 | Decide where the gateway runs (section 12) | Hosting chosen |
-| 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo |
-| 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B |
-| 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test |
-| 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads |
-| 6 | — | Same order integration, delete-based revocation proven |
+| Step | What | Done when | State |
+|---|---|---|---|
+| 1 | Decide where the gateway runs (section 12) | Hosting chosen | **Done** — `docs/decisions/0001`: Cloudflare Workers, operator-owned, single-tenant |
+| 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo | **Done** — `gateway/read/production/src/source.ts` |
+| 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B | **Done** — `gateway/read/production`, a Cloudflare Worker that passes the shared conformance suite |
+| 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test | **Done** — `gateway/read/production/ops/limits.md`, tested by `test/run-abuse-controls.py` |
+| 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads | Not done — Stage 6 |
+| 6 | — | Same order integration, delete-based revocation proven | Not done — the object-storage variant was rejected |
+
+Steps 1 to 4 are done in the build-engine source repository and are **not** shipped. Nothing in the
+steps above says that a gateway is deployed: it is not. Deployment, environment separation and the
+operator runbook are the next stage, and the real pilot comes after that.
 
 ## 12. Decisions needed from you
 
 1. **Where does the gateway run?** Any small HTTPS endpoint works. The rules need no database: a revocation list and
-   an audit log.
+   an audit log. **Decided** — `docs/decisions/0001` (Cloudflare Workers).
 2. **Can your agents' GET-only proxy reach an arbitrary HTTPS host**, or is it restricted to an allow-list? If it is
-   restricted, the gateway must live on a permitted host.
-3. **Default link lifetime** (24 h proposed) and the maximum a link may ever live (7 days proposed).
-4. **Which prefixes may be served**: proposed `amk/` and `plans/*/package/` only.
+   restricted, the gateway must live on a permitted host. **Decided** — `docs/decisions/0002`.
+3. **Default link lifetime** (24 h proposed) and the maximum a link may ever live (7 days proposed). **Decided** —
+   `docs/decisions/0003`: the maximum a link may live is 72 hours.
+4. **Which prefixes may be served**: proposed `amk/` and `plans/*/package/` only. **Decided** —
+   `docs/decisions/0004`; the prefixes are configuration, and the gateway refuses anything outside them.
 5. Class A agents: are the private raw `url` fields enough for them, with their own credentials?
 
 

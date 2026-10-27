@@ -34,6 +34,27 @@ class TestSigning(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, [bad])
 
+    def test_mint_rejects_control_characters_in_a_path(self):
+        # a path is either canonical or refused; nothing is normalised. A control character
+        # (including NUL) never belongs in a path. See conformance/SCHEME.md section 5.
+        for bad in ("a\nb", "a\tb", "a\x00b", "a\x01b", "a\x7fb", "dir/\n"):
+            with self.assertRaises(ValueError):
+                cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, [bad])
+
+    def test_mint_accepts_legal_names_that_merely_look_dangerous(self):
+        # only a path COMPONENT that is exactly ".." is unsafe. A name that contains ".." as a
+        # substring, a leading dot, a plus or a space is a legal file name.
+        for good in ("notes/na~me.v1..2.md", ".hidden.md", "a+b.md", "dir with space/é.md", "a/..b/c.md"):
+            urls = cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, [good])
+            self.assertEqual(len(urls), 1)
+
+    def test_the_url_form_percent_encodes_each_segment(self):
+        # the wire form is canonical: only the unreserved set stays literal, and '/' is the separator
+        u = cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, ["dir with space/é.md"])[0]
+        self.assertIn("/dir%20with%20space/%C3%A9.md", u)
+        u = cg.mint("https://g", SECRET, "k1", ORDER, "a" * 40, ["a+b.md"])[0]
+        self.assertIn("/a%2Bb.md", u)
+
     def test_signature_binds_every_field(self):
         base = cg.sign(SECRET, "k1", 5, ORDER, "a" * 40, "p.md")
         for args in (("k2", 5, ORDER, "a" * 40, "p.md"), ("k1", 6, ORDER, "a" * 40, "p.md"), ("k1", 5, "10008-S002", "a" * 40, "p.md"),

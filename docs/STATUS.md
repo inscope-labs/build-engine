@@ -6,6 +6,8 @@ A *successful published release candidate* is currently blocked by process/gatin
 2. `CHANGELOG.md` still records `## 0.5.0 - unreleased` instead of a dated entry required by the release gate.
 3. Read-gateway production port, write-gateway, conformance harness vectors, and pilot remain incomplete or scaffold-only (these never ship, so they do not block packaging of the current artifact, but they limit a fully operational end-to-end system).
 
+> Stage 4.1 completed the conformance suite and Stage 4.2 implemented the production read gateway, which passes that suite. The write gateway and the pilot remain outstanding, and the read gateway is not deployed.
+
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact.
 
 ---
@@ -87,7 +89,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | `gateway/README.md`, `gateway/read/README.md` | Orientation |
 | `gateway/read/reference/ctxgate.py` | Reference implementation (serve, revoke, audit) — built, tested, not deployable |
 | `gateway/read/reference/test_ctxgate.py` | Reference tests |
-| `gateway/read/production/` (README + `ops/`, `rules/`, `source-adapter/` READMEs only) | Production port — structure only; blocked on decisions 0001–0004 |
+| `gateway/read/production/` (a Cloudflare Worker: `src/`, `test/`, `ops/`, `wrangler.toml`) | Production port — implemented (Stage 4.2) and proven against the shared conformance suite; **not deployed** (Stage 4.3) |
 
 #### 4.2 Write gateway (Cloudflare Worker scaffold)
 
@@ -98,8 +100,9 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 | Path | Role / status |
 |------|---------------|
 | `conformance/README.md`, `behaviours.md` | Acceptance behaviours B1–B11 |
-| `conformance/signing-vectors.json` | Minimal vectors present |
-| `conformance/harness/README.md` | Harness not yet implemented |
+| `conformance/signing-vectors.json` | Complete: 17 valid vectors and 19 invalid inputs (Stage 4.1) |
+| `conformance/harness/` | Implemented: a runner that drives any gateway over HTTP and any signer over a JSON-lines contract, plus a CI gate (Stage 4.1) |
+| `conformance/SCHEME.md` | The normative description of the scheme (Stage 4.1, amended in Stage 4.2) |
 
 ### 6. Maintainer documentation (`docs/` — never shipped)
 
@@ -108,7 +111,7 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 | `END-TO-END.md` | Stage status matrix |
 | `ARCHITECTURE.md` | Two-repository model and isolation layers |
 | `RELEASING.md` | Release procedure |
-| `decisions/0001`–`0005` + README | Open decisions (hosting, proxy, lifetimes, prefixes, Class A access) |
+| `decisions/0001`–`0005` + README | All five decided (2026-10-26): hosting, proxy, lifetimes, prefixes, Class A access |
 | `pilot/README.md` | Pilot acceptance (not started) |
 | `proposals/context-export.md` | Historical proposal |
 
@@ -132,9 +135,9 @@ None. Every path required by `release/manifest.txt` exists under `template/`. `p
 
 **Functional / operational gaps (do not block packaging of the current artefact, but limit a complete working system):**
 
-- Production read gateway not started.
+- Production read gateway implemented but **not deployed** (Stage 4.2 done; Stage 4.3 owns deployment, route, deploy gate and runbook).
 - Write gateway is scaffold only.
-- Conformance harness and full signing-vector set incomplete.
+- Conformance harness and the full signing-vector set are complete (Stage 4.1); the production port passes the suite (Stage 4.2).
 - Pilot not started.
 - Prose still Project-centric in places (machine configuration already uses placeholders).
 - Repository settings (branch/tag protection) not managed from this repository.
