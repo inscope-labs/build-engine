@@ -1,12 +1,21 @@
-**Analysis conclusion.** The repository already contains substantial, testable implementation code (not merely scaffolding). The allowlist under `template/` is complete relative to `release/manifest.txt`; packaging and verification scripts are present and self-tested.  
+# Status of build-engine 0.5.0 (unreleased)
 
-A *successful published release candidate* is currently blocked by process/gating items rather than missing directories or allowlisted files. The principal blockers are:
+Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
 
-1. `template/engine/ENGINE.json` previously had `"protocol": "UNSET"`; Stage 1.2 migrates the field to `protocol` = `build-engine/0.5`.
-2. `CHANGELOG.md` still records `## 0.5.0 - unreleased` instead of a dated entry required by the release gate.
-3. Read-gateway production port, write-gateway, conformance harness vectors, and pilot remain incomplete or scaffold-only (these never ship, so they do not block packaging of the current artifact, but they limit a fully operational end-to-end system).
+**Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
-No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact.
+**Conclusion.** The consumer artifact (template, packaging, verification, install/update) is implemented, tested and passing in CI, with hardening items open in Phases 2 and 3. The first release additionally requires the Class B read and write gateways, which are not complete, so **0.5.0 cannot be released yet**. Blockers, in order:
+
+1. Production read gateway: not started (Phase 4). Conformance vectors are empty and the harness is not built (Phase 4.1).
+2. Write gateway: scaffold only; 46 of 48 source files and all 32 test files are stubs and the Worker answers 501 (Phase 5).
+3. Submissions-to-consumer transfer path and pre-creation of the submissions branch and task folder: not designed and not in the plan (register R0-011).
+4. End-to-end staging pilot: not started (Phase 6).
+5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
+6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
+
+Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4).
+
+No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
 
 ---
 
@@ -18,7 +27,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 |------|------|
 | `VERSION` | Single source of truth: `0.5.0` |
 | `CHANGELOG.md` | History; currently unreleased |
-| `COMPATIBILITY.md` | Abstract-PROJECT mapping; currently `UNSET` |
+| `COMPATIBILITY.md` | Protocol compatibility table (`build-engine/0.5` for 0.5.0) |
 | `README.md` | Maintainer-facing overview |
 | `.gitignore` | Standard exclusions |
 | `.github/workflows/ci.yml` | Push/PR: unit tests, shell syntax, release self-test, update-flow test, dry-run package+verify, write-gateway typecheck/bundle |
@@ -85,20 +94,20 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | Path | Role / status |
 |------|---------------|
 | `gateway/README.md`, `gateway/read/README.md` | Orientation |
-| `gateway/read/reference/ctxgate.py` | Reference implementation (serve, revoke, audit) — built, tested, not deployable |
+| `gateway/read/reference/ctxgate.py` | Reference implementation (serve, revoke, audit) — reference only: tested, not deployed |
 | `gateway/read/reference/test_ctxgate.py` | Reference tests |
-| `gateway/read/production/` (README + `ops/`, `rules/`, `source-adapter/` READMEs only) | Production port — structure only; blocked on decisions 0001–0004 |
+| `gateway/read/production/` (README + `ops/`, `rules/`, `source-adapter/` READMEs only) | Production port — not started; decisions 0001–0005 recorded; required for 0.5.0 |
 
 #### 4.2 Write gateway (Cloudflare Worker scaffold)
 
-Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workflows, `wrangler.toml`, scripts, package files). Type-checked and bundle-checked in CI; not deployable; design questions remain open.
+Scaffold only. TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci stubs, `wrangler.toml`, scripts, package files): 46 of 48 source files, all 32 test files, the 4 scripts and the 6 `ci/*.yml` files are stubs, and the Worker answers 501. Typecheck and bundle dry run pass in CI but prove nothing about behaviour. Design decisions are recorded (Stage 1.4); required for 0.5.0 (Phase 5).
 
 ### 5. Conformance and variants (source-only)
 
 | Path | Role / status |
 |------|---------------|
 | `conformance/README.md`, `behaviours.md` | Acceptance behaviours B1–B11 |
-| `conformance/signing-vectors.json` | Minimal vectors present |
+| `conformance/signing-vectors.json` | Empty vector set (stub); to be completed in Stage 4.1 |
 | `conformance/harness/README.md` | Harness not yet implemented |
 
 ### 6. Maintainer documentation (`docs/` — never shipped)
@@ -108,8 +117,8 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 | `END-TO-END.md` | Stage status matrix |
 | `ARCHITECTURE.md` | Two-repository model and isolation layers |
 | `RELEASING.md` | Release procedure |
-| `decisions/0001`–`0005` + README | Open decisions (hosting, proxy, lifetimes, prefixes, Class A access) |
-| `pilot/README.md` | Pilot acceptance (not started) |
+| `decisions/0001`–`0005` + README | Decided read-gateway decisions (hosting, proxy, lifetimes, prefixes, Class A access) |
+| `pilot/README.md` | Pilot acceptance (not started; Phase 6) |
 | `proposals/context-export.md` | Historical proposal |
 
 ### 7. Consumer-flow tests (`tests/`)
@@ -120,23 +129,8 @@ Extensive TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci workf
 
 ---
 
-## Gaps that currently prevent a successful working release candidate
+## Gaps that currently prevent a release
 
-**Hard blockers for publishing (release gate):**
+See the conclusion at the top of this file and `docs/release/DEFECT-REGISTER.md` (section F maps every finding to the plan stage that closes it).
 
-- `protocol` remains `UNSET` in `ENGINE.json`.
-- `CHANGELOG.md` lacks a dated `## 0.5.0 - YYYY-MM-DD` entry.
-
-**Structural completeness of the shippable payload:**  
-None. Every path required by `release/manifest.txt` exists under `template/`. `package.sh` will succeed on a clean tree; ordinary `verify.sh` (without `--release`) will also succeed.
-
-**Functional / operational gaps (do not block packaging of the current artefact, but limit a complete working system):**
-
-- Production read gateway not started.
-- Write gateway is scaffold only.
-- Conformance harness and full signing-vector set incomplete.
-- Pilot not started.
-- Prose still Project-centric in places (machine configuration already uses placeholders).
-- Repository settings (branch/tag protection) not managed from this repository.
-
-Once the two hard blockers are resolved, the existing machinery can produce and publish a verified release artefact containing the engine, operator bridge, schemas, prompts, templates, and documentation listed above.
+**Structural completeness of the shippable payload:** none missing. Every path in `release/manifest.txt` exists under `template/`; `package.sh` succeeds on a clean tree and ordinary `verify.sh` passes. `verify.sh --release` fails only on the dated changelog entry, by design, until release-candidate time.
