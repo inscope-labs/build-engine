@@ -384,15 +384,25 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Closure evidence: Self-test: "an indented copy of the gateway code is caught", "a copy of the gateway entry point
   is caught", "a credential in a binary file is caught".
 
-### F0-043 — The release manifest inside the artifact was barely validated
-- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
-- Evidence: `release/verify.sh` checked the mode, the file's presence and the hash of each entry, but not the shape
-  of the manifest. A duplicated entry, a malformed hash, an entry with an extra field, a missing header and two
-  entries equal under case folding were all either accepted or reported with a misleading message.
-- Consequence: the manifest is the artifact's own description of itself and the consumer's `update.sh` reads it.
-  A manifest that contradicts itself was accepted by the tool whose job is to notice that.
+### F0-043 — The release manifest inside the artifact was never validated for its own shape
+- Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: `release/verify.sh` compared the manifest's path set with the artifact's file set, so most contradictions
+  between the two were caught - but as a set mismatch, and the message named a different problem. Executed at the
+  baseline, one malformed manifest at a time:
+  - a duplicated entry -> "artifact files and release manifest disagree" (caught, wrong diagnosis);
+  - an entry with an extra field -> "manifest lists a file that is not in the artifact: docs/CONTEXT-EXPORT.md
+    surprise" (caught, wrong diagnosis);
+  - a malformed hash -> "hash mismatch: docs/CONTEXT-EXPORT.md" (caught, but the hash was never checked for being a
+    hash);
+  - two entries equal under case folding -> "artifact files and release manifest disagree" (caught, wrong diagnosis);
+  - **a manifest with no header at all -> `verify: OK`** (accepted).
+  Nothing validated the manifest's shape: the header was not required, the field count was not checked, and a hash
+  was only ever compared, never parsed.
+- Consequence: the manifest is the artifact's own description of itself, and the consumer's `update.sh` reads it. A
+  contradiction was usually caught, but the tool never said what was wrong with it, and one contradiction - a manifest
+  with no header - was not caught at all.
 - Required resolution: validate the header, the field count, the hash format, the mode, the path shape, and the
-  uniqueness of the entries (exactly and under case folding).
+  uniqueness of the entries (exactly and under case folding), each with its own message.
 - Owner: implementation. Planned phase: Phase 3 - 3.2.3.
 - Closure evidence: Self-test: "a release manifest with a duplicate entry is refused", "a release manifest with a
   malformed hash is refused", "a release manifest with a bad mode is refused", "a release manifest with an unexpected
