@@ -6,7 +6,7 @@ A *successful published release candidate* is currently blocked by process/gatin
 2. `CHANGELOG.md` still records `## 0.5.0 - unreleased` instead of a dated entry required by the release gate.
 3. Read-gateway production port, write-gateway, conformance harness vectors, and pilot remain incomplete or scaffold-only (these never ship, so they do not block packaging of the current artifact, but they limit a fully operational end-to-end system).
 
-> Stage 4.1 completed the conformance suite and Stage 4.2 implemented the production read gateway, which passes that suite. The write gateway and the pilot remain outstanding, and the read gateway is not deployed.
+> Stage 4.1 completed the conformance suite, Stage 4.2 implemented the production read gateway, which passes that suite, and Stage 4.3 added its deployment surface: three separated environments with a generated configuration, a deploy gate, the operational checks, an isolation proof and the operator runbook. **The read gateway is still not deployed** — no environment has been published. The write gateway and the pilot remain outstanding.
 
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact.
 
@@ -23,7 +23,8 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | `COMPATIBILITY.md` | Abstract-PROJECT mapping; currently `UNSET` |
 | `README.md` | Maintainer-facing overview |
 | `.gitignore` | Standard exclusions |
-| `.github/workflows/ci.yml` | Push/PR: unit tests, shell syntax, release self-test, update-flow test, dry-run package+verify, write-gateway typecheck/bundle |
+| `.github/workflows/ci.yml` | Push/PR: unit tests, shell syntax, release self-test, update-flow test, dry-run package+verify, read-gateway typecheck/unit/conformance/abuse/operational/isolation, write-gateway typecheck/bundle |
+| `.github/workflows/deploy-read-gateway.yml` | Manual: the read gateway's deploy gate, and the publish job that waits for it, for a reviewer and for `main` |
 | `.github/workflows/release.yml` | Tag-triggered: version/tag checks, tests, package, `--release` verify, publish assets |
 
 ### 2. Release machinery (`release/` — never shipped)
@@ -89,7 +90,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | `gateway/README.md`, `gateway/read/README.md` | Orientation |
 | `gateway/read/reference/ctxgate.py` | Reference implementation (serve, revoke, audit) — built, tested, not deployable |
 | `gateway/read/reference/test_ctxgate.py` | Reference tests |
-| `gateway/read/production/` (a Cloudflare Worker: `src/`, `test/`, `ops/`, `wrangler.toml`) | Production port — implemented (Stage 4.2) and proven against the shared conformance suite; **not deployed** (Stage 4.3) |
+| `gateway/read/production/` (a Cloudflare Worker: `src/`, `test/`, `ops/`, `wrangler.toml`) | Production port — implemented (Stage 4.2), proven against the shared conformance suite, with the deployment surface, the deploy gate, the operational checks and the operator runbook (Stage 4.3). **Not deployed**: no environment has been published, and the configuration still carries the operator's placeholders |
 
 #### 4.2 Write gateway (Cloudflare Worker scaffold)
 
@@ -135,7 +136,7 @@ None. Every path required by `release/manifest.txt` exists under `template/`. `p
 
 **Functional / operational gaps (do not block packaging of the current artefact, but limit a complete working system):**
 
-- Production read gateway implemented but **not deployed** (Stage 4.2 done; Stage 4.3 owns deployment, route, deploy gate and runbook).
+- Production read gateway implemented, with its deployment surface, its deploy gate and its runbook (Stages 4.2 and 4.3), but **not deployed**: no environment has been published, and the operator's Cloudflare account, repository and host are still to be supplied.
 - Write gateway is scaffold only.
 - Conformance harness and the full signing-vector set are complete (Stage 4.1); the production port passes the suite (Stage 4.2).
 - Pilot not started.

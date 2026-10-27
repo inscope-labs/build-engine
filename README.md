@@ -69,13 +69,13 @@ The design prioritises:
 | Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Built |
 | Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Built |
 | Serve context | Read gateway (reference) | `gateway/read/reference/` | Built (proof of concept); not deployed |
-| Serve context | Read gateway (production) | `gateway/read/production/` | Not started; open decisions 0001–0004 |
-| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Behaviours written; vectors and harness not started |
+| Serve context | Read gateway (production) | `gateway/read/production/` | Implemented (Cloudflare Worker, decisions 0001-0004 closed): passes the shared conformance suite over real HTTP. Stage 4.3 added the three environments, the deploy gate, the operational checks and the operator runbook. **Not deployed** |
+| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Built: 17 valid + 19 invalid vectors, 53 executable cases, a runner and a CI gate (Stage 4.1) |
 | Fallback read path | Object-storage variant | `variants/object-storage/` | Design only |
 | Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Built |
 | Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold; open design questions |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Built |
-| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Gap: not in release; no remote channel |
+| Revoke and audit | `ctxgate.py revoke`, `audit`; the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | Both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail |
 | Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Built |
 | Pilot | One real task end-to-end | `docs/pilot/` | Not started |
 
@@ -202,7 +202,7 @@ Version 0.5.0 is unreleased. Known gaps, ordered by priority:
 1. `protocol` remains `UNSET`; a release build will refuse to publish until the abstract PROJECT version is recorded.
 2. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still references Project as the worked example. Machine-readable configuration (`engine.json`, `cbridge.config.example`, `install.sh`) already uses placeholders.
 3. GitHub repository settings (branch protection on `main`, tag protection for `v*`) are not configured from this repository.
-4. The read gateway is a proof of concept and the write gateway (`gateway/write`) is a scaffold; neither is deployable. See `template/docs/CONTEXT-EXPORT.md` and `gateway/write/README.md`.
+4. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook, but **it has not been deployed**: no environment has been published. The write gateway (`gateway/write`) is still a scaffold. See `template/docs/CONTEXT-EXPORT.md`, `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
 
 ---
 

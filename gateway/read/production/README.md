@@ -35,9 +35,18 @@ thing to revoke against.
 | `test/unit/` | unit tests (the signing vectors, reproduced byte for byte) |
 | `test/run-conformance.py` | drives the shared conformance suite against a locally running Worker |
 | `test/run-abuse-controls.py` | the resource controls, which the conformance suite does not cover |
+| `test/run-staging-checks.py` | the operational checks: cold start, provider failures, expiry, revocation, key rotation |
+| `test/run-isolation-checks.py` | the isolation proof: no writes to the source repository, no copy of what was served |
 | `test/localenv.py` | the shared test plumbing: scratch repository, stand-in for the GitHub API, local Worker |
-| `test/github_stub.py` | a small stand-in for the GitHub contents API |
+| `test/stagingenv.py` | the same, plus a Worker that can be restarted and a provider that can fail |
+| `test/github_stub.py` | a small stand-in for the GitHub contents API, which can be made to fail on demand |
+| `test/procs.py` | stopping a process tree, so that a test leaves nothing running |
+| `ops/environments.md` | the three environments, and how they are kept apart |
+| `ops/environments.json` | the single source of truth for the configuration |
+| `ops/render-environments.py` | renders `wrangler.toml` from it, and checks that it has not drifted |
+| `ops/runbook.md` | the operator runbook: publish, rotate, revoke, audit, incident, rollback |
 | `ops/limits.md` | the limits, the ceilings, and what to do when one is hit |
+| `ops/deploy-gate.sh` | the gate: nothing is published until every check has passed |
 
 ## Running it locally
 
@@ -47,12 +56,18 @@ npm run typecheck
 npm test                      # unit tests: the signing vectors
 npm run test:conformance      # the shared suite, against a Worker on the local runtime
 npm run test:abuse            # the resource controls
+npm run test:staging          # the operational checks
+npm run test:isolation        # the isolation proof
+npm run ops:check             # the configuration has not drifted from environments.json
 ```
 
-`test:conformance` and `test:abuse` need `python3` and start the Worker themselves. They build a
-scratch git repository, stand up a local stand-in for the GitHub contents API, start the Worker
-with `wrangler dev --local`, drive the suite over real HTTP, and then tear everything down. They
-write nothing outside a temporary directory.
+The four python suites need `python3` and start the Worker themselves. They build a scratch git
+repository, stand up a local stand-in for the GitHub contents API, start the Worker with
+`wrangler dev --local`, drive the suite over real HTTP, and then tear everything down. They
+write nothing outside a temporary directory and leave nothing running.
+
+`ops/deploy-gate.sh` runs all of it in the order a deployment has to pass it, and publishes
+nothing unless everything passed. See `ops/runbook.md`.
 
 ## Configuration
 
@@ -72,6 +87,12 @@ The non-secret surface is `SIGNING_KEYS`' key ids, `ALLOW_PREFIXES`, `DENY_PATTE
 `REFUSAL_BURST`, `REFUSAL_COOLDOWN_SECONDS` and `AUDIT_RETENTION`. The values that describe the
 policy are also reported on `/healthz`, so a verifier can test the gateway as it is actually
 configured rather than as it was intended to be.
+
+`wrangler.toml` is **generated** from `ops/environments.json`, which is the only file that says
+what an environment is. The gate refuses to publish if the two disagree, so the deployed
+configuration cannot drift from the committed record of it. There are three environments - `test`,
+`staging` and `production` - separated by name, by key id and by secret. `ops/environments.md`
+says how.
 
 Two ceilings are policy, not configuration: `MAX_TTL` may not exceed 259200 (72 h) and
 `CLOCK_SKEW_TOLERANCE` may not exceed 120 seconds. A deployment that asks for more is refused at
@@ -107,7 +128,11 @@ consumer artifact; `conformance/test_conformance.py` asserts that.
 
 ## What is not done here
 
-This is Stage 4.2: the port. Deployment, environment separation, the deploy gate and the
-operator runbook are Stage 4.3, and the real end-to-end pilot is Stage 6. Nothing here has been
-deployed to a staging or production environment, and no claim in this README should be read as a
-claim about a running service.
+Stage 4.3 added the deployment surface: the three environments, the deploy gate, the
+operational checks and the operator runbook. **Nothing has been deployed.** The gateway has
+never run on Cloudflare: the checks run it on the local Cloudflare Workers runtime, which is the
+same runtime and the same code, but it is not a deployment, and no claim in this README should
+be read as a claim about a running service.
+
+The real end-to-end pilot is Stage 6, and the release itself is Phase 7. The write gateway is
+still a scaffold (Stage 5).

@@ -18,12 +18,12 @@ How the parts fit, and what exists. Status words: **built** (code and tests), **
 | Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | built |
 | Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | built |
 | Serve context | read gateway, reference | `gateway/read/reference/` | built (proof of concept), not deployed |
-| Serve context | read gateway, production | `gateway/read/production/` | built (Cloudflare Worker, Stage 4.2): passes the shared conformance suite over real HTTP, 58 cases, 0 failed. **Not deployed** — route, environment separation, deploy gate and runbook are Stage 4.3 |
+| Serve context | read gateway, production | `gateway/read/production/` | built (Cloudflare Worker, Stage 4.2): passes the shared conformance suite over real HTTP, 58 cases, 0 failed. Stage 4.3 added the deployment surface — three separated environments with a generated configuration, a deploy gate, the operational checks and the operator runbook (`gateway/read/production/ops/`). **Still not deployed**: no environment has been published, and the pilot has not run |
 | Acceptance of any gateway | signing vectors, B1 to B11 | `conformance/` | built: 17 valid + 19 invalid vectors, 53 executable cases, a runner and a CI gate (Stage 4.1) |
 | Submit deliverables, operator route | `cbridge upload` | `template/operator/` | built |
 | Submit deliverables, agent route | write gateway | `gateway/write/` | scaffold; open design questions in its README |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | built |
-| Revoke and audit | `ctxgate.py revoke`, `audit` (reference); the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | built in both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail (`gateway/read/production/ops/limits.md`). Still a **gap** for a release: no deployed gateway, and the pilot has not run |
+| Revoke and audit | `ctxgate.py revoke`, `audit` (reference); the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | built in both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail (`gateway/read/production/ops/limits.md`). The revocation is durable and survives a deployment, a restart and a key rotation, and the channel fails closed: a revoke that was not stored is reported as a failure, not as a revocation. Still a **gap** for a release: no deployed gateway, and the pilot has not run |
 | Release and install | package, verify, update | `release/`, `template/engine/bin/` | built |
 | Pilot | one real task end to end | `docs/pilot/` | not started |
 
