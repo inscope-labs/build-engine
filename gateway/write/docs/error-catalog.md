@@ -110,7 +110,7 @@ and each one says what to do next.
 | <a id="expected-sha-conflict"></a>`expected-sha-conflict` | 409 | no | the submissions branch has moved since the capability was minted | **stop**; a commit happened. Ask the operator to re-mint against the new head |
 | <a id="seal-requires-commit"></a>`seal-requires-commit` | 409 | no | `seal` was called before any successful commit | commit first, then seal |
 | <a id="reconcile-required"></a>`reconcile-required` | 409 | no | the gateway cannot determine whether an earlier commit succeeded | **stop**; ask the operator. Do not retry: a retry could produce a second commit |
-| <a id="not-implemented"></a>`not-implemented` | 501 | no | a route that is specified but not yet implemented | Stage 5.2 onward. It is in the catalogue so that a 501 is never confused with a protocol error |
+| <a id="not-implemented"></a>`not-implemented` | 501 | no | a route that is specified but not yet implemented | **not currently produced**: every route the contract defines is implemented. It stays in the catalogue so that a 501 is never confused with a protocol error |
 
 ### 410 — the task's write path is closed
 

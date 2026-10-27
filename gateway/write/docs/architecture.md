@@ -3,9 +3,10 @@
 **Status: design, not normative.** This document describes the *shape* of the write gateway: the components,
 the request flow, the Durable Object coordination model, and which source module owns which rule.
 
-**Stage 5.3 implemented the delivery.** The components, the request flow and the coordination model below are what
-the code does. The `commit` route delivers to the provider; the audit stream and the operator procedures are
-Stage 5.4, and the remaining chaos tests and the CI wiring are Stage 5.5.
+**Stage 5.4 implemented the audit, the privacy and the operations.** The components, the request flow and the
+coordination model below are what the code does. The `commit` route delivers to the provider; the audit stream
+is durable and queryable, the log-hygiene gate and the deploy workflow exist, and the operator runbook is
+written. The remaining chaos tests and the CI wiring are Stage 5.5.
 
 **The normative contract is `ctxwrite-v1`**, in [`protocol.md`](protocol.md). The error semantics are in
 [`error-catalog.md`](error-catalog.md); the limits are in `src/config/quotas.json` and
@@ -57,6 +58,24 @@ The credential is not in the state store, and it is not in a response. The Durab
 environment at the point of use, and the state store never holds it (ADR 0001, ADR 0002). The Durable Object and
 the Worker read the **same** environment, so there is one authority for the configuration and not two that can
 disagree.
+
+### The audit stream
+
+Two copies of the record exist, and they answer different questions.
+
+The **platform's log** is the complete stream: every request writes exactly one JSON line there, and the
+operator's log retention decides how long it is kept. It is where the requests that never authenticated
+appear, because they have no order.
+
+The **durable stream** is one instance of a second Durable Object class per **order**. It is what the operator
+queries at `{base}/admin/audit?order=…`, it survives a log pipeline that samples, and it is bounded: the
+oldest records are pruned by age.
+
+The Durable Object does not trust the record it is handed. It **rebuilds** the record from the fields it is
+handed, through the same fixed-schema gate the platform's log uses, and refuses to store a record that still
+contains something that looks like a secret. A bug in the Worker, or a compromised one, cannot put a
+capability into the durable store. That is the same principle as the commit's in-flight entry: the state that
+records a fact is written by the thing that holds the fact.
 
 ## 2. Request flow
 
@@ -193,9 +212,12 @@ contract.
 | `src/commit/retry.ts` | the provider's failures and the retry policy | 8.1 |
 | `src/commit/commit.ts` | the commit itself, in two steps | 8.1 |
 | `src/seal/seal.ts` | the seal transition | 8.4 |
-| `src/audit/logger.ts`, `src/audit/metrics.ts`, `src/audit/redaction.ts` | the audit record | 11 |
+| `src/audit/logger.ts`, `src/audit/metrics.ts`, `src/audit/redaction.ts` | the audit record and the counters | 11 |
+| `src/audit/audit-stream.ts` | the durable audit stream, one instance per order | 11 |
+| `src/audit/hygiene.ts` (in the tests) and `scripts/verify-log-hygiene.ts` | the sentinel injection and the deploy gate | 10.3, 12.5 |
 | `src/http/contract.ts` | the contract documents, served as text | 4.5 |
 | `src/config/env.ts`, `src/config/constants.ts` | the configuration and the commit message | 8.3, 12.2 |
+| `AUDIT_RETENTION_SECONDS` | 11 — how long the durable audit stream keeps an order's records |
 
 ## 5. The configuration boundary
 

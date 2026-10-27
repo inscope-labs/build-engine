@@ -96,6 +96,20 @@ The delivery. These are the requirements the commit path owns.
 | 29 | the gateway never echoes a provider's error body | implemented for everything Stage 5.2 owns; the provider mapping is Stage 5.3 |
 | 30 | the health and admin routes are not reachable by the agent | implemented: they are a separate namespace with a separate credential |
 
+## What Stage 5.4 implemented
+
+The audit, the privacy and the operations.
+
+| # | Requirement | Stage 5.4 |
+|---|---|---|
+| 20 | no response body contains the capability, the query, the payload or the credential | implemented: a failure body names a parameter only when the **contract** defines it, never one the client invented; the provider's body is never read |
+| 22 | the audit record is built field by field from a fixed schema | implemented and hardened: the Durable Object that holds the durable stream **rebuilds** every record from the fields it is handed, through the same gate, and refuses a record that still looks like it holds a secret |
+| 23 | the audit is tested by sentinel injection | implemented: the sentinels are planted in the signing secret, the provider token, the operator token, the capability, the signature, the file's content, its base64 and a file name, and the gateway is driven through the whole protocol and the failure paths with them in place. The same driver backs the test and the deploy gate |
+| 29 | the gateway never echoes a provider's error body | implemented and tested: the body is not read, and the client asserts that its error message does not quote it |
+| 25 | the state channel fails closed | implemented, and the audit channel fails the same way: an unreadable audit stream answers `503` and serves nothing |
+| 27 | the deployment defaults are pinned | implemented: `workers_dev = false`, the secrets are `wrangler secret put`, and the deployment workflow holds no credential in a pull-request-triggered job |
+| 28 | deployment credentials are absent from pull-request jobs | implemented **and checked**: the deploy gate reads every workflow and fails if one that a pull request can trigger references a deployment credential. The deploy workflow is triggered by a push to `main` or by hand, and its credentials come from a protected environment |
+
 ## What is checked, and when
 
 | Check | Stage |
@@ -111,6 +125,7 @@ The delivery. These are the requirements the commit path owns.
 | the eviction, restart and "committed but the response was lost" recovery | 5.5.5 |
 | the concurrent writers and the quota boundary | 5.5.7 |
 | the CI gates that run all of the above on a pull request | 5.5.8 |
+| the deploy gate: the sentinel injection, the static credential scan, the logging check and the workflow check | 5.4.6 (implemented, and it runs in the deploy workflow) |
 | the deployed system's own sign-off | 6 |
 
 ## Not implemented
