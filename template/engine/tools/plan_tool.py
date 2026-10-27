@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +78,24 @@ def read_json(path):
 
 
 def write_json(path, obj):
-    Path(path).write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    """Atomic write: serialize to a temp file in the same directory, then os.replace.
+    Leaves recoverable prior state if the process is interrupted before the replace."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def engine_cfg():
@@ -107,14 +125,13 @@ def base_of(tid):
 
 
 def safe_rel(p):
-    return (
-        isinstance(p, str)
-        and p != ""
-        and not p.startswith("/")
-        and "\\" not in p
-        and not re.match(r"^[A-Za-z]:", p)
-        and ".." not in Path(p).parts
-    )
+    """Reject absolute, Windows, null, empty, '.' or '..' path components (aligned with ctxlink.safe_path).
+    Uses raw split so that intermediate '.' components are rejected even though Path normalises them away."""
+    if not isinstance(p, str) or not p or p.startswith("/") or "\\" in p or "\x00" in p:
+        return False
+    if re.match(r"^[A-Za-z]:", p):
+        return False
+    return all(part not in ("", ".", "..") for part in p.split("/"))
 
 
 def guard_halt(pid=None):
@@ -872,6 +889,8 @@ def build_order(plan, ids, rework_of=None, target=None, ref=None, plan_ref=None)
         ref = r.stdout.strip()
     if not ref:
         raise ToolError("context URLs must be pinned: pass --target <castiel-dev main checkout> or --ref <commit sha>")
+    if not re.fullmatch(r"[0-9a-f]{40}", ref):
+        raise ToolError("context ref must be an immutable 40-hex commit SHA (got %r); do not pass branch names" % ref)
     if not plan_ref:
         r = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
         plan_ref = r.stdout.strip() if r.returncode == 0 else ""
