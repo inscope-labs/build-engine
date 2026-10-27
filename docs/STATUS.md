@@ -13,7 +13,7 @@ Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the ful
 5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
 6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
 
-Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4).
+Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/release.json` (Stage 1.2, renamed in Stage 3.1); version sources agree (`VERSION`, `template/engine/VERSION`, `release.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4).
 
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
 
@@ -39,9 +39,9 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 |------|------|
 | `manifest.txt` | Allowlist (`managed` / `seed`) relative to `template/` |
 | `forbidden.txt` | Path and content deny rules (gateway, credentials, Worker artefacts, etc.) |
-| `package.sh` | Expand allowlist → stage → deterministic tarball + SHA-256 |
+| `package.sh` | Expand the allowlist over the tracked files → stage → deterministic tarball + SHA-256; refuses a dirty tree, a bad manifest line, a symlink, a generated file, and an output directory inside the packaged tree (Stage 3.1) |
 | `verify.sh` | Independent inspection of finished artefact (checksum, safety, allowlist, forbidden, version agreement, payload tests); `--release` gate |
-| `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `ENGINE.json` |
+| `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `template/engine/release.json` |
 | `test-release.sh` | Self-test proving clean packaging succeeds and each failure mode is detected |
 
 ### 3. Shipped product (`template/` — maps 1:1 onto consumer root)
@@ -50,7 +50,7 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 
 | Path | Role |
 |------|------|
-| `ENGINE.json` | Machine metadata (`engine_version`, `protocol`) — managed |
+| `release.json` | Machine metadata (`engine_version`, `protocol`) — managed (was `ENGINE.json`; renamed in Stage 3.1 for F0-013) |
 | `VERSION` | Stamped version — managed |
 | `engine.json` | Consumer configuration (placeholders) — **seed** (installed once, never overwritten) |
 | `AGENTS.md` | Agent guidance |
