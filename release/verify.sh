@@ -94,15 +94,26 @@ tar -xzf "$ART" -C "$X" --no-same-owner
 grep -vx 'engine/RELEASE-MANIFEST' "$WORK/names" | LC_ALL=C sort > "$WORK/members"
 cmp -s "$WORK/extracted" "$WORK/members" || die "the extracted files and the archive listing disagree"
 
-# 6. every file must be allowlisted (the release manifest is the only generated file)
+# 6. every file must be allowlisted (the release manifest is the only generated file). The allowlist is a
+# policy input, so it is checked too: it may not declare a path twice, nor two paths that are equal under
+# case folding (the artifact has to install on a case-insensitive filesystem).
+: > "$WORK/policy"
+while read -r mode path; do
+  [[ -z "${mode:-}" || "$mode" == \#* ]] && continue
+  [[ "$mode" == managed || "$mode" == seed ]] || die "the allowlist has a bad mode for $path"
+  safe_component_path "$path" || die "the allowlist has an unsafe path: $path"
+  echo "$path" >> "$WORK/policy"
+done < "$ROOT/release/manifest.txt"
+pdups="$(LC_ALL=C sort "$WORK/policy" | uniq -d)"
+[[ -z "$pdups" ]] || die "the allowlist declares $(echo "$pdups" | head -1) twice"
+pfolds="$(tr 'A-Z' 'a-z' < "$WORK/policy" | LC_ALL=C sort | uniq -d)"
+[[ -z "$pfolds" ]] || die "the allowlist declares two paths equal under case folding: $(echo "$pfolds" | head -1)"
 while IFS= read -r n; do
   [[ "$n" == engine/RELEASE-MANIFEST ]] && continue
   ok=0
-  while read -r mode path; do
-    [[ -z "${mode:-}" || "$mode" == \#* ]] && continue
-    safe_component_path "$path" || die "the allowlist has an unsafe path: $path"
+  while IFS= read -r path; do
     if [[ "$n" == "$path" || "$n" == "$path"/* ]]; then ok=1; break; fi
-  done < "$ROOT/release/manifest.txt"
+  done < "$WORK/policy"
   [[ $ok -eq 1 ]] || die "not allowlisted: $n"
 done < "$WORK/members"
 

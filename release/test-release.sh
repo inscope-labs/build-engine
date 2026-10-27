@@ -106,6 +106,98 @@ n_exec="$(tar -tvzf "$(ART)" | grep -c '^-rwxr-xr-x')"
 [[ "$n_exec" -eq 3 ]] && ok "the artifact ships exactly the three executables" || bad "the artifact ships $n_exec executables, expected 3"
 tar -tvzf "$(ART)" | grep -v '^-rw-r--r--' | grep -v '^-rwxr-xr-x' | grep -q . && bad "the artifact ships a file with an unexpected mode" || ok "every packaged file ships 0644 or 0755"
 
+# ---------------------------------------------------------------- Stage 3.2: the verifier
+# The verifier must fail closed on a hostile artifact, and must not run the artifact's code while doing it.
+fresh; build
+PRISTINE="$T/pristine.tar.gz"; cp "$(ART)" "$PRISTINE"
+restore() { cp "$PRISTINE" "$(ART)"; cp "$PRISTINE.sha256" "$(ART).sha256"; }
+hostile() { restore; python3 "$R/release/test-fixtures.py" add-member "$(ART)" "$@"; }
+patch_artifact() { restore; python3 "$R/release/test-fixtures.py" patch-file "$(ART)" "$1"; }
+# the release manifest as it sits inside the artifact
+rm_body() { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | grep -v '^#'; }
+
+hostile symlink "engine/tools/evil" "/etc/passwd"
+must_fail "an archive with a symlink entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile hardlink "engine/tools/evil" "engine/VERSION"
+must_fail "an archive with a hardlink entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile fifo "engine/tools/evil"
+must_fail "an archive with a fifo entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile chr "engine/tools/evil"
+must_fail "an archive with a device entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile dir "engine/tools/evil"
+must_fail "an archive with a directory entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile file "/etc/passwd"
+must_fail "an absolute path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "../evil.txt"
+must_fail "a traversal path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/../../evil.txt"
+must_fail "a nested traversal path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/./evil.txt"
+must_fail "a dot component in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine//evil.txt"
+must_fail "an empty component in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/evil\\name.txt"
+must_fail "a backslash in a member name is refused" "backslash" "$R/release/verify.sh" "$(ART)"
+hostile dup "engine/tools/dup.txt"
+must_fail "a duplicate archive member is refused" "duplicate archive member" "$R/release/verify.sh" "$(ART)"
+restore; python3 "$R/release/test-fixtures.py" truncate "$(ART)"
+must_fail "a truncated archive is refused" "not a readable gzip tar" "$R/release/verify.sh" "$(ART)"
+restore; rm -f "$(ART).sha256"
+must_fail "a missing checksum sidecar is refused" "missing" "$R/release/verify.sh" "$(ART)"
+restore; printf '%s  other-file.tar.gz\n' "$(sha256sum "$(ART)" | cut -d' ' -f1)" > "$(ART).sha256"
+must_fail "a sidecar that describes another file is refused" "does not describe" "$R/release/verify.sh" "$(ART)"
+restore; printf 'x' >> "$(ART)"
+must_fail "a tampered artifact fails its checksum" "checksum mismatch" "$R/release/verify.sh" "$(ART)"
+
+# the release manifest inside the artifact must describe exactly the files that are in it
+restore; { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | grep -v '^#' | tail -1; } \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a duplicate entry is refused" "twice" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^[0-9a-f]\{64\}/not-a-hash/' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a malformed hash is refused" "malformed hash" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^\([0-9a-f]\{64\}\) managed /\1 sideways /' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a bad mode is refused" "bad mode" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^\([0-9a-f]\{64\} managed .*\)$/\1 unexpected/' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with an unexpected field is refused" "unexpected field" "$R/release/verify.sh" "$(ART)"
+restore; { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST; echo "0000000000000000000000000000000000000000000000000000000000000000 managed engine/ghost.txt"; } \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest listing a missing file is refused" "not in the artifact" "$R/release/verify.sh" "$(ART)"
+restore; grep -v '^# build-engine release manifest' <(tar -xzOf "$(ART)" engine/RELEASE-MANIFEST) \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest without a header is refused" "no header" "$R/release/verify.sh" "$(ART)"
+
+# the policy file (the allowlist) is an input too: it may not contradict itself
+fresh; printf 'managed engine/VERSION\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist that declares a path twice is refused" "declares engine/VERSION twice" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'managed engine/Version\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist with a case-folded duplicate is refused" "equal under case folding" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'managed engine/../engine/tools\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist with an unsafe path is refused" "unsafe path" "$R/release/verify.sh" "$(ART)"
+
+# the verifier must not run the artifact's code
+fresh; cat > "$R/template/engine/tools/test_marker.py" <<'PY'
+import os, unittest
+class T(unittest.TestCase):
+    def test_marker(self):
+        p = os.environ.get("BE_MARKER")
+        if p: open(p, "w").write("executed")
+PY
+plant; build
+rm -f "$T/marker"
+BE_MARKER="$T/marker" "$R/release/verify.sh" "$(ART)" >/dev/null 2>&1
+[[ -f "$T/marker" ]] && bad "verification executed the payload" || ok "verification does not execute the payload"
+rm -f "$T/marker"
+BE_MARKER="$T/marker" "$R/release/verify.sh" "$(ART)" --test-payload >/dev/null 2>&1
+[[ -f "$T/marker" ]] && ok "the payload tests run when they are asked for" || bad "the payload tests did not run with --test-payload"
+
+# a name that merely contains two dots is a safe name, in the packer and in the verifier (F0-016)
+fresh; echo "notes" > "$R/template/docs/notes..v2.md"; plant; build
+must_pass "a file whose name contains two dots is packaged" test -f "$R/dist/build-engine-v$(tr -d ' \n' < "$R/VERSION").tar.gz"
+must_pass "a file whose name contains two dots verifies" "$R/release/verify.sh" "$(ART)"
+
 # ---------------------------------------------------------------- the release gate
 fresh; python3 - "$R" <<'PY'
 import json, sys
