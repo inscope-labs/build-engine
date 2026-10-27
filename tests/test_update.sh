@@ -64,8 +64,9 @@ check "...and changes nothing" bash -c "test -f '$C/docs/NEW.md' && test ! -e '$
 # a name that merely contains two dots is a safe name (F0-016): the update installs it
 ( cd "$T/src" && echo notes > template/docs/notes..v2.md && git add -A && git commit -qm "a name with two dots" )
 "$T/src/release/package.sh" "$T/d5" >/dev/null
+V5="$(tr -d ' \n' < "$T/src/VERSION")"
 D="$T/dots"; mkdir "$D"; git -C "$D" init -q
-( cd "$D" && bash "$T/update.sh" --from-dir "$T/d5" --version "$V1" --repo OWNER/build-engine ) >"$T/o5" 2>&1 \
+( cd "$D" && bash "$T/update.sh" --from-dir "$T/d5" --version "$V5" --repo OWNER/build-engine ) >"$T/o5" 2>&1 \
   && ok "a release with a name containing two dots installs" || bad "install: $(tail -3 "$T/o5")"
 check "the file whose name contains two dots is installed" test -f "$D/docs/notes..v2.md"
 
