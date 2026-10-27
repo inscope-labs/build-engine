@@ -5,8 +5,9 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 5.2 added F0-033 (closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
+- Stage 5.2 addendum: 2026-10-27; F0-033, found by the concurrency test of Stage 5.2 and closed in it
 
 ## Status and evidence rules
 
@@ -51,13 +52,14 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 
 ### F0-004 — Write gateway is scaffold-only
 - Severity: S1 for agent-side submission capability.
-- Status: CONFIRMED.
-- Evidence: `gateway/write/src/index.ts` returns HTTP 501; `gateway/write/README.md` identifies implementation/tests as scaffold or stubs.
+- Status: CONFIRMED. **The core request and session lifecycle is implemented in Stage 5.2** (2026-10-27); the GitHub delivery is Stage 5.3 and the full test suite and CI wiring are Stage 5.5.
+- Evidence: `gateway/write/src/index.ts` returned HTTP 501; `gateway/write/README.md` identified implementation/tests as scaffold or stubs.
 - Consequence: agent-side gateway submission is not operational.
 - Required resolution: implement authorization/task binding, routing, quotas, staging, idempotent commit, sealing/closure, revocation and audit semantics; add real adversarial and integration tests.
 - Owner: implementation team; operator for unresolved security/product decisions.
 - Planned phase: Phase 5.
 - Closure evidence: deployed integration tests for allowed and denied operations, task isolation, retries, audit, revocation, and recovery.
+- Update (Stage 5.2): the contract was specified in Stage 5.1 and the **core is now implemented**: the Worker routes and authenticates, the Durable Object holds the session, and staging, sequencing, replay, quotas, the type policy, the writer lease, the seal, the operator revocation and closure, the hypermedia links and the redacted audit record all work. 171 tests pass against the real Worker and the real Durable Object. What is still missing is the GitHub delivery (Stage 5.3 — the `commit` route answers the documented `501 not-implemented`), the full adversarial and chaos suite (Stage 5.5), and the deployment (Stage 5.4.6). The gateway is **not deployed**, and the Phase 5 exit gate is not met.
 
 ### F0-005 — Shared conformance vectors and executable harness are incomplete
 - Severity: S2, blocking conformance claims.
@@ -113,6 +115,16 @@ Added after the operator asked for a register that omits no known defect. Method
 - Consequence: no write-gateway behaviour exists or is tested; passing typecheck/bundle says nothing about function. Ownership is Phase 5 (below), not Phase 2/3.
 - Owner: implementation team. Planned phase: Phase 5 - 5.1 (contract), 5.2 (core/session), 5.3 (GitHub commit), 5.4 (audit/ops, scripts), 5.5 (all test stubs, runner, CI wiring); deploy-gate wiring also 5.4.6.
 - Closure evidence: Phase 5 exit gate: "No 501 handler or placeholder source/test stubs remain in any feature claimed as supported", plus passing suites.
+- Update (Stage 5.2): the file-level count has changed and the remaining stubs are named. `gateway/write/src` is 52 files: 48 are implemented and 4 remain Stage 5.3 stubs (`commit/commit.ts`, `commit/github-client.ts`, `commit/retry.ts`, `commit/selection.ts`), each of which says so in its first lines and states what Stage 5.3 will implement. `gateway/write/tests` has 30 test files, 20 of them real and 171 tests passing; the 10 that remain stubs are the Stage 5.3 (commit, retries, GitHub mock) and Stage 5.5 (chaos, GitHub helpers) ones. `package.json` now has a `test` script that runs the Node test runner with type stripping — the same runner the read gateway uses since Stage 4.2 — and `tsconfig.test.json` typechecks the tests. `src/config/type-policy.json` is authored, `src/config/quotas.json` no longer carries the "KB undefined" note, and `.dev.vars.example` and `wrangler.toml` name the settings the code actually reads. The `ci/*.yml` files are still stubs and still sit outside `.github/workflows/`; the CI wiring is Stage 5.5.8.
+
+### F0-033 — The Durable Object's handlers interleaved, so a concurrent write was applied more than once
+- Severity: S1 for the staging invariants (one writer, one chunk, one sequence number). Status: **CONFIRMED and CLOSED in Stage 5.2** (2026-10-27).
+- Evidence: found by `tests/load/concurrent-writers.test.ts`, which issued eight concurrent appends of the same chunk (`seq=1`, same hash) against one task. The file ended up 48 bytes instead of 6: every one of the eight requests read the same `last_seq`, decided that the chunk was new, and applied it. The Durable Object is single-threaded, but a handler that awaits something that is not a storage operation — a SHA-256 digest, a text decoder — yields, and the next request's handler starts in the meantime.
+- Consequence: the sequence, replay and quota rules all assume that a request's read of the session state and its write of it are atomic. Without that, a retry storm from an agent (or a proxy) could corrupt a file and inflate the byte budget, while every individual response looked like a success.
+- Required resolution: serialise the Durable Object's request handlers explicitly, so that each one runs to completion before the next one starts. That is what makes the session's state transitions atomic, which is what the contract's sections 2.5, 6.2 and 7.1 assume.
+- Resolution (Stage 5.2): the `TaskSession` class now holds a request queue, and every internal route runs through it. The concurrency test asserts that exactly one writer is admitted, that a chunk applied concurrently is applied once, and that the accepted bytes are counted once.
+- Owner: implementation. Planned phase: Stage 5.2 (done).
+- Closure evidence: `tests/load/concurrent-writers.test.ts` — 3 tests; and the full suite of 171 tests passes with the queue in place.
 
 ### F0-010 — `verify.sh` executes code from the artifact it is verifying
 - Severity: S2. Status: CONFIRMED (executed).

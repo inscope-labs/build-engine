@@ -181,9 +181,10 @@ The gateway enforces **one writer per task at a time** with a lease held in the 
 - A later request under a capability with the **same** `writer` continues the session.
 - A request under a different capability for the **same task** (a different `writer`) is refused with
   `409 writer-conflict`. The agent is not the writer; it stops.
-- The lease expires after a bounded interval and is reclaimable by the same writer, so a lost session does not
-  deadlock a task. A lease held by a *different* writer is not reclaimable by the holder of a second
-  capability.
+- The lease expires after a bounded interval. While it is active, a lease held by a *different* writer is not
+  reclaimable by the holder of a second capability. **An expired lease may be taken by any writer** —
+  otherwise a writer that crashed would deadlock its task forever, which is exactly what the expiry
+  exists to prevent.
 
 Because the lease is keyed on the writer identity, a capability that is *stolen* is indistinguishable from the
 original writer. That is what bearer means; it is stated in section 2.2 and is not mitigated by the lease.
@@ -357,8 +358,10 @@ they do not exist.
 |---|---|
 | encoding | percent-encoding, per RFC 3986, applied to the UTF-8 bytes of the value |
 | `+` | a literal plus, **not** a space. A gateway MUST NOT form-decode query values. |
-| `%2C` | a literal comma. The raw query MUST NOT contain an encoded comma, because `files` is comma-separated (section 4.2.7). |
+| `%2C` | a literal comma. It is special only in `files`, where the gateway splits the **raw** value on commas and decodes each element afterwards (section 4.2.7). Everywhere else it decodes to a comma like any other character. |
 | unknown parameters | refused with `400 unknown-parameter`. A gateway MUST NOT ignore a parameter it does not understand: an ignored parameter is how a client ends up believing it set something it did not. |
+| destination parameters | refused with `400 destination-not-selectable`. The parameters that would try to choose the destination — `repo`, `repository`, `branch`, `ref`, `folder`, `dir`, `directory`, `path_prefix`, `submissions_repo`, `submissions_branch`, `task_folder` — get their own code, because an agent that tried one needs to be told that it is not allowed to, not that it spelled something wrong. |
+| missing or malformed values | refused with `400 invalid-parameter`. A required parameter that is absent, and a value that does not have the required form, are both this code. |
 | repeated parameters | refused with `400 repeated-parameter`, except where the parameter is documented as repeatable (none are). |
 
 #### `path` (create, append, replace, read, delete)
@@ -451,12 +454,16 @@ On failure, `result` is `null` and `error` is populated:
 
 Rules:
 
+- `task` and `order` are `null` when the request did not parse far enough to learn them — which
+  happens only on a refusal that precedes the capability being read.
 - `state` is the session state (section 5.2) as of the response.
 - `error.code` is the **authoritative** machine-readable outcome. The HTTP status is a coarse bucket; two
   different codes may share a status. Clients MUST branch on `code`, never on the status alone.
 - `error.message` is a short, fixed, human-readable sentence. It MUST NOT contain the request URL, the query
   string, the capability, the payload, file content, or any provider detail.
 - `error.retryable` is the client's routing hint. It agrees with the catalogue's retryability column.
+- `result.replayed` is `true` when the request was an idempotent replay. The contract's rule is
+  that a replay returns the original outcome, and the flag is how the client tells the two apart.
 - `links.contract` is the **absolute** URL of this document at the serving gateway (section 4.5).
 - `links.help` is present exactly when `error` is present. It is the error catalogue's URL with the error's
   anchor.
@@ -653,7 +660,8 @@ discover → create → append… → read-back → commit → seal
 6. **Commit.** `commit` delivers the selected staged files to the configured branch.
 7. **Seal.** `seal` freezes the folder. Further writes are `410`.
 
-The agent MAY skip `create` and use `replace` on a path that does not exist yet; the gateway creates the file.
+The agent MAY skip `create` and use `append` or `replace` on a path that does not exist yet; the
+gateway creates the file. The two behave the same way, so there is one rule to remember.
 It MUST NOT use `read` on a path it has not written and expect content.
 
 ---
@@ -1221,6 +1229,11 @@ the contract, because it is what makes enumeration impossible.
 Steps 2 to 4 MUST all return the **same status and the same body** (`401`), so a caller who cannot
 authenticate learns nothing at all. The signature check (4) precedes expiry, lifetime and revocation (5 to 7)
 on purpose: a forged capability must not be able to tell "expired" from "revoked" from "sealed".
+
+**The rate limit is not in this table.** It is a resource control, and it runs *before* the ordered
+checks, for the same reason the read gateway's abuse gate runs first: a flood must be bounded before
+any other work is done. A rate-limited request answers `429` with a `Retry-After`, and it is the only
+refusal that is retryable without changing anything.
 
 The health endpoint and the operator channel are outside this table; they have their own authentication.
 

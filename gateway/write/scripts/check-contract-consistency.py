@@ -9,6 +9,7 @@ silently:
   2. the anchor table in protocol.md lists exactly the anchors that exist;
   3. every error code named in protocol.md exists in the error catalogue;
   4. every code in the error catalogue is anchor-linkable, so {base}/contract/ctxwrite-v1/errors#<code> resolves;
+  4b. the catalogue and the code table in src/http/status-codes.ts define the same codes;
   5. the published quota block in quotas-and-type-policy.md equals src/config/quotas.json;
   6. the published type table in quotas-and-type-policy.md equals src/config/type-policy.json;
   7. the agent tool prompt contains no example host and uses the substitution token instead;
@@ -53,6 +54,7 @@ def main():
     published = read(os.path.join(DOCS, "quotas-and-type-policy.md"))
     agents = read(os.path.join(WRITE, "AGENTS.md"))
     prompt = read(os.path.join(DOCS, "proposal", "agent-tool-prompt.md"))
+    status_codes = read(os.path.join(HERE, "..", "src", "http", "status-codes.ts"))
     quotas = json.loads(read(os.path.join(CONFIG, "quotas.json")))
     types = json.loads(read(os.path.join(CONFIG, "type-policy.json")))
 
@@ -85,6 +87,18 @@ def main():
           % ("" if not unknown else " UNKNOWN " + ", ".join(unknown)))
 
     print("4. the catalogue is linkable")
+    # The catalogue and the code table have to agree: a code the gateway can produce but the
+    # catalogue does not document is a code an agent cannot look up.
+    import re as _re
+    documented = set(
+        _re.findall(r'\| <a id="([a-z0-9-]+)"></a>`[a-z0-9-]+` \| \d{3} \|', catalogue)
+    )
+    table = set(_re.findall(r'^  "([a-z0-9-]+)": \{ status: \d+, retryable: (?:true|false) \},$', status_codes, _re.M))
+    check(documented == table,
+          "the catalogue and the code table define the same %d codes" % len(table)
+          if documented == table
+          else "the catalogue and the code table differ: only in the catalogue %s, only in the table %s"
+               % (sorted(documented - table), sorted(table - documented)))
     check(len(codes) >= 30, "the catalogue defines %d anchor-linkable codes" % len(codes))
     for status in ("400", "401", "403", "404", "405", "409", "410", "413", "429", "503"):
         check("| %s |" % status in catalogue, "the catalogue uses status %s" % status)
