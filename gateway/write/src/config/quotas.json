@@ -1,5 +1,7 @@
 {
-  "_note": "The proposal says 240 KB / 12 KB without defining KB. Interpreted as 1024 bytes; confirm before implementing.",
+  "_authority": "This file is the single authoritative source for the write gateway's quota numbers. gateway/write/docs/quotas-and-type-policy.md mirrors it for human readers; the protocol is gateway/write/docs/protocol.md (section 7). Where this file and the document disagree, this file wins.",
+  "_units": "Bytes are authoritative. KiB means 1024 bytes. 245760 bytes = 240 KiB; 12288 bytes = 12 KiB.",
+  "_accounting": "max_files and max_total_bytes count LIVE files and LIVE staged bytes. A tombstone (op=delete) frees a slot and its bytes. Content lost to isolate eviction also frees its bytes, because the bytes are gone; the cumulative bytes ever accepted and the bytes lost are reported separately by op=status.",
   "max_files": 20,
   "max_total_bytes": 245760,
   "max_file_bytes": 12288,
