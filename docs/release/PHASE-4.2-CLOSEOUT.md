@@ -151,7 +151,12 @@ THE SPEC CHANGES IN THIS STAGE AMEND STAGE 4.1
   or how long a link may live. Those are not implementation details: they are the points at which
   two ports could disagree and both be "right". They are now written down, and the harness judges
   the gateway against its DECLARED skew tolerance while separately asserting the policy ceiling, so
-  a gateway cannot pass by claiming a generous tolerance. PR #7 carries the amendment.
+  a gateway cannot pass by claiming a generous tolerance.
+
+  The amendment travels in this stage's own commit (PR #8), not as a separate push to PR #7. PR
+  #7 carries the original scheme and is self-consistent on its own, so there are two clean ways
+  forward: merge PR #7 first and rebase PR #8 onto it, or close PR #7 as superseded by PR #8.
+  Splitting the same change across two open branches would only create a merge to untangle.
 
 WHAT THIS STAGE DOES NOT ESTABLISH
 
