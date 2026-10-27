@@ -12,8 +12,11 @@ check() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else
 must_fail() { local name="$1" want="$2"; shift 2; local out; out="$("$@" 2>&1)"; local rc=$?
   if [[ $rc -ne 0 && "$out" == *"$want"* ]]; then ok "$name"; else bad "$name (rc=$rc, wanted '$want', got: $(echo "$out" | tail -2 | tr '\n' ' '))"; fi; }
 
-# a private copy of the source repo so the test can build two releases
+# a private copy of the source repo so the test can build two releases. The copy is a git checkout
+# because the artifact is built from the tracked file list (Stage 3.1): a release is built from a
+# committed tree, and so is this test.
 mkdir "$T/src"; (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/src" -xf -
+( cd "$T/src" && git init -q && git config user.email test@example.invalid && git config user.name test && git add -A && git commit -qm baseline )
 "$T/src/release/package.sh" "$T/d1" >/dev/null
 V1="$(tr -d ' \n' < "$T/src/VERSION")"
 
@@ -45,8 +48,10 @@ check "--force restores the released file" bash -c "! grep -q 'local tweak' '$C/
 D="$T/adopt"; mkdir "$D"; git -C "$D" init -q; mkdir -p "$D/engine"; echo old > "$D/engine/AGENTS.md"
 must_fail "first install over an existing engine file needs --force" "was not installed by update.sh" bash -c "cd '$D' && bash '$T/update.sh' --from-dir '$T/d1' --version '$V1'"
 
-# second release: bump, add a doc, drop a doc
-( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md )
+# second release: bump, add a doc, drop a doc. The change is committed first: a release is built
+# from a committed tree.
+( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md \
+  && git add -A && git commit -qm "release 0.5.1" )
 "$T/src/release/package.sh" "$T/d2" >/dev/null
 ( cd "$C" && git add -A && git -c user.name=t -c user.email=t@x commit -qm v1 --allow-empty && bash engine/bin/update.sh --from-dir "$T/d2" --version 0.5.1 ) >"$T/o3" 2>&1 && ok "update to the next release" || bad "update: $(tail -3 "$T/o3")"
 check "new file added" test -f "$C/docs/NEW.md"
