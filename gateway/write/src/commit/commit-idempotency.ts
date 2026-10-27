@@ -9,9 +9,11 @@
  * same key and the same digest are the same commit, and the second one replays the first one's
  * outcome. Two commits with the same key and different digests are a conflict.
  *
- * **Stage 5.3** performs the commit; the digest and the store are here in Stage 5.2 because they
- * are session state, and the session has to be able to answer "have I already done this?"
- * before anything is delivered.
+ * The digest was computed in Stage 5.2 because it is session state, and the session has to be
+ * able to answer "have I already done this?" before anything is delivered. Stage 5.3 is what
+ * delivers, and it uses this digest for a second purpose: it identifies the commit attempt that
+ * may be in flight, so that a retry after a crash resolves that attempt instead of starting a
+ * second one.
  */
 import { sha256HexOfText } from "../util/hash.ts";
 import { buildQuery } from "../auth/root-url.ts";

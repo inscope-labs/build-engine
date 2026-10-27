@@ -48,13 +48,33 @@ test("the status in the catalogue is the status in the code table", () => {
 
 test("the retryable codes are the ones that can succeed on a retry", () => {
   // A retry that changes nothing can only succeed for a rate limit and an unavailable state.
+  // The provider's codes are the same two things on the far side: a rate limit that will pass,
+  // and a service that was briefly down. What cannot succeed on a retry is a request that is
+  // wrong, a credential that is wrong, or a branch that has moved.
+  const retryable = new Set([
+    "rate-limited",
+    "state-unavailable",
+    "provider-rate-limited",
+    "provider-unavailable",
+  ]);
   for (const [code, spec] of Object.entries(ERROR_SPECS)) {
     if (spec.retryable) {
       assert.ok(
-        code === "rate-limited" || code === "state-unavailable",
+        retryable.has(code),
         `${code} is marked retryable, but a retry that changes nothing cannot succeed`,
       );
     }
+  }
+  // The codes that must not be retryable, because a retry cannot fix them.
+  for (const code of [
+    "provider-rejected",
+    "provider-credential-invalid",
+    "expected-sha-conflict",
+    "idempotency-conflict",
+    "reconcile-required",
+    "seal-requires-commit",
+  ]) {
+    assert.equal(ERROR_SPECS[code]!.retryable, false, code);
   }
 });
 

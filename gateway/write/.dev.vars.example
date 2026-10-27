@@ -25,6 +25,22 @@ OPERATOR_TOKEN=
 # MAX_TTL_SECONDS=604800
 # LEASE_SECONDS=300
 
+# The provider's base URL. The default is GitHub's own; a different one is legitimate, because
+# GitHub Enterprise Server runs the same API on the operator's own host. Plain HTTP is accepted
+# only for a loopback address, which is what lets the test suite run the real client against a
+# real local server. The default is https://api.github.com.
+# GITHUB_API_BASE=
+
+# The per-call timeout for the provider, in milliseconds. A provider that has not answered in
+# this long is treated as a failure rather than as a wait: an agent left hanging is an agent that
+# will retry into a duplicate commit. The default is 10000, and the bounds are 1000 to 60000.
+# GITHUB_TIMEOUT_MS=
+
+# The commit's author and committer identity, as "Name <email>". The gateway signs as itself and
+# as nobody else, so that a commit it made can be told apart from a commit a person made by
+# hand. The default is "build-engine write gateway <ctxwrite@users.noreply.github.com>".
+# GITHUB_COMMIT_AUTHOR=
+
 # The test clock. A local development convenience ONLY. A production deployment MUST NOT set it:
 # it would let a caller extend the life of an expired capability. The health endpoint reports
 # whether it is engaged.

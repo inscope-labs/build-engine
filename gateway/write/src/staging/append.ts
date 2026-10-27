@@ -7,7 +7,7 @@
  * The write is idempotent: a repeated `(path, seq, hash)` is a replay and returns the original
  * outcome without changing anything. A different hash at an old sequence number is a conflict.
  */
-import { checkType } from "../policy/type-policy.ts";
+import { checkType, typeFailureCode } from "../policy/type-policy.ts";
 import { decideSequence, pushIdentity } from "../session/sequence.ts";
 import { setFileBytes } from "../session/quota-accounting.ts";
 import { scaffold } from "./scaffold.ts";
@@ -70,7 +70,7 @@ export async function writeChunk(
     if (typeCheck.reason === "file-too-large") {
       return { ok: false, code: "file-too-large", message: "the file would be too large" };
     }
-    return { ok: false, code: typeCheck.reason, message: describeTypeFailure(typeCheck.reason) };
+    return { ok: false, code: typeFailureCode(typeCheck.reason), message: describeTypeFailure(typeCheck.reason) };
   }
 
   const entry = ctx.files[path]!;

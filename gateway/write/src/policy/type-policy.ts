@@ -106,6 +106,38 @@ export function checkType(path: string, content: Uint8Array, explicitType?: stri
 }
 
 /**
+ * The catalogue code for a policy failure.
+ *
+ * **F0-034.** The policy's own reasons are not catalogue codes. `denied-name`, `denied-extension`
+ * and `binary` are three names the policy uses, and they are not in the error catalogue, so a
+ * caller that was sent one of them got a code the gateway does not define — and an undefined code
+ * is a 500, because `errorSpec` treats an unknown code as a server fault. A client that appended
+ * to a file whose name the policy denies was told the *gateway* had failed, when the *request* was
+ * what the policy refused.
+ *
+ * The mapping is here, in the policy that produces the reasons, because the policy is what knows
+ * what its reasons mean. The caller must never pass a reason through as a code.
+ */
+export function typeFailureCode(reason: TypeFailure): string {
+  switch (reason) {
+    case "type-not-allowed":
+    case "denied-name":
+    case "denied-extension":
+      return "type-not-allowed";
+    case "type-mismatch":
+      return "type-mismatch";
+    case "not-utf8":
+      return "not-utf8";
+    case "binary":
+      return "not-text";
+    case "empty-not-allowed":
+      return "empty-not-allowed";
+    case "file-too-large":
+      return "file-too-large";
+  }
+}
+
+/**
  * Every extension the policy allows, sorted.
  *
  * The refusal for a disallowed type names these, because an agent that cannot write `.md` needs

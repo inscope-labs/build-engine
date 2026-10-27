@@ -52,7 +52,10 @@ export function authorizeCapability(
 export function authorizeSession(state: SessionState, operation: Operation): GatewayError | null {
   if (state === "revoked") return fail("task-revoked", "the task was revoked by the operator");
   if (state === "closed") return fail("order-closed", "the work order was closed by the operator");
-  if (state === "sealed" && operation !== "index") {
+  // A repeated seal is not an error: the contract says a seal returns the recorded outcome, and
+  // the agent that lost a seal's response has to be able to find out that the seal happened
+  // (protocol section 8.4). Every other operation on a sealed task is refused.
+  if (state === "sealed" && operation !== "index" && operation !== "seal") {
     return fail("task-sealed", "the task is sealed; its folder is frozen");
   }
   return null;

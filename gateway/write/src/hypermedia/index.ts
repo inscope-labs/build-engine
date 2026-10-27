@@ -41,10 +41,11 @@ export interface IndexContext {
  * error and is caught by the environment validation, not here.
  */
 export function resolveFolder(template: string, plan: string, order: string, task: string): string {
-  return template
-    .replace(/\{plan\}/g, plan)
-    .replace(/\{order\}/g, order)
-    .replace(/\{task\}/g, task);
+  // One pass. Three passes would let a value be substituted twice: a task named `{order}` would
+  // be replaced again by the second pass, and the folder would not be the folder the operator
+  // configured.
+  const values: Record<string, string> = { plan, order, task };
+  return template.replace(/\{(plan|order|task)\}/g, (_match, name: string) => values[name] ?? "");
 }
 
 /**

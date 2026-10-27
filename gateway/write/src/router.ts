@@ -199,6 +199,8 @@ async function handleCapability(input: RouterInput, base: string, now: number): 
   });
   const response = jsonResponse(requestId, status, body);
 
+  // The audit record is a fixed schema. The session says which of the extra fields may be
+  // written, and only those are copied: nothing from the result is merged in wholesale.
   audit({
     ts: now,
     status,
@@ -208,6 +210,9 @@ async function handleCapability(input: RouterInput, base: string, now: number): 
     order: capability.order,
     task: capability.task,
     writer: capability.writer,
+    ...(outcome.audit?.commit !== undefined ? { commit: outcome.audit.commit } : {}),
+    ...(outcome.audit?.files !== undefined ? { files: outcome.audit.files } : {}),
+    ...(outcome.audit?.selection !== undefined ? { selection: outcome.audit.selection } : {}),
     request_id: requestId,
   });
   count(counters, {

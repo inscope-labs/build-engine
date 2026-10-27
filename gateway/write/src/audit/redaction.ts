@@ -69,6 +69,21 @@ export interface AuditFields {
   files?: number | undefined;
   /** Whether the request was an idempotent replay. */
   replayed?: boolean | undefined;
+  /**
+   * The commit sha, when the request made one.
+   *
+   * A sha is not a secret: it is the name of a commit in a repository the operator already has.
+   * It is the one thing an operator needs to look a commit up by, so it is in the record.
+   */
+  commit?: string | undefined;
+  /**
+   * A digest of the commit's selection.
+   *
+   * The selection's *paths* are not in the record — a record that lists the agent's file names is
+   * a record of the agent's content. The digest identifies the selection without naming it, so
+   * two commits can be compared and one can be correlated with the commit record.
+   */
+  selection?: string | undefined;
   /** The request id, which is also returned in the `X-Request-Id` header. */
   request_id: string;
 }
@@ -95,6 +110,8 @@ export function auditRecord(fields: AuditFields): Record<string, unknown> {
   if (fields.bytes !== undefined) record.bytes = fields.bytes;
   if (fields.files !== undefined) record.files = fields.files;
   if (fields.replayed !== undefined) record.replayed = fields.replayed;
+  if (fields.commit !== undefined) record.commit = fields.commit;
+  if (fields.selection !== undefined) record.selection = fields.selection;
   for (const key of Object.keys(record)) {
     const value = record[key];
     if (typeof value === "string") record[key] = redactText(value);
