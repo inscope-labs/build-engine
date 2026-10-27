@@ -45,6 +45,24 @@ the section of the contract that states the rule, and the contract is where the 
 Of the thirty requirements above, the ones that belong to the core request and session lifecycle are
 implemented and tested. The rest are Stage 5.3, 5.4 or 5.5.
 
+## What Stage 5.3 implemented
+
+The delivery. These are the requirements the commit path owns.
+
+| # | Requirement | Stage 5.3 |
+|---|---|---|
+| 8 | the task folder is derived, never supplied | implemented: the folder comes from the template and the signed ids, and the commit resolves every selected path **inside** it; a path that would resolve outside is refused |
+| 12 | the agent never holds a repository credential | implemented: the credential is a Worker secret, read by the Durable Object at the point of use and never written into a response, a log line or an audit record |
+| 13 | the credential is scoped to the submissions repository | implemented in the code: the client has no parameter that could name another repository or another branch. The **scope of the token itself** is still the operator's, and `scripts/check-token-scope.ts` is Stage 5.5 |
+| 15 | the gateway never creates or merges anything | implemented and tested: the client has no method that creates a repository, a branch or a folder, merges, opens a pull request, deletes, or force-pushes. The ref update is `force: false` |
+| 16 | the commit parent is the expected head | implemented and tested: the branch head is read before anything is created and compared with the capability's `head`; a moved branch is `409 expected-sha-conflict` |
+| 20 | no response body contains the capability, the query, the payload or the credential | implemented: the provider's status and body are never read, and the gateway's own codes replace them |
+| 22 | the audit record is built field by field from a fixed schema | implemented: the commit's sha and the digest of its selection are two named fields; the selected **paths** are not in the audit record, only in the session's commit record |
+| 29 | the gateway never echoes a provider's error body | implemented and tested: the provider's body is never read, and the client asserts that its error message does not quote it |
+| — | the gateway never guesses whether a commit happened | implemented and tested: a delivery whose outcome is unknown is resolved by **looking at the branch**, and the answer is `409 reconcile-required` — never a second commit |
+| — | the commit writes only the selected files | implemented and tested: the tree is the base tree plus the selected files, and the rest of the repository is carried over untouched |
+| — | the folder is not created by the gateway | implemented and tested: the commit walks the tree to the task folder first, and refuses with `404 task-folder-missing` when it is not there |
+
 | # | Requirement | Stage 5.2 |
 |---|---|---|
 | 1 | the root URL is a bearer capability | implemented and documented |
@@ -97,5 +115,6 @@ implemented and tested. The rest are Stage 5.3, 5.4 or 5.5.
 
 ## Not implemented
 
-None of the rows above are currently enforced by code. The Worker answers `501` to every request. This list is
+The rows that Stage 5.4 and Stage 5.5 own are not yet enforced by code. The Worker answers `501` to
+nothing; every route in the contract either works or answers with a documented error. This list is
 the specification the Stage 5.5 suite and the Stage 6 sign-off will be written against.

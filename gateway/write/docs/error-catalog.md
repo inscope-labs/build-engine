@@ -8,8 +8,9 @@ The protocol itself is `ctxwrite-v1`, specified in `gateway/write/docs/protocol.
 that one disagree, that one is the contract and this one is a defect — but they are expected not to disagree,
 because the contract's error handling is stated in terms of the codes defined here.
 
-**No code in this catalogue is implemented.** The gateway answers `501` to every request. This is the
-specification the Stage 5.2 and 5.4 implementations must satisfy.
+**Every code in this catalogue is implemented except the ones marked otherwise.** The catalogue is the
+specification *and* the description of what the gateway does; the code table in
+`src/http/status-codes.ts` is its machine-readable form, and a test checks that the two agree.
 
 ## How to read this
 
@@ -133,6 +134,18 @@ The three closed states are distinct, because the operator's response to each is
 | Code | Status | Retryable | Means | Do |
 |---|---|---|---|---|
 | <a id="rate-limited"></a>`rate-limited` | 429 | yes, after `Retry-After` | too many requests in the rate window | wait for the `Retry-After` seconds, then retry |
+| <a id="provider-rate-limited"></a>`provider-rate-limited` | 429 | yes, with backoff | the **provider** is rate limiting the gateway, not the agent | wait and retry; the gateway's own limit is not the thing that was hit |
+
+### 502 — the provider refused
+
+The gateway reached the provider and the provider said no. These are not the gateway's own failures, and the
+distinction is the operator's first question: a `502` means the gateway is healthy and the far side is not
+answering, or is answering wrongly.
+
+| Code | Status | Retryable | Means | Do |
+|---|---|---|---|---|
+| <a id="provider-rejected"></a>`provider-rejected` | 502 | no | the provider refused the request in a way the gateway cannot map more precisely | ask the operator; the provider's own answer is never shown to the agent |
+| <a id="provider-credential-invalid"></a>`provider-credential-invalid` | 502 | no | the provider refused the gateway's credential | ask the operator; the credential has to be fixed, and a retry cannot fix it |
 
 ### 503 — the gateway cannot serve the request
 
@@ -140,6 +153,7 @@ The three closed states are distinct, because the operator's response to each is
 |---|---|---|---|---|
 | <a id="gateway-misconfigured"></a>`gateway-misconfigured` | 503 | no, until the operator fixes it | the gateway's configuration is missing or invalid; it has failed closed and served nothing | ask the operator; the message names the setting, and never a secret |
 | <a id="state-unavailable"></a>`state-unavailable` | 503 | yes, with backoff | the Durable Object could not be reached or read | retry with backoff; if it persists, ask the operator |
+| <a id="provider-unavailable"></a>`provider-unavailable` | 503 | yes, with backoff | the provider did not complete the request: a timeout, a network failure, or a 5xx it retried | retry with backoff; if it persists, ask the operator |
 
 `state-unavailable` is the read gateway's fail-closed behaviour applied to the write gateway: when the state
 channel cannot be read, the gateway **fails closed** and serves nothing. It never falls back to "allow".

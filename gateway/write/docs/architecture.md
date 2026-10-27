@@ -3,19 +3,19 @@
 **Status: design, not normative.** This document describes the *shape* of the write gateway: the components,
 the request flow, the Durable Object coordination model, and which source module owns which rule.
 
-**Stage 5.2 implemented the core.** The components, the request flow and the coordination model below are what
-the code does. The GitHub delivery is Stage 5.3 and is not implemented; the `commit` route answers the
-documented `501 not-implemented`.
+**Stage 5.3 implemented the delivery.** The components, the request flow and the coordination model below are what
+the code does. The `commit` route delivers to the provider; the audit stream and the operator procedures are
+Stage 5.4, and the remaining chaos tests and the CI wiring are Stage 5.5.
 
 **The normative contract is `ctxwrite-v1`**, in [`protocol.md`](protocol.md). The error semantics are in
 [`error-catalog.md`](error-catalog.md); the limits are in `src/config/quotas.json` and
 `src/config/type-policy.json`. Where this document and the contract disagree, the contract wins and this
 document is a defect. This document deliberately does not restate the rules.
 
-**The core is implemented (Stage 5.2).** The Worker answers `501` to nothing except the `commit` route, whose
-delivery is Stage 5.3. 171 tests pass against the real Worker and the real Durable Object. Stage 5.1 wrote the
-contract, Stage 5.2 the core, Stage 5.3 the commit path, Stage 5.4 the audit and operations, Stage 5.5 the
-remaining test suite and the CI wiring.
+**The core and the delivery are implemented (Stages 5.2 and 5.3).** The Worker answers `501` to nothing: every
+route in the contract either works or answers with a documented error. 222 tests pass against the real Worker,
+the real Durable Object and the real provider client. Stage 5.1 wrote the contract, Stage 5.2 the core, Stage 5.3
+the commit path, Stage 5.4 the audit and operations, Stage 5.5 the remaining test suite and the CI wiring.
 
 ---
 
@@ -39,9 +39,24 @@ chunk. `TaskSession` therefore holds a request queue, and every internal route r
 makes the session's state transitions atomic, which is what the contract's sequence, quota and lease rules
 assume. It was found by the concurrency test, and it is register entry F0-033.
 
-The Worker holds the GitHub credential. The Durable Object does not need to: the Worker performs the commit
-using the credential and passes the result back. The split keeps the credential out of the state store, which
-matters because the state store is durable and the credential must never be (ADR 0001, ADR 0002).
+**The Durable Object performs the commit, not the Worker.** This is a change from the Stage 5.1 sketch, and it
+is the one that matters most in this document.
+
+The sketch had the Worker make the GitHub call and pass the result back to the Durable Object to record. That
+leaves a window: the commit has landed on the branch, and the session has not yet recorded it. A crash in that
+window, or a failure to reach the Durable Object, means the next attempt does not know that the commit
+happened — and the expected-SHA precondition, which is the thing that stops a duplicate, cannot tell the
+difference between "my commit never landed" and "my commit landed and I did not write it down".
+
+So the delivery happens **inside** the Durable Object, in the same serialised handler that writes the session's
+state. The commit's outcome and the state that records it change together, or not at all. The cost is that a
+provider call holds the session's request queue for the length of that call, which is bounded by the provider
+timeout and is the right trade for a task that has one writer.
+
+The credential is not in the state store, and it is not in a response. The Durable Object reads it from its own
+environment at the point of use, and the state store never holds it (ADR 0001, ADR 0002). The Durable Object and
+the Worker read the **same** environment, so there is one authority for the configuration and not two that can
+disagree.
 
 ## 2. Request flow
 
@@ -66,14 +81,16 @@ The commit path differs only in steps 5 and 6:
 ```
      │ GET {root}/commit?files=…     │                            │                    │
      ├─────────────────────────────▶│ 1-4 as above               │                    │
-     │                              │ 5. validate selection      │                    │
-     │                              │ 6. check branch head       │───────────────────▶│
-     │                              │ 7. commit one commit       │                    │
-     │                              │◀───────────────────────────────────────────────┤
-     │                              │ 8. record commit (durable) │                    │
      │                              ├───────────────────────────▶│                    │
+     │                              │                            │ 5. validate sel.  │
+     │                              │                            │ 6. check head    │
+     │                              │                            │──objects────────▶│
+     │                              │                            │ 7. one commit    │
+     │                              │                            │──move branch────▶│
+     │                              │                            │ 8. record it     │
+     │                              │◀───────────────────────────┤ (durable)        │
      │◀─────────────────────────────┤ 9. envelope + links        │                    │
-```
+
 
 Two properties of this flow are worth stating, because they are the ones that are easy to get wrong:
 
@@ -126,18 +143,29 @@ One writer per task, held as a lease with an expiry:
 The lease duration is an open item: it must be long enough for a slow agent to finish a chunk and short enough
 that a crashed session is recovered in reasonable time.
 
-### The commit record
+### The commit record, and the in-flight entry
 
 The commit record is the one piece of state that makes the whole idempotency story work. It is written
 **after** the GitHub commit succeeds, and it is written **before** the response is sent. If the response is
 lost, the retry finds the record, matches the idempotency key, and returns the recorded success instead of
-committing again. If the commit outcome itself is indeterminate, the record is written as indeterminate and the
-gateway answers `409 reconcile-required` — a human, not a retry, resolves it.
+committing again.
+
+There is a second piece of state, and it exists because of the window described above. An **in-flight entry** is
+written *before* the branch is moved, and it is removed once the commit is recorded. If it is still there, the
+last attempt did not finish, and the next attempt has to **resolve** it rather than start again: the commit
+object may exist, and the branch may or may not point at it. The entry records the commit's sha (once the
+object exists) and the timestamp the commit was made with, so that a repeated attempt produces the *same*
+commit object and the delivery is idempotent at the provider too.
+
+The delivery itself is what resolves it. If the branch is at the commit, it landed. If the branch is still at
+the expected head, it did not, and the update is repeated. If the branch is somewhere else, the outcome cannot
+be told apart, and the gateway answers `409 reconcile-required` — a human, not a retry, resolves it. The gateway
+never issues a second commit to find out.
 
 ## 4. Module map
 
-The source tree already exists (`src/`, 48 files) as stubs. This is which module owns which part of the
-contract, so that Stage 5.2 and 5.3 have an assignment rather than a blank page.
+The source tree is 52 files, and none of them is a stub. This is which module owns which part of the
+contract.
 
 | Module | Owns | Contract section |
 |---|---|---|
@@ -160,7 +188,10 @@ contract, so that Stage 5.2 and 5.3 have an assignment rather than a blank page.
 | `src/session/*` | the Durable Object control plane | 5.2, 6 |
 | `src/staging/*` | the data plane | 5.3, 6 |
 | `src/commit/commit-idempotency.ts` | the commit's idempotency digest | 6.3 |
-| `src/commit/*` (the rest) | the GitHub client, the selection, the retry policy — **Stage 5.3** | 8 |
+| `src/commit/github-client.ts` | the fixed-destination provider client | 8.1, 12.1 |
+| `src/commit/selection.ts` | the selection rules | 8.2 |
+| `src/commit/retry.ts` | the provider's failures and the retry policy | 8.1 |
+| `src/commit/commit.ts` | the commit itself, in two steps | 8.1 |
 | `src/seal/seal.ts` | the seal transition | 8.4 |
 | `src/audit/logger.ts`, `src/audit/metrics.ts`, `src/audit/redaction.ts` | the audit record | 11 |
 | `src/http/contract.ts` | the contract documents, served as text | 4.5 |
@@ -175,6 +206,9 @@ Everything that names a destination is configuration, read at deploy time, and n
 | the signing keys, as a map of kid to secret | 3.3 |
 | `SUBMISSIONS_REPO`, `SUBMISSIONS_BRANCH`, `SUBMISSIONS_FOLDER_TEMPLATE` | 12.2 |
 | `GITHUB_TOKEN` | 12.1 |
+| `GITHUB_API_BASE` | 12.2 — the provider's base URL; HTTPS, or loopback for a local test |
+| `GITHUB_TIMEOUT_MS` | 12.1 — the per-call timeout for the provider |
+| `GITHUB_COMMIT_AUTHOR` | 8.3 — the commit's author identity, `Name <email>` |
 | `OPERATOR_TOKEN` | 10.4 |
 | the quota and type policy files | 7 |
 | `max_ttl` | 3.4 |
@@ -189,5 +223,10 @@ inherits it.
 - The **submissions-to-consumer transfer path** and the **pre-creation tooling** are register entry R0-011 and
   are not designed.
 - The gateway's **name** is open.
+- The **commit's author identity** is open: it defaults to the gateway's own, and `GITHUB_COMMIT_AUTHOR`
+  changes it. The operator may want the identity to name a person or a team.
+- **One commit per capability** is a consequence of the expected-SHA precondition rather than a rule of its
+  own, and the workflow it implies is open: a task that needs two commits needs two capabilities, and the
+  operator may prefer to mint a fresh capability per commit.
 - The **deployment** is Stage 4/5.4.6: the configuration in `wrangler.toml` still carries the scaffold's
   placeholders, and the contract's section 12.5 states what they must become.
