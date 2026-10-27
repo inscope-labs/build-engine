@@ -148,6 +148,11 @@ THE EVIDENCE
   grep -rn "example\.com\|https://example/" gateway/write/
       (no output)
 
+  GitHub Actions, run 40477006352 on this branch's head:
+      ci: completed / success
+        test:                              completed / success
+        write gateway (typecheck + bundle): completed / success
+
 WHAT THIS STAGE DELIBERATELY DID NOT DO
 
   - It did not implement a route. The Worker still answers 501. Every "DONE" above means *specified*,
