@@ -147,6 +147,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Owner: operator (decision), implementation. Planned phase: decision in Phase 2.4 planning; implementation 2.4 and 3.1.2.
 - Closure evidence: no two manifest paths equal under case folding; update test covers migration.
 - **Closed (2026-10-28):** the operator decided managed `engine/release.json` (renamed from `ENGINE.json`) and seed `engine/engine.json`. No two manifest paths differ only by case any more; a guard test in `release/test-release.sh` keeps it that way. Nothing had been released, so no consumer migration was needed.
+- Defence in depth (Phase 2.4): `update.sh` also refuses any future release whose paths differ only by case when the filesystem ignores case, so nothing could be silently overwritten (tested with a simulation hook).
 
 ### F0-014 — Shipped shell tooling requires bash 4+ and GNU tools, but the draft contract named macOS as a primary target
 - Severity: S2. Status: CONFIRMED by source; not executed on macOS.
@@ -156,6 +157,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: state the requirement (bash >= 4, GNU coreutils/tar) and add a preflight check with a clear error so unsupported shells fail clearly.
 - Owner: operator (environment decision), implementation. Planned phase: Phase 1.1 contract (this PR), Phase 2.4 preflight.
 - Closure evidence: preflight test on an older-bash stub; docs state the requirement.
+- **Updater part closed in Phase 2.4** (`PHASE-2.4-REPORT.md`): `update.sh` checks for bash 4.4+ and every required tool before doing anything and fails with a clear message; macOS is documented as not supported. `release/package.sh` still needs GNU `tar` (Phase 3).
 
 ### F0-015 — `update.sh` is not transactional
 - Severity: S2. Status: CONFIRMED by source; interruption not executed.
@@ -163,6 +165,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Consequence: recoverability gap; the operator would be pushed to `--force`. Stage 2.4.7 requires all-or-nothing behaviour or a staged backup/rollback.
 - Owner: implementation. Planned phase: Phase 2.4 - 2.4.4, 2.4.5, 2.4.7.
 - Closure evidence: interrupted-update test that recovers without `--force`.
+- **Closed in Phase 2.4:** `update.sh` stages new files and backs up every changed file in `.build-engine.txn/` before touching the tree, swaps files atomically, writes the lock last, and rolls back on failure. A hard kill is recovered automatically on the next run. Proven by interruption tests after every step and by SIGKILL tests (`tests/test_update_hardening.sh`).
 
 ### F0-016 — Path checks use the substring glob `*..*` (confirms R0-001)
 - Severity: S3 (latent: no current file name contains `..`). Status: CONFIRMED (executed).
@@ -171,6 +174,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: reject only a `..` path component (split on `/`), keep rejecting real traversal; add positive and negative tests.
 - Owner: implementation. Planned phase: Phase 3 - 3.2.2, 3.4.2; and 2.4 for `update.sh`.
 - Closure evidence: safe `a..b` name accepted; `../x` and `a/../b` rejected, in all three scripts.
+- **`update.sh` part closed in Phase 2.4:** paths are validated by character set and by component (`.`/`..`/empty rejected), so `a..b` is accepted and `../x`, `a/./b`, absolute and backslash paths are rejected. `package.sh` and `verify.sh` still use the substring glob (Phase 3.2.2).
 
 ### F0-017 — Checksum sidecar proves integrity, not authenticity or provenance
 - Severity: S3. Status: CONFIRMED by design (source).
@@ -272,6 +276,49 @@ IDs F0-050 onward, to avoid collisions with parallel branches. Every item was re
 ### R0-020 — Path normalisation (Unicode form, case) is not specified for links
 - Severity: S3; Status: OPEN, owned by the conformance vectors (Stage 4.1). The signing test now compares against an independent implementation for spaces, accents, `%`, `+`, `?`, `#`, emoji and 20-level paths and agrees.
 
+## A3. Additional confirmed findings (Stage 2.4 install/update audit, 2026-10-26)
+
+IDs F0-040 onward are used here to avoid collisions with entries added by parallel branches. Evidence: the new `tests/test_update_hardening.sh` run against the previous `update.sh` failed 58 of 147 checks; the items below are the ones demonstrated by execution.
+
+### F0-040 — The updater wrote through a symlinked managed directory, outside the repository
+- Severity: S1. Status: CONFIRMED (executed) and CLOSED in Phase 2.4.
+- Evidence: with `docs` a symlink to a directory outside the repository, the previous `update.sh` installed 10 files into that outside directory.
+- Resolution: managed and seed paths, and every directory component, are checked before any change; symlinks, directories where files belong and files where directories belong are refused, even with `--force`.
+
+### F0-041 — An artifact whose contents are a different version than requested was accepted
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: a 0.5.1 artifact packaged as `v0.5.9` installed, recorded `version=0.5.9` in the lock while `engine/VERSION` said 0.5.1.
+- Resolution: the artifact's `engine/VERSION` must equal the requested version.
+
+### F0-042 — Release manifests and archives were validated too loosely
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: unknown modes, duplicate paths, `a/./b`, backslash paths, short or uppercase hashes and an empty manifest were all accepted by the previous updater.
+- Resolution: strict manifest parsing (64 lowercase hex, mode `managed` or `seed`, safe unique paths, non-empty), plus the existing non-regular-entry and unlisted-file checks, all tested with crafted archives.
+
+### F0-043 — A damaged lock file caused a cryptic shell error instead of a clear refusal
+- Severity: S3. Status: CONFIRMED (executed) and CLOSED.
+- Resolution: the lock is parsed strictly; any damage stops the run before changes, with recovery instructions. Seven damage variants are tested.
+
+### F0-044 — Pruning removed the consumer's `plans/` directory
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: a release that drops `plans/README.md` made the previous updater remove an otherwise empty `plans/` through `rmdir -p`.
+- Resolution: only nested directories (depth 2 or more) that release files emptied are pruned.
+
+### F0-045 — Option values were not validated
+- Severity: S3. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: `--repo --web`, `--repo a/b/c`, `--repo '../x'` and an empty `--version` were accepted or produced raw shell errors.
+- Resolution: `--repo` must be `OWNER/NAME`; empty or missing option values report "needs a value".
+
+### R0-016 — Residual risks of the updater transaction
+- Severity: S3; Status: ACCEPTED, documented. After a hard kill, `.build-engine.txn/` stays in the working tree (untracked) until the next run recovers it, so it must not be committed; the live-process check uses the saved process id and can be wrong across PID namespaces; the bash 4.4+ requirement is tested on this environment's bash only.
+- Planned phase: Stage 3.3 (CI matrix) for the bash versions; documented in the README.
+
+### R0-017 — `tests/test_cbridge.sh` (Stage 2.3) is not run by CI
+- Severity: S2; Status: CONFIRMED (source: neither `.github/workflows/ci.yml` nor `release.yml` mentions it).
+- Evidence: the 36-check operator-bridge suite added in Stage 2.3 exists but no workflow executes it, so a regression in `cbridge` would not turn CI red. (In an environment without `jq`, 8 of its checks fail identically on pristine `main`; that is an environment gap, not a defect.)
+- Required action: run it from `tests/test_update.sh` (as done for the updater hardening suite) or add a CI step; make its `jq` dependency explicit in the CI job.
+- Owner: implementation. Planned phase: Stage 3.3.1 / 3.4.3.
+
 ## B. Risks and verification gaps (not proven defects)
 
 ### R0-001 — Path validation may reject safe names containing `..`
@@ -330,12 +377,14 @@ IDs F0-050 onward, to avoid collisions with parallel branches. Every item was re
 - Evidence: `update.sh` records `LOCK_VERSION` but never compares it with the target version.
 - Required action: refuse or warn on a lower version unless a flag is passed; add a test.
 - Planned phase: Phase 2.4 (2.4.5 "wrong version").
+- **Closed in Phase 2.4:** a downgrade is refused unless `--allow-downgrade` is passed (tested).
 
 ### R0-010 — Updater path handling around symlinks and empty parents
 - Severity: S3; Status: RISK TO TEST (source only).
 - Evidence: `cp -p` writes through a symlinked destination directory; `rmdir -p` removes empty ancestor directories of dropped files, which may include consumer-owned empty directories.
 - Required action: refuse symlinked managed paths; remove only directories the lock file recorded.
 - Planned phase: Phase 2.4 (2.4.2, 2.4.5).
+- **Closed in Phase 2.4:** any managed path through a symlink, over a directory, or under a non-directory is refused before any change (even with `--force`); only nested directories that release files emptied are pruned, never top-level ones such as `plans/`.
 
 ## C. Release scope classification — proposed for operator approval
 
@@ -387,7 +436,8 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-006 | Phase 6 | Real pilot |
 | F0-008 | This PR + 3.3.1/3.4.3 | Fix now, guard later |
 | F0-010 to F0-012, F0-016, F0-017, F0-023 | Phase 3 | Packaging, verify, workflow |
-| F0-013, F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Install/update (F0-013/F0-014 need operator decisions) |
+| F0-013, F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Closed except F0-013 (rename pending operator's name) and `package.sh` GNU tar (Phase 3) |
+| F0-040 to F0-045, R0-016 | Phase 2.4 | Closed; R0-016 accepted |
 | F0-018 | Phase 2.3 / 3.1.4 | Modes |
 | F0-019 | Phase 2.1.3-2.1.4 | Documentation |
 | F0-020 | Phase 1.1 (this PR) | Needs operator approval |
