@@ -40,9 +40,9 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | `manifest.txt` | Allowlist (`managed` / `seed`) relative to `template/` |
 | `forbidden.txt` | Path and content deny rules (gateway, credentials, Worker artefacts, etc.) |
 | `package.sh` | Expand the allowlist over the tracked files → stage → deterministic tarball + SHA-256; refuses a dirty tree, a bad manifest line, a symlink, a generated file, and an output directory inside the packaged tree (Stage 3.1) |
-| `verify.sh` | Independent inspection of finished artefact (checksum, safety, allowlist, forbidden, version agreement, payload tests); `--release` gate |
+| `verify.sh` | Independent inspection of finished artefact (checksum binding, archive safety, allowlist, forbidden, release-manifest and version agreement, payload parses); `--release` gate. The payload's own tests run only with `--test-payload` (Stage 3.2) |
 | `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `template/engine/release.json` |
-| `test-release.sh` | Self-test proving clean packaging succeeds and each failure mode is detected |
+| `test-release.sh` | Self-test proving clean packaging succeeds and each failure mode is detected (85 checks) |
 
 ### 3. Shipped product (`template/` — maps 1:1 onto consumer root)
 

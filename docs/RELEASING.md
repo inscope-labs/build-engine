@@ -45,4 +45,25 @@ The artifact is deterministic: modes are normalised (0644, or 0755 for a file wh
 mtime, owner and member order are fixed, and the gzip header carries no name or timestamp. The same commit therefore
 produces byte-identical artifacts, whatever the builder's umask and whatever the checkout's file modes are.
 
-`release/verify.sh` then inspects the finished artifact independently. It never trusts how it was built.
+`release/verify.sh` then inspects the finished artifact independently. It never trusts how it was built, and it never
+runs the artifact's code.
+
+```
+release/verify.sh ARTIFACT.tar.gz                    # static checks only
+release/verify.sh ARTIFACT.tar.gz --release          # the release gate
+release/verify.sh ARTIFACT.tar.gz --test-payload     # ...and the payload's own test suite
+```
+
+The default invocation reads the artifact and the two policy files (`release/manifest.txt`, `release/forbidden.txt`)
+and nothing else. It refuses a missing or misdirected checksum, an unreadable or truncated archive, an entry that is
+not a regular file, an unsafe or duplicated member name, a file outside the allowlist, anything the forbidden rules
+forbid, a release manifest that does not describe exactly the files in the artifact, and a version disagreement.
+
+`--test-payload` is the one step that executes code from the artifact: it runs the payload's own test suite. The build
+side (CI and the release workflow) passes it, because it built the artifact itself in the same job. **Whoever
+downloads an artifact does not get it** - verification of a downloaded artifact is static, and the payload's code
+never runs on the verifier's machine.
+
+Paths are checked component by component in all three places that look at them: the packer, the verifier and the
+shipped `engine/bin/update.sh`. A file name that merely contains two dots (`notes..v2.md`) is safe; a `..` path
+component is refused.

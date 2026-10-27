@@ -19,3 +19,8 @@
   packaged tree. The same commit builds byte-identical artifacts whatever the builder's umask is. The managed engine
   metadata was renamed from `engine/ENGINE.json` to `engine/release.json` (nothing has been released, so no consumer
   migration is needed).
+- Verification is independent and static: `release/verify.sh` no longer runs the artifact's code. The payload's own
+  test suite is a separate, explicit step (`--test-payload`) that the build side opts into. The verifier now refuses a
+  checksum sidecar that describes another file, a duplicate archive member, a release manifest that contradicts
+  itself, an allowlist that contradicts itself, and a gateway copy that has been renamed or indented. Paths are
+  checked component by component, so a file name that contains two dots is no longer rejected.
