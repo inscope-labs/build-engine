@@ -518,7 +518,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-006 | Phase 6 | Real pilot |
 | F0-008 | This PR + 3.3.1/3.4.3 | Fix now, guard later |
 | F0-010, F0-017, F0-023 | Phase 3 | F0-010 **closed in Stage 3.2**; F0-017 and F0-023 stay (3.3.3-3.3.8) |
-| F0-016 | Phase 3 - **closed in Stage 2.2** | The path check is component-wise in the packer, the verifier and the shipped updater |
+| F0-016 | Phase 3 - **closed in Stage 3.2** | The path check is component-wise in the packer, the verifier and the shipped updater |
 | F0-011, F0-012, F0-013, F0-018 | Phase 3 - **closed in Stage 3.1** | Packaging: tracked sources, normalised modes, case-fold rule, shipped modes. F0-013's verification half stays in 3.2.3; F0-018's documentation half in 2.1.3 |
 | F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Install/update (F0-014 needs an operator decision) |
 | F0-036 to F0-039 | Phase 3 - **Stage 3.1** | Found and closed in Stage 3.1: dead duplicate check, partial artifact, output inside the packaged tree, silently dropped generated file |
