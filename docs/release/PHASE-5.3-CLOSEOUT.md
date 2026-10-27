@@ -183,6 +183,14 @@ VERIFICATION, AS EXECUTED
     OK: the contract documents agree
     (the catalogue and the code table define the same 44 codes)
 
+  GitHub Actions, run 40486013345 on this branch's head:
+      ci: completed / success
+        test:                              completed / success
+        write gateway (typecheck, tests + bundle): completed / success
+          npm run typecheck                                                     -> success
+          Unit, integration and load tests (the real Worker and the real DO)  -> success
+          Bundle dry run                                                       -> success
+
   The repository baseline, re-run on this branch:
     python3 -m unittest discover -s template/engine/tools      Ran 79 tests — OK
     python3 -m unittest discover -s gateway/read/reference     Ran 15 tests — OK
