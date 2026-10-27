@@ -7,13 +7,13 @@ Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the ful
 **Conclusion.** The consumer artifact (template, packaging, verification, install/update) is implemented, tested and passing in CI, with hardening items open in Phases 2 and 3. The first release additionally requires the Class B read and write gateways, which are not complete, so **0.5.0 cannot be released yet**. Blockers, in order:
 
 1. Production read gateway: not started (Phase 4). Conformance vectors are empty and the harness is not built (Phase 4.1).
-2. Write gateway: scaffold only; 46 of 48 source files and all 32 test files are stubs and the Worker answers 501 (Phase 5).
+2. Write gateway: scaffold only; 46 of 48 source files and all 32 test files are stubs and the Worker answers 501 (Phase 5). The protocol contract is specified as `ctxwrite-v1` (Stage 5.1); the implementation is Stages 5.2–5.5.
 3. Submissions-to-consumer transfer path and pre-creation of the submissions branch and task folder: not designed and not in the plan (register R0-011).
 4. End-to-end staging pilot: not started (Phase 6).
 5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
 6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
 
-Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4).
+Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4); the write-gateway protocol contract is specified as `ctxwrite-v1` (Stage 5.1).
 
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
 
@@ -100,7 +100,9 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 
 #### 4.2 Write gateway (Cloudflare Worker scaffold)
 
-Scaffold only. TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci stubs, `wrangler.toml`, scripts, package files): 46 of 48 source files, all 32 test files, the 4 scripts and the 6 `ci/*.yml` files are stubs, and the Worker answers 501. Typecheck and bundle dry run pass in CI but prove nothing about behaviour. Design decisions are recorded (Stage 1.4); required for 0.5.0 (Phase 5).
+Scaffold only. TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci stubs, `wrangler.toml`, scripts, package files): 46 of 48 source files, all 32 test files, the 4 scripts and the 6 `ci/*.yml` files are stubs, and the Worker answers 501. Typecheck and bundle dry run pass in CI but prove nothing about behaviour. Required for 0.5.0 (Phase 5).
+
+**The protocol contract is specified (Stage 5.1).** `gateway/write/docs/protocol.md` defines `ctxwrite-v1`: the capability format and signature, the routes and parameters, the response envelope, the session state machine, the quotas and type policy, the commit and seal contract, the credential boundary, and the recovery model. `docs/error-catalog.md` is the error authority, `src/config/quotas.json` and `src/config/type-policy.json` are the limit authorities, and `gateway/write/AGENTS.md` holds the stable agent-facing anchors. The contract is a specification, not a running service: no route in it is implemented yet. Design decisions are recorded (Stage 1.4); implementation is Stages 5.2–5.5.
 
 ### 5. Conformance and variants (source-only)
 

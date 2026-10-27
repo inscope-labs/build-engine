@@ -1,4 +1,182 @@
 {
-  "_status": "scaffold only, not implemented",
-  "_purpose": "Allowed extensions, limits, schemas"
+  "_authority": "This file is the single authoritative source for the write gateway's type policy (ADR 0002). gateway/write/docs/quotas-and-type-policy.md mirrors it for human readers; the protocol is gateway/write/docs/protocol.md (section 7.2). Where this file and the document disagree, this file wins.",
+  "_model": "Allow-list. A file's type is derived from its extension unless the request supplies an explicit type parameter, which must agree with the extension. An extension that appears in no entry of \"types\" is refused with type-not-allowed. The list below is the complete set of accepted file types for 0.5.0.",
+  "_binary": "Binary content is refused. A file is text when it is valid UTF-8 and its type is allowed; a NUL byte in the content is refused as not-text regardless of extension.",
+  "_global_ceiling": "Per-type max_bytes may only lower the global per-file ceiling in quotas.json (max_file_bytes). It may never raise it.",
+  "_schemas": "No JSON Schema is specified yet. Every \"schema\" field is null, so no schema validation runs. Schemas are an open question for Stage 5.2.7 / 6.1.",
+  "default_type": "text/plain",
+  "types": [
+    {
+      "id": "plain",
+      "media_type": "text/plain",
+      "extensions": [".txt", ".text", ".list"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "markdown",
+      "media_type": "text/markdown",
+      "extensions": [".md", ".markdown", ".mdown"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "rst",
+      "media_type": "text/x-rst",
+      "extensions": [".rst"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "html",
+      "media_type": "text/html",
+      "extensions": [".html", ".htm"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "css",
+      "media_type": "text/css",
+      "extensions": [".css"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "csv",
+      "media_type": "text/csv",
+      "extensions": [".csv"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "tsv",
+      "media_type": "text/tab-separated-values",
+      "extensions": [".tsv"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "diff",
+      "media_type": "text/x-diff",
+      "extensions": [".diff", ".patch"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "log",
+      "media_type": "text/x-log",
+      "extensions": [".log"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "python",
+      "media_type": "text/x-python",
+      "extensions": [".py", ".pyi"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "javascript",
+      "media_type": "text/javascript",
+      "extensions": [".js", ".mjs", ".cjs"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "typescript",
+      "media_type": "text/typescript",
+      "extensions": [".ts", ".tsx", ".jsx"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "shell",
+      "media_type": "application/x-sh",
+      "extensions": [".sh", ".bash"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "sql",
+      "media_type": "application/x-sql",
+      "extensions": [".sql"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "ini",
+      "media_type": "text/x-ini",
+      "extensions": [".ini", ".cfg", ".conf", ".properties"],
+      "max_bytes": 12288,
+      "allow_empty": true,
+      "schema": null
+    },
+    {
+      "id": "json",
+      "media_type": "application/json",
+      "extensions": [".json"],
+      "max_bytes": 12288,
+      "allow_empty": false,
+      "schema": null
+    },
+    {
+      "id": "yaml",
+      "media_type": "application/yaml",
+      "extensions": [".yaml", ".yml"],
+      "max_bytes": 12288,
+      "allow_empty": false,
+      "schema": null
+    },
+    {
+      "id": "toml",
+      "media_type": "application/toml",
+      "extensions": [".toml"],
+      "max_bytes": 12288,
+      "allow_empty": false,
+      "schema": null
+    },
+    {
+      "id": "xml",
+      "media_type": "application/xml",
+      "extensions": [".xml"],
+      "max_bytes": 12288,
+      "allow_empty": false,
+      "schema": null
+    }
+  ],
+  "denied_names": [
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials",
+    "secrets"
+  ],
+  "denied_extensions": [
+    ".pem", ".key", ".p12", ".pfx", ".crt", ".cer", ".der", ".jks", ".keystore",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".avif",
+    ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".tar", ".zst", ".rar",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".class", ".jar", ".war", ".o", ".a",
+    ".lib", ".obj", ".pyc", ".pyo", ".pyd", ".wasm", ".msi", ".deb", ".rpm",
+    ".apk", ".iso", ".dmg", ".img",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".wav", ".ogg", ".flac", ".aac", ".avi", ".mov", ".mkv", ".webm",
+    ".db", ".sqlite", ".sqlite3", ".mdb", ".pkl", ".npy", ".npz", ".parquet", ".avro",
+    ".env", ".envrc"
+  ]
 }
