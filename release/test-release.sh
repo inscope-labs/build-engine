@@ -198,6 +198,26 @@ fresh; echo "notes" > "$R/template/docs/notes..v2.md"; plant; build
 must_pass "a file whose name contains two dots is packaged" test -f "$R/dist/build-engine-v$(tr -d ' \n' < "$R/VERSION").tar.gz"
 must_pass "a file whose name contains two dots verifies" "$R/release/verify.sh" "$(ART)"
 
+# ---------------------------------------------------------------- Stage 3.2: what forbidden.txt has to catch
+# The rules are the second line of defence: a file that the allowlist permits can still be refused.
+fresh; printf 'class Gateway:\n    pass\n' > "$R/template/engine/tools/transport.py"; plant; build
+must_fail "an indented copy of the gateway code is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'def make_server(gateway):\n    pass\n' > "$R/template/engine/tools/serve.py"; plant; build
+must_fail "a copy of the gateway entry point is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf '{"vectors_version": 1, "vectors": []}\n' > "$R/template/docs/vectors.json"; plant; build
+must_fail "a renamed copy of the conformance vectors is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'lock\n' > "$R/template/docs/.build-engine.lock"; plant; build
+must_fail "a local state file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'SECRET=1\n' > "$R/template/engine/tools/.env"; plant; build
+must_fail "an .env file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'key\n' > "$R/template/docs/server.pem"; plant; build
+must_fail "a key file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'vars\n' > "$R/template/engine/tools/.dev.vars"; plant; build
+must_fail "a Worker secrets file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+# a credential hidden in a binary file: the content rules are matched against binary files too
+fresh; { printf 'token: ghp_%s' "$(printf 'A%.0s' $(seq 36))"; printf '\000\001\002\003'; } > "$R/template/docs/blob.bin"; plant; build
+must_fail "a credential in a binary file is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+
 # ---------------------------------------------------------------- the release gate
 fresh; python3 - "$R" <<'PY'
 import json, sys
