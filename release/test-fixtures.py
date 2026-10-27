@@ -78,13 +78,17 @@ def patch_file(art, inner):
     new = sys.stdin.buffer.read()
     items = read_members(art)
     found = False
+    patched = []
     for member, data in items:
         if member.name == inner:
-            data = new
+            member.size = len(new)
+            patched.append((member, new))
             found = True
+        else:
+            patched.append((member, data))
     if not found:
         raise SystemExit("no such file in the artifact: %s" % inner)
-    write_members(art, items)
+    write_members(art, patched)
 
 
 def truncate(art):

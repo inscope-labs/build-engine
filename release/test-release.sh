@@ -145,7 +145,7 @@ must_fail "a truncated archive is refused" "not a readable gzip tar" "$R/release
 restore; rm -f "$(ART).sha256"
 must_fail "a missing checksum sidecar is refused" "missing" "$R/release/verify.sh" "$(ART)"
 restore; printf '%s  other-file.tar.gz\n' "$(sha256sum "$(ART)" | cut -d' ' -f1)" > "$(ART).sha256"
-must_fail "a sidecar that describes another file is refused" "does not describe" "$R/release/verify.sh" "$(ART)"
+must_fail "a sidecar that describes another file is refused" "describes" "$R/release/verify.sh" "$(ART)"
 restore; printf 'x' >> "$(ART)"
 must_fail "a tampered artifact fails its checksum" "checksum mismatch" "$R/release/verify.sh" "$(ART)"
 
