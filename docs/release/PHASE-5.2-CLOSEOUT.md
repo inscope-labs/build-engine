@@ -156,6 +156,14 @@ THE EVIDENCE
   release/verify.sh dist/build-engine-v0.5.0.tar.gz
       verify: OK (build-engine-v0.5.0.tar.gz: 41 files, version 0.5.0)
 
+  GitHub Actions, run 40482383740 on this branch's head:
+      ci: completed / success
+        test:                              completed / success (8 steps)
+        write gateway (typecheck, tests + bundle): completed / success
+          npm run typecheck                                                     → success
+          Unit, integration and load tests (the real Worker and the real DO)  → success
+          Bundle dry run                                                       → success
+
   The release artifact is unchanged: 41 files, exactly as on main. No gateway or contract content is
   packaged.
 
