@@ -1,7 +1,9 @@
 # Context export: signed context links (proof-of-concept overview)
 
-Status: proof of concept built and tested locally. Not yet deployed. Supersedes nothing automatically; it answers
-`pending/context-export.md` (see section 9 for what was kept and what changed).
+Status of the parts. **Implemented and shipped:** the link scheme, `ctxlink.py` and the work-order integration in `plan_tool.py`.
+**Reference only (not shipped, not deployed):** the gateway proof of concept described in section 10. **Not available in this
+version:** a deployed gateway, and any agent write path. Hosting and policy decisions are recorded in section 12. Supersedes
+nothing automatically; it answers `pending/context-export.md` (see section 9 for what was kept and what changed).
 
 ## 1. Verdict
 
@@ -16,7 +18,7 @@ Agents with limited tools can only make plain HTTPS GET requests, and the contex
 What the proof of concept **proves**: the link format, the signing rules, every refusal rule, expiry, revocation,
 audit, the integration into work orders, and a plain-GET client fetching real Project files whose hashes match the
 order. What it **does not prove**: a deployed gateway, the GitHub-backed file source, and any hosting provider
-(sections 10 and 11). One decision is yours: where the gateway runs (section 12).
+(sections 10 and 11). The hosting and policy decisions are recorded in section 12.
 
 ## 2. The problem, from your answers
 
@@ -207,22 +209,27 @@ rejected object-storage approach.
 
 | Step | What | Done when |
 |---|---|---|
-| 1 | Decide where the gateway runs (section 12) | Hosting chosen |
+| 1 | Decide where the gateway runs (section 12) | Done: Cloudflare Workers, operator-owned |
 | 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo |
 | 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B |
 | 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test |
 | 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads |
-| 6 | — | Same order integration, delete-based revocation proven |
 
-## 12. Decisions needed from you
+## 12. Decisions (recorded 2026-10-26)
 
-1. **Where does the gateway run?** Any small HTTPS endpoint works. The rules need no database: a revocation list and
-   an audit log.
-2. **Can your agents' GET-only proxy reach an arbitrary HTTPS host**, or is it restricted to an allow-list? If it is
-   restricted, the gateway must live on a permitted host.
-3. **Default link lifetime** (24 h proposed) and the maximum a link may ever live (7 days proposed).
-4. **Which prefixes may be served**: proposed `amk/` and `plans/*/package/` only.
-5. Class A agents: are the private raw `url` fields enough for them, with their own credentials?
+1. **Where the gateway runs:** Cloudflare Workers, operator-owned and single-tenant. The rules need no database beyond a
+   revocation list and an audit log.
+2. **Proxy reachability:** the agents' GET-only proxy is restricted to the host or hosts named in the approved work order.
+   The gateway base URL in minted links must be a host the agent's proxy may contact for that order; the gateway host is
+   part of the work-order contract.
+3. **Link lifetime:** 24 hours by default (`ttl_seconds` 86400) and 72 hours at most. Re-minting is always allowed.
+4. **Served prefixes:** a per-deployment allow-list set by the operator (the reference design suggests `amk/` and
+   `plans/*/package/` as starting values for one repository layout), a fixed deny list (`.git`, `.github`, `.env`, secret-like
+   names, traversal after normalisation), and commit SHAs only, never moving refs.
+5. **Class A agents:** the private raw `url` fields are enough, with the agent's own credentials. Class A and Class B remain
+   separate trust paths.
+
+These decisions describe what the production gateway must do. The production gateway is not yet built.
 
 
 ## Appendix B: gateway behaviours a production port must pass

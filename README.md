@@ -34,14 +34,14 @@ The design prioritises:
 | Path | Role | Included in release? |
 |------|------|----------------------|
 | `template/` | The product. Maps 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | Yes (allowlist only) |
-| `gateway/` | Context gateways: `read/` (tested reference + planned production port) and `write/` (proposed Cloudflare Worker scaffold). | **Never** |
+| `gateway/` | Context gateways: `read/` (reference implementation; production port not started) and `write/` (Cloudflare Worker, scaffold only). Both are required for 0.5.0 and are being built; neither ships in the artifact. | **Never** |
 | `conformance/` | Language-neutral acceptance suite for the link scheme and any read gateway (signing vectors, behaviours B1–B11). | No |
-| `variants/` | Documented alternatives not chosen (e.g. `object-storage/`). | No |
+| `variants/` | Retired. Holds only a note that the object-storage variant was rejected (Stage 1.3). | No |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | No |
 | `tests/` | Consumer install/update flow tests. | No |
 | `docs/` | Maintainer documentation: `END-TO-END.md`, `ARCHITECTURE.md`, `RELEASING.md`, `decisions/`, `pilot/`, `proposals/`. | No |
 | `.github/workflows/` | `ci.yml` (every push/PR), `release.yml` (on `vX.Y.Z` tag). | No |
-| `VERSION`, `CHANGELOG.md`, `COMPATIBILITY.md` | Version, history, and abstract PROJECT compatibility. | Version is stamped into the artifact |
+| `VERSION`, `CHANGELOG.md`, `COMPATIBILITY.md` | Version, history, and the protocol compatibility identifier. | Version is stamped into the artifact |
 
 ### Template contents (what ships)
 
@@ -58,7 +58,7 @@ The design prioritises:
  operator                    read gateway               agent (Class B)           submission               upstream
  ----------                  ------------               ---------------           ----------               --------
  plan_tool order  --mint-->  (verifies link,   <--GET--  fetches context   --deliverable-->  operator: cbridge upload
- plan_tool links              serves one file)           per work order            or  write gateway (proposed)
+ plan_tool links              serves one file)           per work order            or  write gateway (required, scaffold)
  revoke / audit  ---------->  revocation, audit                                              |
                                                                                               v
                                                                                cbridge publish / reconcile -> public repo
@@ -66,18 +66,19 @@ The design prioritises:
 
 | Stage | Component | Location | Status |
 |-------|-----------|----------|--------|
-| Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Built |
-| Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Built |
-| Serve context | Read gateway (reference) | `gateway/read/reference/` | Built (proof of concept); not deployed |
-| Serve context | Read gateway (production) | `gateway/read/production/` | Not started; open decisions 0001–0004 |
-| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Behaviours written; vectors and harness not started |
-| Fallback read path | Object-storage variant | `variants/object-storage/` | Design only |
-| Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Built |
-| Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold; open design questions |
-| Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Built |
-| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Gap: not in release; no remote channel |
-| Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Built |
+| Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Implemented |
+| Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Implemented |
+| Serve context | Read gateway (reference) | `gateway/read/reference/` | Reference only; not deployed |
+| Serve context | Read gateway (production) | `gateway/read/production/` | Not started. Hosting decided (Cloudflare); required for 0.5.0 |
+| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Behaviours written; vectors empty, harness not started |
+| Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Implemented |
+| Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold only (Worker answers 501); required for 0.5.0 |
+| Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Implemented |
+| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Reference only; a remote channel is required for 0.5.0 |
+| Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Implemented (hardening in progress) |
 | Pilot | One real task end-to-end | `docs/pilot/` | Not started |
+
+**Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
 Full status and design notes: [`docs/END-TO-END.md`](docs/END-TO-END.md). Architecture and release isolation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -168,7 +169,7 @@ release/package.sh && release/verify.sh dist/build-engine-v$(cat VERSION).tar.gz
 
 1. Branch from `main`. Make and test changes. Add any new shipping paths to `release/manifest.txt`.
 2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/ENGINE.json`).
-3. Record the abstract PROJECT version implemented: set `protocol` in `template/engine/ENGINE.json` and add a row to `COMPATIBILITY.md`.
+3. Confirm the protocol version this release implements: `protocol` in `template/engine/ENGINE.json`, with a matching row in `COMPATIBILITY.md`.
 4. Update `CHANGELOG.md` (replace the unreleased section with a dated entry).
 5. Open a pull request; CI must pass (unit tests, release self-test, update-flow test, dry-run package + verify).
 6. After merge: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`.
@@ -187,9 +188,9 @@ Release isolation is enforced by three independent layers:
 
 ## Compatibility
 
-| Engine | Abstract PROJECT | Notes |
-|--------|------------------|-------|
-| 0.5.0 (unreleased) | UNSET | Must be recorded before the first release |
+| Engine | Protocol | Notes |
+|--------|----------|-------|
+| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/ENGINE.json` (`protocol`) |
 
 A release build (`release/verify.sh --release`) refuses to publish while `protocol` is missing or `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
 
@@ -197,14 +198,16 @@ A release build (`release/verify.sh --release`) refuses to publish while `protoc
 
 ## Current status and known gaps
 
-Version 0.5.0 is unreleased. Known gaps, ordered by priority:
+Version 0.5.0 is unreleased and nothing has been published. The first release requires both Class B gateways, so it cannot be tagged until they exist and pass the staging pilot. Known gaps, ordered by priority; the complete list with evidence is `docs/release/DEFECT-REGISTER.md`:
 
-1. `protocol` remains `UNSET`; a release build will refuse to publish until the abstract PROJECT version is recorded.
-2. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still references Project as the worked example. Machine-readable configuration (`engine.json`, `cbridge.config.example`, `install.sh`) already uses placeholders.
-3. GitHub repository settings (branch protection on `main`, tag protection for `v*`) are not configured from this repository.
-4. The read gateway is a proof of concept and the write gateway (`gateway/write`) is a scaffold; neither is deployable. See `template/docs/CONTEXT-EXPORT.md` and `gateway/write/README.md`.
-
----
+1. The read gateway has a reference implementation only; the production port is not started (Phase 4).
+2. The write gateway is a scaffold: its Worker answers 501 and all tests are empty stubs (Phase 5).
+3. Conformance vectors are empty and the harness is not built (Phase 4).
+4. No end-to-end pilot has run (Phase 6).
+5. `CHANGELOG.md` still reads `0.5.0 - unreleased`; the dated entry is written at release-candidate time only.
+6. GitHub branch protection on `main` and tag protection for `v*` are not configured; they are needed before any tag (Stage 3.3.7).
+7. Release tooling and the updater have confirmed hardening items (reproducible archives, packaging from tracked files only, transactional update); see the register, Phases 2 and 3.
+8. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still uses a worked example from one project. Machine-readable configuration already uses placeholders.
 
 ## Documentation map
 

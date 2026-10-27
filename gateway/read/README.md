@@ -7,8 +7,8 @@ checks, threat analysis: `template/docs/CONTEXT-EXPORT.md` (a shipped document).
 
 | Directory | What it is | Status |
 |---|---|---|
-| `reference/` | Python proof of concept: signing, rules, a local-git file source, an HTTP server, `serve`, `revoke`, `audit`, with tests | built, tested locally, not deployed |
-| `production/` | The deployable gateway | structure and plan only |
+| `reference/` | Python proof of concept: signing, rules, a local-git file source, an HTTP server, `serve`, `revoke`, `audit`, with tests | reference only: tested locally, not deployed |
+| `production/` | The deployable gateway (Cloudflare, decision 0001) | not started; required for 0.5.0 |
 
 The client half (minting links) is not here: it ships as `template/engine/tools/ctxlink.py` and is used by
 `plan_tool.py order` and `plan_tool.py links`. Acceptance for any implementation is `conformance/`.
