@@ -14,3 +14,8 @@
 - Product neutrality: removed all project-specific (Castiel) references from shipped documentation, prompts, examples,
   and machine metadata. Compatibility field migrated from `implements_abstract` to `protocol` with value
   `build-engine/0.5`.
+- Packaging is built from the tracked files under `template/` and refuses a dirty tree, a manifest line that is
+  declared twice or under case folding, a symlink, a tracked generated file, and an output directory inside the
+  packaged tree. The same commit builds byte-identical artifacts whatever the builder's umask is. The managed engine
+  metadata was renamed from `engine/ENGINE.json` to `engine/release.json` (nothing has been released, so no consumer
+  migration is needed).
