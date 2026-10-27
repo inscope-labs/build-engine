@@ -6,6 +6,7 @@
  * drift. A test that reimplements the thing it is testing proves nothing.
  */
 import { TaskSession } from "../../src/session/task-session.ts";
+import { AuditStream } from "../../src/audit/audit-stream.ts";
 import type { Capability } from "../../src/types/requests.ts";
 import {
   TEST_HEAD,
@@ -54,6 +55,11 @@ export class MemoryStorage {
   }
 }
 
+/** Anything the Worker can talk to. */
+export interface DurableInstance {
+  fetch(request: Request): Promise<Response>;
+}
+
 /** A Durable Object instance and its storage, so that a test can look inside. */
 export interface TestSession {
   /** The stub the Worker talks to. */
@@ -61,23 +67,27 @@ export interface TestSession {
   /** The storage, so that a test can read the durable state. */
   storage: MemoryStorage;
   /** The instance, so that a test can call it directly. */
-  instance: TaskSession;
+  instance: DurableInstance;
 }
 
 /**
- * Run the real Durable Object class over an in-memory storage.
+ * Run a real Durable Object class over an in-memory storage.
  *
  * `blockConcurrencyWhile` is a no-op here: the real runtime serialises the requests that touch
  * one object, and the tests drive them one at a time.
  */
-export function testSession(env: Record<string, unknown> = {}): TestSession {
+export function testSession(
+  env: Record<string, unknown> = {},
+  factory: (state: DurableObjectState, env: Record<string, unknown>) => DurableInstance = (state, e) =>
+    new TaskSession(state, e as never),
+): TestSession {
   const storage = new MemoryStorage();
   const state = {
     storage,
     blockConcurrencyWhile: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
     id: { toString: () => "test-session" },
   } as unknown as DurableObjectState;
-  const instance = new TaskSession(state, env as never);
+  const instance = factory(state, env);
   return {
     storage,
     instance,
@@ -102,10 +112,32 @@ export class MemoryNamespace {
    * is, and a session created without one cannot commit.
    */
   private env: Record<string, unknown> = {};
+  /** The class the namespace creates. */
+  private readonly factory: (state: DurableObjectState, env: Record<string, unknown>) => DurableInstance;
+  /**
+   * The audit stream's namespace.
+   *
+   * The audit stream is a different Durable Object class, and it is keyed by the order rather
+   * than by the task, so it gets its own namespace and its own instances. The audit namespace
+   * has no audit namespace of its own, or the construction would never end.
+   */
+  readonly audit: MemoryNamespace | undefined;
+
+  constructor(
+    factory: (state: DurableObjectState, env: Record<string, unknown>) => DurableInstance = (state, e) =>
+      new TaskSession(state, e as never),
+    withAudit = true,
+  ) {
+    this.factory = factory;
+    this.audit = withAudit
+      ? new MemoryNamespace((state, e) => new AuditStream(state, e as never), false)
+      : undefined;
+  }
 
   /** Set the environment the sessions are created with. */
   setEnv(env: Record<string, unknown>): void {
     this.env = env;
+    this.audit?.setEnv(env);
   }
 
   idFromName(name: string): { toString: () => string } {
@@ -116,7 +148,7 @@ export class MemoryNamespace {
     const name = id.toString();
     let session = this.sessions.get(name);
     if (session === undefined) {
-      session = testSession(this.env);
+      session = testSession(this.env, this.factory);
       this.sessions.set(name, session);
     }
     return { fetch: session.fetch };
@@ -126,7 +158,7 @@ export class MemoryNamespace {
   session(name: string): TestSession {
     let session = this.sessions.get(name);
     if (session === undefined) {
-      session = testSession(this.env);
+      session = testSession(this.env, this.factory);
       this.sessions.set(name, session);
     }
     return session;
@@ -146,11 +178,16 @@ export function testEnv(namespace: MemoryNamespace, overrides: Record<string, un
     SUBMISSIONS_BRANCH: "build-engine",
     SUBMISSIONS_FOLDER_TEMPLATE: "plans/{plan}/submissions/{order}/{task}",
     GITHUB_TOKEN: "test-github-token",
+    // The provider's base URL points at a loopback address that nothing listens on, so that a
+    // test which forgets to point it at the mock fails fast and locally instead of reaching the
+    // real GitHub. The commit driver overrides it with the mock's own address.
+    GITHUB_API_BASE: "http://127.0.0.1:1",
     OPERATOR_TOKEN: "test-operator-token",
     MAX_TTL_SECONDS: "604800",
     LEASE_SECONDS: "300",
     CTXGATE_TEST_CLOCK: String(TEST_NOW),
     TASK_SESSION: namespace,
+    AUDIT_STREAM: namespace.audit ?? namespace,
     ...overrides,
   };
   // The sessions the namespace hands out are created with this environment.

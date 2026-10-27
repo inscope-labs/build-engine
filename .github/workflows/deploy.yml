@@ -1,0 +1,85 @@
+name: deploy
+# The deployment of the write gateway (plan task 5.4.6, protocol section 12.5).
+#
+# **This workflow is never triggered by a pull request.** A pull request can be written by
+# anyone, and the deployment credentials must not be reachable from one. The gate in
+# `gateway/write/scripts/verify-log-hygiene.ts` checks that property of this file, so a
+# later edit that adds a pull-request trigger fails the gate rather than passing quietly.
+#
+# The credentials come from the `production` **environment**, not from the repository's
+# secrets: an environment can be given required reviewers, so a deployment is a decision
+# someone makes rather than a side effect of a merge.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "why this deployment is happening"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  # One deployment at a time. Two overlapping deployments would race each other's Durable
+  # Object migrations, and the loser would leave the gateway in a state nobody chose.
+  group: deploy-production
+  cancel-in-progress: false
+jobs:
+  gate:
+    name: the deploy gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: The whole test suite
+        run: npm test
+      - name: The contract documents agree
+        run: python3 scripts/check-contract-consistency.py
+      - name: The log hygiene and credential boundary gate
+        run: npm run verify:log-hygiene
+  deploy:
+    name: deploy
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      # The bundle is built and inspected before it is published. A bundle that does not build
+      # is not deployed, and a bundle whose size has moved a long way is worth a second look.
+      - name: Build the bundle, without deploying it
+        run: npm run check:bundle
+      - name: Deploy
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: The deployed gateway answers
+        run: |
+          echo "the gateway is deployed; check it with:"
+          echo "  curl -sS -H 'Authorization: Bearer \$OPERATOR_TOKEN' https://<the gateway's host>/healthz"
+        # The health check needs the operator token, which is a secret of the environment, and the
+        # operator's own host, which the operator names. The first deployment is therefore
+        # checked by hand, and the runbook says how.

@@ -17,6 +17,7 @@ function env(overrides: Partial<Env> = {}): Env {
     GITHUB_TOKEN: "github-token",
     OPERATOR_TOKEN: "operator-token",
     TASK_SESSION: {} as unknown as DurableObjectNamespace,
+    AUDIT_STREAM: {} as unknown as DurableObjectNamespace,
     ...overrides,
   } as Env;
 }
@@ -31,6 +32,40 @@ function failureFor(bad: Partial<Env>): string {
   }
   throw new Error("expected the configuration to be refused");
 }
+
+test("the provider's base URL must be https, unless it is a loopback address", () => {
+  // The credential is in every request. An unencrypted hop to a remote host would hand it over,
+  // and the only plain-HTTP exception is a loopback address, which is what lets the test suite
+  // run the real client against a real local server.
+  const config = loadConfig(env({ GITHUB_API_BASE: "https://github.example.internal/api/v3" }));
+  assert.equal(config.githubApiBase, "https://github.example.internal/api/v3");
+
+  const loopback = loadConfig(env({ GITHUB_API_BASE: "http://127.0.0.1:8080" }));
+  assert.equal(loopback.githubApiBase, "http://127.0.0.1:8080");
+
+  assert.match(failureFor({ GITHUB_API_BASE: "http://github.example.internal" }), /GITHUB_API_BASE/);
+  assert.match(failureFor({ GITHUB_API_BASE: "ftp://github.example.internal" }), /GITHUB_API_BASE/);
+  assert.match(failureFor({ GITHUB_API_BASE: "not a url" }), /GITHUB_API_BASE/);
+});
+
+test("the provider's timeout is bounded", () => {
+  assert.equal(loadConfig(env()).githubTimeoutMs, 10000);
+  assert.equal(loadConfig(env({ GITHUB_TIMEOUT_MS: "2500" })).githubTimeoutMs, 2500);
+  assert.match(failureFor({ GITHUB_TIMEOUT_MS: "0" }), /GITHUB_TIMEOUT_MS/);
+  assert.match(failureFor({ GITHUB_TIMEOUT_MS: "999999" }), /GITHUB_TIMEOUT_MS/);
+});
+
+test("the commit's author identity is configuration, and it is validated", () => {
+  const config = loadConfig(env({ GITHUB_COMMIT_AUTHOR: "A Bot <bot@example.invalid>" }));
+  assert.equal(config.commitAuthorName, "A Bot");
+  assert.equal(config.commitAuthorEmail, "bot@example.invalid");
+
+  const fallback = loadConfig(env());
+  assert.match(fallback.commitAuthorName, /write gateway/);
+  assert.match(fallback.commitAuthorEmail, /@/);
+
+  assert.match(failureFor({ GITHUB_COMMIT_AUTHOR: "no angle brackets" }), /GITHUB_COMMIT_AUTHOR/);
+});
 
 test("a valid environment loads", () => {
   const config = loadConfig(env());

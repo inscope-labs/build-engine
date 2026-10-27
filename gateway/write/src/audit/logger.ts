@@ -24,9 +24,16 @@ export function writeAudit(entry: AuditEntry): void {
   console.log(JSON.stringify(entry));
 }
 
-/** Build and write one audit record. */
-export function audit(fields: AuditFields): void {
-  writeAudit(auditRecord(fields));
+/**
+ * Build and write one audit record.
+ *
+ * The record it returns is the one it wrote: the same redacted form is what the durable stream
+ * receives, so the two copies of the record are identical and the gate was applied once.
+ */
+export function audit(fields: AuditFields): AuditEntry {
+  const record = auditRecord(fields);
+  writeAudit(record);
+  return record;
 }
 
 /**

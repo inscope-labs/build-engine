@@ -774,12 +774,23 @@ export type ParamResult =
  */
 export function parseOperationParams(op: Operation, rawQuery: string): ParamResult {
   const query = parseQuery(rawQuery);
+  const allowed = ALLOWED_PARAMS[op] ?? [];
 
   if (query.repeated !== null) {
-    return { ok: false, code: "repeated-parameter", message: `the parameter "${query.repeated}" was given more than once` };
+    // The parameter's name is echoed only when the contract defines it. A name the client
+    // invented is client-supplied text, and the response body is built from a fixed schema for
+    // exactly this reason: a value that is not in the schema has no path into the output
+    // (protocol section 10.3).
+    const known = allowed.includes(query.repeated);
+    return {
+      ok: false,
+      code: "repeated-parameter",
+      message: known
+        ? `the parameter "${query.repeated}" was given more than once`
+        : "a parameter was given more than once",
+    };
   }
 
-  const allowed = ALLOWED_PARAMS[op] ?? [];
   for (const name of query.entries.keys()) {
     if (isDestinationParameter(name)) {
       return {
@@ -789,7 +800,16 @@ export function parseOperationParams(op: Operation, rawQuery: string): ParamResu
       };
     }
     if (!allowed.includes(name)) {
-      return { ok: false, code: "unknown-parameter", message: `the parameter "${name}" is not part of this operation` };
+      // The offending name is not echoed. The operation's own parameters are, and they come from
+      // the contract rather than from the request.
+      return {
+        ok: false,
+        code: "unknown-parameter",
+        message:
+          allowed.length === 0
+            ? "that operation takes no parameters"
+            : `that operation takes only: ${allowed.join(", ")}`,
+      };
     }
   }
 

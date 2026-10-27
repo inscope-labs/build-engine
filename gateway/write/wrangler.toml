@@ -19,9 +19,16 @@ compatibility_date = "2025-09-01"
 name = "TASK_SESSION"
 class_name = "TaskSession"
 
+# The durable audit stream: one instance per order, holding the redacted audit records. The
+# platform's log is the complete stream; this is the durable, queryable copy of the records that
+# belong to an order (protocol section 11).
+[[durable_objects.bindings]]
+name = "AUDIT_STREAM"
+class_name = "AuditStream"
+
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["TaskSession"]
+new_sqlite_classes = ["TaskSession", "AuditStream"]
 
 # The contract documents are served by the gateway itself, so the markdown is bundled as text.
 [[rules]]
@@ -47,6 +54,9 @@ SUBMISSIONS_FOLDER_TEMPLATE = "plans/{plan}/submissions/{order}/{task}"
 MAX_TTL_SECONDS = "604800"
 # How long a writer's lease lasts before another writer may take it.
 LEASE_SECONDS = "300"
+# How long the durable audit stream keeps an order's records. The stream is bounded: an unbounded
+# audit log is a disk-filling denial of service. The default is 86400 (one day).
+AUDIT_RETENTION_SECONDS = "86400"
 
 # The deployment defaults the contract requires (protocol section 12.5): a first deploy must not
 # silently expose a public *.workers.dev URL. The operator's own routes are added in Stage

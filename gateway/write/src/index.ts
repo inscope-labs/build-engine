@@ -17,8 +17,10 @@ import { textHeaders } from "./http/headers.ts";
 import { PROTOCOL } from "./config/constants.ts";
 import { newRequestId } from "./audit/logger.ts";
 
-// The Durable Object class must be exported from the entrypoint so that the runtime can bind it.
+// The Durable Object classes must be exported from the entrypoint so that the runtime can bind
+// them.
 export { TaskSession } from "./session/task-session.ts";
+export { AuditStream } from "./audit/audit-stream.ts";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
