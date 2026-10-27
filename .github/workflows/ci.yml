@@ -29,9 +29,11 @@ jobs:
       - name: Consumer install and update flow
         run: tests/test_update.sh
       - name: Package and verify (dry run, no publish)
+        # --test-payload runs the artifact's own test suite. The default verification never executes code
+        # from the artifact; this job built the artifact itself in this same job, so it may run it.
         run: |
           release/package.sh dist
-          release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz"
+          release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz" --test-payload
   write-gateway:
     name: write gateway (typecheck + bundle)
     runs-on: ubuntu-latest

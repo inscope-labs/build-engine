@@ -31,7 +31,9 @@ jobs:
       - name: Package
         run: release/package.sh dist
       - name: Verify (release gate)
-        run: release/verify.sh "dist/build-engine-${GITHUB_REF_NAME}.tar.gz" --release
+        # --test-payload runs the artifact's own test suite. The default verification never executes code
+        # from the artifact; this job built the artifact itself in this same job, so it may run it.
+        run: release/verify.sh "dist/build-engine-${GITHUB_REF_NAME}.tar.gz" --release --test-payload
       - name: Release notes from CHANGELOG.md
         run: |
           v="${GITHUB_REF_NAME#v}"
