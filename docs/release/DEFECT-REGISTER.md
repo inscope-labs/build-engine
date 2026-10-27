@@ -5,8 +5,9 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 (closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
+- Stage 4.3 addendum: 2026-10-27; F0-030 to F0-032, found by the operational checks of Stage 4.3 and closed in it
 
 ## Status and evidence rules
 
@@ -41,12 +42,14 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 
 ### F0-003 — Production read gateway is not implemented/deployed
 - Severity: S1 for a claim of complete end-to-end Class B operation.
-- Status: CONFIRMED.
+- Status: CONFIRMED. **Implementation closed in Stage 4.2** (2026-10-27); **deployment still open** (Stage 4.3).
 - Evidence: `docs/END-TO-END.md` marks the production read path not started and its decisions open; `docs/STATUS.md` describes production directories as structure/design placeholders.
 - Consequence: the production Class B context retrieval path cannot be claimed operational.
 - Required resolution: resolve the relevant architecture decisions, implement and deploy the production path, and pass staging acceptance tests.
+- Update (Stage 4.2): the decisions are closed (0001 hosting, 0003 link lifetimes) and the implementation exists — `gateway/read/production` is a Cloudflare Worker that passes the shared conformance suite over real HTTP (58 cases, 0 failed) and whose resource controls are tested separately. It has **not** been deployed: no route, no environment separation, no deploy gate, no operator runbook. Those are Stage 4.3, and the real pilot is Stage 6.
+- Update (Stage 4.3): the deployment surface exists — three separated environments with a generated configuration (`ops/environments.json` → `wrangler.toml`), a deploy gate that publishes nothing until every check has passed, the operational checks (cold start, provider failures, expiry, revocation, key rotation), the isolation proof and the operator runbook. The gateway has **still** not been deployed: no environment has been published, because the Cloudflare-side steps need the operator's account and the configuration still carries the operator's placeholders (the repository and the production host). The real pilot is Stage 6.
 - Owner: implementation team and operator for decisions/hosting approvals.
-- Planned phase: Phase 4.
+- Planned phase: Stage 4.2 (done), Stage 4.3 (done — the deployment surface; the publication itself needs the operator), Stage 6 (the pilot).
 - Closure evidence: conformance tests and a staging test proving only the authorized file at the pinned reference is returned; deployment and revocation/audit behaviour evidenced.
 
 ### F0-004 — Write gateway is scaffold-only
@@ -203,9 +206,11 @@ Added after the operator asked for a register that omits no known defect. Method
 - Closure evidence: operator approval recorded on the redrafted contract.
 
 ### F0-021 — Reference gateway lint
-- Severity: S3. Status: CONFIRMED (executed: pyflakes).
+- Severity: S3. Status: CONFIRMED (executed: pyflakes); **closed in Stage 4.2** (2026-10-27).
 - Evidence: `gateway/read/reference/ctxgate.py:30` imports `ctxlink.SCHEME` and `ctxlink.mint` without using them.
-- Owner: implementation. Planned phase: Phase 4 (reference/production alignment). Not shipped.
+- Resolution (Stage 4.2): the health payload added in Stage 4.2 uses `SCHEME`, and `mint` is the re-export the reference tests mint links through (`gateway/read/reference/test_ctxgate.py` calls `cg.mint`). Both imports are therefore used. The original finding was right that the file was untidy and wrong that both imports were dead: removing `mint` broke the 15 reference tests, which is how it was caught rather than shipped.
+- Owner: implementation. Planned phase: Stage 4.2 (done).
+- Closure evidence: `python3 -m unittest discover -s gateway/read/reference -p 'test_*.py'` runs 15 tests, OK.
 
 ### F0-022 — Write-gateway development dependencies carry known advisories
 - Severity: S3 (dev tooling only; `npm audit --omit=dev` reports 0). Status: CONFIRMED (executed: `npm audit`).
@@ -218,6 +223,75 @@ Added after the operator asked for a register that omits no known defect. Method
 - Evidence: the release job re-runs tests but not the shell-syntax or write-gateway checks, has no `needs` dependency on the `ci` workflow, grants `contents: write` for the whole workflow, and its tag check (`merge-base --is-ancestor`) accepts any commit reachable from `main`, not only its tip. Third-party actions in both workflows are pinned to mutable tags (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/setup-node@v4`), not commit SHAs.
 - Owner: implementation/administrator. Planned phase: Phase 3 - 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7.
 - Closure evidence: a tag on a commit with failed or missing CI publishes nothing, shown by a dry-run test.
+
+### F0-024 — A context path may contain control characters
+- Severity: S2. Status: CONFIRMED by source; **closed in Stage 4.1** (2026-10-26).
+- Evidence: `ctxlink.safe_path()` rejected `\x00`, `\\`, absolute paths, and the `.`/`..`/empty components, but accepted any other control character. A path such as `a\nb` or `a\x01b` was therefore mintable and served, and the path is written into the audit log and used to build the source request. A port written in another language, reading the rules in prose rather than from the code, had no way to know this was intended.
+- Consequence: a path that is awkward to represent in a URL, a log line or a header can reach the gateway; the scheme had no single written rule for it, so "any implementation must reproduce" was not actually testable.
+- Resolution (Stage 4.1): the path rule is now written normatively in `conformance/SCHEME.md` section 5 and says that a path must contain no character in `U+0000`-`U+001F` or `U+007F`. `ctxlink.safe_path()` was tightened to match, which is a strict subset of the paths it accepted before: no previously minted legitimate link is affected. `gateway/read/reference/ctxgate.py` imports the same function, so the client and the gateway cannot drift apart.
+- Owner: implementation. Planned phase: Stage 4.1 (done).
+- Closure evidence: vectors `I15`-`I19` in `conformance/signing-vectors.json` (NUL, newline, control character, DEL, trailing slash) are refused by the shipped client; `template/engine/tools/test_ctxlink.py` asserts the rule in the shipped copy; `conformance/test_conformance.py` fails if the shipped test and the shared vectors disagree.
+
+### F0-025 — The scheme had no written normative description
+- Severity: S2. Status: CONFIRMED by source; **closed in Stage 4.1** (2026-10-26).
+- Evidence: the scheme existed as prose in `template/docs/CONTEXT-EXPORT.md` sections 5 and 6, as a docstring in `template/engine/tools/ctxlink.py`, and as two vectors in two different places. `conformance/signing-vectors.json` was `{"vectors": []}` with the note "stub: to be filled when code work starts", and `conformance/harness/` held one README. `behaviours.md` stated that the reference gateway's behaviour mapping was "not yet recorded".
+- Consequence: "any implementation must reproduce the signing vectors" and "a production port must pass appendix B" were both unfalsifiable. A port had to read Python to learn the encoding rules, and the rules that mattered most (per-segment percent-decoding, no Unicode normalisation, the order of the verification checks) were not written down anywhere at all.
+- Resolution (Stage 4.1): `conformance/SCHEME.md` is now the normative description of the scheme — message construction, signature encoding, field rules, path rules, URL encoding, the order of the verification checks, the response and audit formats, and the conformance requirements including the test clock. The vectors file is complete (17 valid, 19 invalid) and was produced by an implementation independent of the shipped client, cross-checked against OpenSSL, and then compared with the shipped client.
+- Owner: implementation. Planned phase: Stage 4.1 (done).
+- Closure evidence: `conformance/harness/run.py` executes the vectors and the B1-B10 cases; `conformance/test_conformance.py` is the CI gate; the suite was itself checked against thirteen deliberate defects in the reference gateway (an off-by-one in the expiry comparison, a path check written as a substring glob, the signature check moved after the expiry check, per-reason refusal bodies, the allow-prefix ignored, the pinned commit ignored, the TTL and revocation checks disabled, the size limit disabled, a wrong hash header, POST allowed, the audit path dropped) and every one is caught by a named case.
+
+### F0-026 — The production read gateway's per-order abuse cooldown was unreachable code
+- Severity: S2 (a resource control that was documented as existing and did not). Status: CONFIRMED (executed: the abuse-control test observed no cooldown); **closed in Stage 4.2** (2026-10-27).
+- Evidence: `gateway/read/production/src/state.ts` computed a per-order cooldown in the early gate, but `src/rules.ts` called that gate before the link was parsed, so it was always given the placeholder order `"-"` and the per-order branch could never be taken. A flood of forged links produced a flat sequence of 403s and no cooldown, and the audit trail showed no `cooldown` reason at all.
+- Consequence: the abuse control the deployment documents (an order under attack is put in a cooldown) was not in force. The per-IP and global budgets were, so a flood was still bounded, but the per-order control was a claim without an implementation behind it.
+- Resolution (Stage 4.2): the cooldown is now a timestamped marker on the order, set when the order collects more than `REFUSAL_BURST` refusals, and checked in the late gate next to the order's request budget. The refusal count is maintained in the same Durable Object.
+- Owner: implementation. Planned phase: Stage 4.2 (done).
+- Closure evidence: `python3 test/run-abuse-controls.py` — the order in a cooldown is refused with 429, and the audit trail carries the `cooldown` reason.
+
+### F0-027 — The refusal burst counted a forger's attempts against the order the forger named
+- Severity: S2 (a denial-of-service against a legitimate work order). Status: CONFIRMED (source, in the first implementation of Stage 4.2); **closed in Stage 4.2** (2026-10-27).
+- Evidence: the first implementation of the refusal burst compared a request's attempt count for an order against that order's success count, so a difference above the burst was treated as abuse against that order. The order in an unverified link is a string the caller chooses: a caller that sent forged links naming a victim's order would have pushed that order into a cooldown and locked out its legitimate holder.
+- Resolution (Stage 4.2): the burst counts only refusals that happened AFTER the signature was verified (`expired`, `ttl-too-long`, `revoked`, `path-denied`, `not-found`, `too-large`, `rate-limited` and the upstream errors). A refusal before verification (`malformed`, `unknown-key`, `bad-signature`) is never counted against an order, and the per-order request budget is likewise only spent after the signature verifies. A forged flood is bounded by the per-IP and global budgets instead.
+- Owner: implementation. Planned phase: Stage 4.2 (done).
+- Closure evidence: `python3 test/run-abuse-controls.py` asserts both directions — an order that collects authenticated refusals is cooled down, and an order named only in forged links is NOT cooled down and still serves a valid link.
+
+### F0-028 — The Cloudflare Workers runtime normalises path segments before the Worker sees them
+- Severity: S3 (a platform behaviour with a documentation consequence, not a defect in this repository's code). Status: CONFIRMED by source; **closed in Stage 4.2** (2026-10-27) by documentation.
+- Evidence: the Workers runtime resolves ".." and "%2e%2e" segments out of the request target before the request reaches the Worker. A traversal attempt therefore arrives as a path that no longer contains the traversal, and the Worker refuses it as `bad-signature` rather than as `malformed`. The outcome is unchanged (403, nothing served); only the audit reason differs from the one the scheme names.
+- Resolution (Stage 4.2): the case in `conformance/cases/behaviours.json` accepts either reason, `conformance/SCHEME.md` records that the normalisation is the platform's and that the scheme itself never normalises a path, and `docs/release/PHASE-4.2-CLOSEOUT.md` states it plainly. A port on a platform that does not normalise reports `malformed`; the suite does not pretend the two are the same.
+- Owner: implementation. Planned phase: Stage 4.2 (done).
+- Closure evidence: the conformance run passes with the traversal case green, and the scheme says why.
+
+### F0-029 — The reference gateway did not report the policy it was enforcing
+- Severity: S2 (a conformance claim that could not be checked). Status: CONFIRMED by source; **closed in Stage 4.2** (2026-10-27).
+- Evidence: the reference gateway enforced a clock-skew tolerance, a maximum lifetime and a maximum size, but reported none of them. A harness could therefore not tell whether a port's expiry decision was right or merely convenient, and the conformance suite had no way to assert the ceilings that the operator's decisions set.
+- Resolution (Stage 4.2): the policy became a declared part of the scheme. `conformance/SCHEME.md` now specifies the skew tolerance (decision 0003, at most 120 s), the maximum lifetime (at most 259200 s, 72 h) and the `/healthz` contract; the reference gateway reports its effective policy on `/healthz`; the harness reads the policy from `/healthz` and asserts the ceilings independently of what the gateway claims. The production Worker does the same, so the two are directly comparable.
+- Owner: implementation. Planned phase: Stage 4.2 (done, amending Stage 4.1's spec).
+- Closure evidence: `python3 conformance/harness/run.py all --reference` runs 94 checks, 0 failed, and the harness fails if a gateway declares a tolerance above the ceiling.
+
+### F0-030 — The gateway failed open when the state store could not be read, and served revoked orders
+- Severity: **S1** (a revoked capability kept working). Status: CONFIRMED (source, found by the Stage 4.3 operational checks); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `gateway/read/production/src/index.ts` built the state client with `if (!response.ok) return { action: "allow", reason: "ok" }` — a comment claimed this failed open "on the abuse controls only", but the same call path carried the **revocation** check. The Durable Object's own handler answers `500 state error: ...` when its storage throws (`src/state.ts`), and the client's `!response.ok` branch turned that into "allow". The order was therefore served with no revocation check at all. The same branch also made the per-IP and global budgets advisory. A gateway that cannot read its own revocation list was reading it as an empty one, and an empty revocation list is indistinguishable from a live one.
+- Consequence: a revoked work order kept serving files whenever the state store was unhealthy — a storage error, a deployment in flight, a Durable Object restart. The exit gate of Phase 4 ("revocation takes effect within the documented bound") could not be claimed, and G-07 (fail closed on stale authorization and on unverifiable state) was not met.
+- Resolution (Stage 4.3): the state channel was extracted to `src/state-client.ts` and **fails closed**. An unreadable state store, a state store that answers with an error, and a state store that answers with something that is not a decision all produce the action `state-unavailable`, and the rules layer refuses the request with `503` and the reason `state-unavailable`. There is no path from a state-store failure to "allow". The audit record for such a refusal is written to the platform log, because the ring is unreachable too, so that a refusal during an outage is not lost. The Worker also no longer lets an unexpected exception escape as a stack trace: it is answered with `500 internal-error` and audited.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: `test/unit/state-client.test.ts` asserts that an erroring, an unreachable and a malformed state store all produce `state-unavailable` and never `allow`; `python3 test/run-staging-checks.py` exercises the deployed behaviour, and the operational checks are part of the deploy gate and of CI.
+
+### F0-031 — The operator channel reported a revocation that had not been stored
+- Severity: S2 (an operator believes a capability is dead when it is alive). Status: CONFIRMED (source); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `POST /admin/revoke` called the Durable Object and **ignored the answer**, then returned `{"revoked": "<order>"}` with status 200. If the state store refused or could not be reached, the operator was told the order was revoked when nothing had been stored. `/admin/audit` and `/admin/metrics` had the same shape: the error text of a failed state call was returned with status 200 as if it were the trail.
+- Consequence: the operator's single most important action — killing a leaked capability — could report success while doing nothing. An operator who sees "revoked" stops watching that order, and the capability stays alive.
+- Resolution (Stage 4.3): the operator channel goes through `callStateAdmin()`, which reports what the state store actually confirmed. A revoke that was not stored is a failure with `503`, and the runbook says so in three places: a failed revoke means **the order is still live**, and it must be revoked again.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: `test/unit/state-client.test.ts` asserts that a revoke the store refused is reported as a failure and a revoke it accepted is reported as done.
+
+### F0-032 — The test harness left the Cloudflare runtime running after every run
+- Severity: S3 (a resource leak, with a sting in it). Status: CONFIRMED (executed: the process table after a run); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `test/localenv.py` stopped the `npx wrangler` process it had started and nothing else. `wrangler` starts the Cloudflare runtime in a process group of its own, so the runtime survived the launcher, kept the port, kept the binary open and kept running after the test had finished. The Stage 4.3 staging check, which restarts the Worker to observe a key rotation, was **answered by the old Worker**: the new one could not bind the port, and the check was reading the settings it had before the "restart". The first run of the key-rotation checks failed for that reason.
+- Consequence: the test suite left the machine dirty, a "restart" was not a restart, and `npm ci` could not remove `node_modules` because the runtime still held its binaries open — which broke the deploy gate at its first step.
+- Resolution (Stage 4.3): `test/procs.py` stops a whole process tree, and both harnesses use it. The staging harness asserts that the port was released before it starts again, so a restart that is not a restart fails loudly instead of quietly.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: after the conformance, abuse, staging and isolation runs the process table holds no live runtime; `npm ci` completes over the existing `node_modules`; and the key-rotation checks pass against a Worker that was really restarted.
 
 ## B. Risks and verification gaps (not proven defects)
 
@@ -290,9 +364,9 @@ Added after the operator asked for a register that omits no known defect. Method
 |---|---|---|
 | Consumer package, checksum, artifact verification, install/update | REQUIRED FOR FIRST RELEASE | Existing release machinery and CI exercise this path; release-mode gate still blocked by F0-001/F0-002. |
 | Operator-controlled plan/order/context-link tooling and `cbridge` workflow | REQUIRED FOR FIRST RELEASE, subject to acceptance tests | Core shipped workflow; verify against documented claims and consumer tests. |
-| Production Class B read gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.3)** | Not started; Phase 4. |
+| Production Class B read gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.3)** | **Implemented and conformance-proven as of 2026-10-27 (Stage 4.2)** — `gateway/read/production`, a Cloudflare Worker that passes the shared conformance suite over real HTTP (58 cases, 0 failed) with its resource controls tested separately. **Not deployed**: route, environment separation, deploy gate and operator runbook are Stage 4.3. |
 | Agent-side write gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.4)** | Scaffold only; Phase 5. |
-| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | Current vectors/harness incomplete. |
+| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | **Complete as of 2026-10-26** — `conformance/SCHEME.md`, 17 valid + 19 invalid signing vectors, 53 executable cases for B1-B10, a runner that drives any gateway over HTTP and any signer over a JSON-lines contract, and a CI gate. See `docs/release/PHASE-4.1-CLOSEOUT.md`. The production port must still pass it (Stage 4.2). |
 | Real end-to-end pilot | **REQUIRED** (Phase 6) | Pilot not started. |
 | Object-storage variant | REJECTED | Explicitly rejected in Stage 1.3. |
 
@@ -328,7 +402,7 @@ No release-blocker metadata has been changed, no release has been published, and
 |---|---|---|
 | F0-001, F0-007 | Phase 1.2 (done) + 2.1.1 | Field migrated to `protocol`; remaining doc sync in F0-019 |
 | F0-002 | Phase 2.1.2 / 7.1 | Only at release-candidate time |
-| F0-003 | Phase 4 (4.1-4.3) | Production read gateway, conformance, deployment |
+| F0-003 | Phase 4.2 (implementation, done) + 4.3 (deployment, done) | Production read gateway: the port exists and passes conformance; Stage 4.3 added the environments, the deploy gate, the operational checks and the runbook. **The gateway is still not deployed** — no environment has been published |
 | F0-004, F0-009 | Phase 5 (5.1-5.5) | Write gateway, all stub source/tests/scripts/CI; exit gate forbids stubs |
 | F0-005 | Phase 4.1 | Vectors and harness |
 | F0-006 | Phase 6 | Real pilot |
@@ -338,12 +412,16 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-018 | Phase 2.3 / 3.1.4 | Modes |
 | F0-019 | Phase 2.1.3-2.1.4 | Documentation |
 | F0-020 | Phase 1.1 (this PR) | Needs operator approval |
-| F0-021, F0-022 | Phase 4 / 3.3.2 | Lint and dev dependencies |
+| F0-021, F0-022 | Stage 4.2 (lint, done) / 3.3.2 (dependencies) | Lint closed; the read gateway is pinned to clean versions, the write gateway still carries F0-022's advisories (Phase 5) |
+| F0-024, F0-025 | Stage 4.1 (closed 2026-10-26) | Path rule, normative scheme description |
+| F0-026, F0-027 | Stage 4.2 (closed 2026-10-27) | The per-order cooldown was unreachable; the refusal burst counted a forger's attempts against the named order |
+| F0-028, F0-029 | Stage 4.2 (closed 2026-10-27) | Workers path normalisation; the policy is now declared and checkable |
+| F0-030, F0-031, F0-032 | Stage 4.3 (closed 2026-10-27) | The state channel failed open and a revoke could be reported that had not happened; the test harness left the runtime running |
 | R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
-| R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
+| R0-008 | Stage 4.3 (partly closed) + Phase 5 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's defaults are still open |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
 

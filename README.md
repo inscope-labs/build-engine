@@ -69,12 +69,12 @@ The design prioritises:
 | Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Implemented |
 | Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Implemented |
 | Serve context | Read gateway (reference) | `gateway/read/reference/` | Reference only; not deployed |
-| Serve context | Read gateway (production) | `gateway/read/production/` | Not started. Hosting decided (Cloudflare); required for 0.5.0 |
-| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Behaviours written; vectors empty, harness not started |
+| Serve context | Read gateway (production) | `gateway/read/production/` | Implemented (Cloudflare Worker, hosting decided): passes the shared conformance suite over real HTTP. Stage 4.3 added the three environments, the deploy gate, the operational checks and the operator runbook. **Not deployed** - no environment has been published |
+| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Implemented: 17 valid + 19 invalid vectors, 53 executable cases, a runner and a CI gate (Stage 4.1) |
 | Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Implemented |
 | Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold only (Worker answers 501); required for 0.5.0 |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Implemented |
-| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Reference only; a remote channel is required for 0.5.0 |
+| Revoke and audit | `ctxgate.py revoke`, `audit`; the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | Implemented in both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail |
 | Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Implemented (hardening in progress) |
 | Pilot | One real task end-to-end | `docs/pilot/` | Not started |
 
@@ -200,14 +200,12 @@ A release build (`release/verify.sh --release`) refuses to publish while `protoc
 
 Version 0.5.0 is unreleased and nothing has been published. The first release requires both Class B gateways, so it cannot be tagged until they exist and pass the staging pilot. Known gaps, ordered by priority; the complete list with evidence is `docs/release/DEFECT-REGISTER.md`:
 
-1. The read gateway has a reference implementation only; the production port is not started (Phase 4).
-2. The write gateway is a scaffold: its Worker answers 501 and all tests are empty stubs (Phase 5).
-3. Conformance vectors are empty and the harness is not built (Phase 4).
-4. No end-to-end pilot has run (Phase 6).
-5. `CHANGELOG.md` still reads `0.5.0 - unreleased`; the dated entry is written at release-candidate time only.
-6. GitHub branch protection on `main` and tag protection for `v*` are not configured; they are needed before any tag (Stage 3.3.7).
-7. Release tooling and the updater have confirmed hardening items (reproducible archives, packaging from tracked files only, transactional update); see the register, Phases 2 and 3.
-8. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still uses a worked example from one project. Machine-readable configuration already uses placeholders.
+1. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook, but **it has not been deployed**: no environment has been published. The write gateway (`gateway/write`) is a scaffold: its Worker answers 501 and all tests are empty stubs (Phase 5). See `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
+2. No end-to-end pilot has run (Phase 6).
+3. `CHANGELOG.md` still reads `0.5.0 - unreleased`; the dated entry is written at release-candidate time only.
+4. GitHub branch protection on `main` and tag protection for `v*` are not configured; they are needed before any tag (Stage 3.3.7).
+5. Release tooling and the updater have confirmed hardening items (reproducible archives, packaging from tracked files only, transactional update); see the register, Phases 2 and 3.
+6. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still uses a worked example from one project. Machine-readable configuration already uses placeholders.
 
 ## Documentation map
 

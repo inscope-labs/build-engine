@@ -54,7 +54,12 @@ def sign(secret, kid, exp, order, ref, path):
 
 
 def safe_path(path):
-    if not path or path.startswith("/") or "\\" in path or "\x00" in path:
+    """True when a path is already canonical. Nothing is normalised: the signer and the gateway
+    must agree on the exact bytes, so a path is either accepted as written or refused. See
+    conformance/SCHEME.md for the normative rules."""
+    if not path or path.startswith("/") or "\\" in path:
+        return False
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):   # control characters, including NUL
         return False
     return all(p not in ("", ".", "..") for p in path.split("/"))
 
