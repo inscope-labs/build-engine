@@ -86,9 +86,11 @@ dups="$(LC_ALL=C sort "$WORK/names" | uniq -d)"
 folds="$(tr 'A-Z' 'a-z' < "$WORK/names" | LC_ALL=C sort | uniq -d)"
 [[ -z "$folds" ]] || die "two archive members are equal under case folding: $(echo "$folds" | head -1)"
 
-# 5. the extracted tree must agree with the listing (the real names, not the escaped ones)
+# 5. the extracted tree must agree with the listing (the real names, not the escaped ones).
+# engine/RELEASE-MANIFEST is the one file the artifact carries that is not in the listing: it is generated
+# by the packager after the file list is fixed, so it is not a member of the archive.
 tar -xzf "$ART" -C "$X" --no-same-owner
-(cd "$X" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) > "$WORK/extracted"
+(cd "$X" && find . -type f | sed 's|^\./||' | grep -v '^engine/RELEASE-MANIFEST$' | LC_ALL=C sort) > "$WORK/extracted"
 grep -vx 'engine/RELEASE-MANIFEST' "$WORK/names" | LC_ALL=C sort > "$WORK/members"
 cmp -s "$WORK/extracted" "$WORK/members" || die "the extracted files and the archive listing disagree"
 
