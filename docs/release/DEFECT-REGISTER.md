@@ -219,6 +219,58 @@ Added after the operator asked for a register that omits no known defect. Method
 - Owner: implementation/administrator. Planned phase: Phase 3 - 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7.
 - Closure evidence: a tag on a commit with failed or missing CI publishes nothing, shown by a dry-run test.
 
+## A4. Additional confirmed findings (Stage 2.2 plan/order tooling audit, follow-up to PR #10, 2026-10-26)
+
+IDs F0-050 onward, to avoid collisions with parallel branches. Every item was reproduced by execution against `main` before the fix (probes and a schema-wide fuzz), and each now has a regression test in `template/engine/tools/test_plan_tool_hardening.py`; run against the pre-fix tools those tests produced 22 failures and 16 errors. PR #10 had already made `write_json` atomic, aligned `safe_rel` and required a 40-hex ref in `context_urls`; items marked "(partly #10)" were completed here.
+
+### F0-050 — A task file with a duplicate id was silently ignored
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: two files declaring the same `id` loaded as one task and `check` passed. Resolution: reported as an error by `check`; `order`, `render` and `next` refuse.
+
+### F0-051 — Only `write_json` was atomic (partly #10)
+- Severity: S2. Status: CONFIRMED and CLOSED. Evidence: `PLAN.md`, `CONCURRENCY.md`, order files and the plan scaffold were still written in place. Resolution: all writes go through an atomic temp-file-and-rename helper that preserves file mode and creates parent directories.
+
+### F0-052 — Concurrent `order --write` runs lost work orders
+- Severity: S2. Status: CONFIRMED (executed: in 19 of 20 paired runs one order was overwritten because both took the same submission id) and CLOSED. Resolution: a per-plan lock held by every writing command (waits up to `PLAN_LOCK_TIMEOUT`, default 15 s, then reports clearly) and exclusive creation of order files.
+
+### F0-053 — A failure part-way through a multi-file command left partial state
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: with the second task save failing, `order --write --start` left the order file and one task in progress. Resolution: a rollback transaction restores every file already written (also for `decide`; `new` is built in a temporary directory and moved into place; the plan counter is bumped last).
+
+### F0-054 — `order` accepted moving refs and mislabelled the result as pinned (partly #10)
+- Severity: S1 for the "pinned context" invariant. Status: CONFIRMED (executed) and CLOSED. Evidence: `--ref main` and `--plan-ref main` were accepted. Resolution: both must be full 40-hex commit ids; `context_ref_pinned` is always true because nothing else is accepted; gateway link minting can no longer meet an unpinned ref.
+
+### F0-055 — Order hashes came from the working tree, not the pinned commit
+- Severity: S2. Status: CONFIRMED (executed: an uncommitted edit changed the hash, which no longer matched the file served at the pinned commit) and CLOSED. Resolution: hashes and "current file" edit items are computed from `git cat-file blob <ref>:<path>`; an uncommitted file is not offered; a non-git target is refused.
+
+### F0-056 — `order` did not validate the plan (partly #10)
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: a plan with a schema-invalid `plan.json`, or a context path `../secret.txt`, still produced an order and hashed a file outside the target checkout. Resolution: `order`, `render` and `next` refuse a plan that fails `check`; context paths are validated again where the URL is built.
+
+### F0-057 — Wrong-typed input crashed with raw tracebacks and unstable exit codes
+- Severity: S2. Status: CONFIRMED (executed: a fuzz of every schema field with wrong types or removed fields, run across `check`, `render`, `next`, `plans`, `order`, found crashes in several commands, including non-object entries in `decisions.json`, a non-list `tasks` in `SUBMISSION.json`, and `render` on a schema-invalid plan) and CLOSED. Resolution: loaders and `check_plan` validate shape first; unexpected errors print one clear line and exit 70 (`PLAN_DEBUG=1` shows the traceback); exit codes are documented (0, 1, 2, 70, 130). The fuzz is now a permanent test.
+
+### F0-058 — Trailing newlines were accepted in identifiers
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: `$` anchors accepted `x\n` as a plan id (creating a directory) and `ref + "\n"` in `ctxlink.mint`, which produced a link containing a newline. Resolution: full-match semantics everywhere; control characters are rejected in link paths.
+
+### F0-059 — Link lifetime was unbounded
+- Severity: S2. Status: CONFIRMED (executed: ttl 0, -5 and 1,000,000,000 minted) and CLOSED. Resolution: `ctxlink.mint` accepts 1 to 259200 seconds (decision 0003, 72 hours) and `plan_tool` validates `ttl_seconds` even for orders without links.
+
+### F0-060 — Reference gateway default maximum link lifetime contradicts decision 0003
+- Severity: S3. Status: CONFIRMED (source: `ctxgate.py` defaults `max_ttl` to 7 days). Not changed here; belongs to Phase 4 (`gateway/read`), which has open PRs.
+
+### F0-061 — Identifier arguments were used unvalidated inside file paths
+- Severity: S3. Status: CONFIRMED and CLOSED. Evidence: `links`, `check-submission` and `--rework-of` accepted `../` forms. Resolution: order and submission ids must match `NNNNN-SNNN`; order files read back from disk are schema-validated.
+
+### F0-062 — Product-specific wording remained in the shipped tool
+- Severity: S3. Status: CONFIRMED and CLOSED. A docstring, a comment and an error message named one project; they are neutral now.
+
+### R0-018 — The plan lock is per machine
+- Severity: S3; Status: ACCEPTED, documented. It prevents two processes on one machine from corrupting a plan; it does not coordinate two machines, where git merge conflicts remain the safety net.
+
+### R0-019 — A pinned commit that was never pushed cannot be detected offline
+- Severity: S3; Status: ACCEPTED. `order` proves the commit and files exist in the local checkout, not that the remote has them; agents would get 404s.
+
+### R0-020 — Path normalisation (Unicode form, case) is not specified for links
+- Severity: S3; Status: OPEN, owned by the conformance vectors (Stage 4.1). The signing test now compares against an independent implementation for spaces, accents, `%`, `+`, `?`, `#`, emoji and 20-level paths and agrees.
+
 ## B. Risks and verification gaps (not proven defects)
 
 ### R0-001 — Path validation may reject safe names containing `..`
@@ -343,6 +395,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
+| F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
 | R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)

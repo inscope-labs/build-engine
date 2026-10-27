@@ -88,8 +88,9 @@ start. A stage is `done` when all its non-dropped, non-superseded tasks are `don
 ## Work orders
 
 `plan_tool.py order <plan> <ids> --target <PROJECT-dev main checkout> [--write] [--start]` prints a plain-text WORK
-ORDER (`--json` for the machine form). Context is URLs pinned to the checkout's HEAD (`--ref <sha>` pins one
-explicitly). `plan.json` `order_rules` are printed in every order.
+ORDER (`--json` for the machine form). Context is URLs pinned to the checkout's HEAD (`--ref <40-hex commit id>` pins one
+explicitly; branch names and short ids are refused). Hashes in the order are of the files as committed at that commit,
+never of uncommitted working-tree edits. `plan.json` `order_rules` are printed in every order.
 
 Open orders are limited by the concurrency matrix: an order is refused if one of its tasks shares a file with an
 in-progress task, and, if configured, when `max_open_orders` (plan.json, else engine.json `limits`) is reached.
