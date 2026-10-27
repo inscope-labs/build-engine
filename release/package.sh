@@ -223,6 +223,7 @@ mkdir -p "$STAGE/engine"
     printf '%s %s %s\n' "$(sha256sum "$STAGE/$rel" | cut -d' ' -f1)" "$mode" "$rel"
   done < "$WORK/modes"
 } > "$STAGE/engine/RELEASE-MANIFEST"
+chmod 0644 "$STAGE/engine/RELEASE-MANIFEST"
 
 grep -v '^#' "$STAGE/engine/RELEASE-MANIFEST" | awk '{print $3}' | LC_ALL=C sort > "$WORK/rm_paths"
 (cd "$STAGE" && find . -type f | sed 's|^\./||' | grep -v '^engine/RELEASE-MANIFEST$') | LC_ALL=C sort > "$WORK/staged_paths"
@@ -240,7 +241,7 @@ tar --sort=name --mtime='UTC 2020-01-01' --owner=0 --group=0 --numeric-owner --f
     -C "$STAGE" -cf - -T "$WORK/all" | gzip -n -9 > "$TMP_OUT"
 mv -f "$TMP_OUT" "$OUT_ABS/$NAME"
 TMP_OUT=""
-(cd "$OUT_ABS" && sha256sum "$NAME" > ".$NAME.sha256.tmp" && mv -f ".$NAME.sha256.tmp" "$NAME.sha256")
+(cd "$OUT_ABS" && sha256sum "$NAME" > ".$NAME.sha256.tmp" && chmod 0644 ".$NAME.sha256.tmp" && mv -f ".$NAME.sha256.tmp" "$NAME.sha256")
 
 note "packaged $(wc -l < "$WORK/rm_paths") files, $VERSION"
 echo "$OUT/$NAME"
