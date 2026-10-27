@@ -338,6 +338,9 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Evidence: `release/verify.sh` ran `sha256sum -c "$base.sha256"`, which verifies whatever files the sidecar names.
   Nothing checked that the sidecar named *this* artifact, so a sidecar that described a different file - one that
   existed and matched - left the artifact itself unverified.
+- Executed at the baseline: a sidecar naming a copy of the artifact under another name, with that copy present in the
+  directory, produced `verify: OK (build-engine-v0.5.0.tar.gz: 41 files, version 0.5.0)`. The artifact had not been
+  checked at all.
 - Consequence: the checksum check could pass without the artifact ever being checked, which is exactly the
   guarantee the step exists to provide. (It is not an authenticity problem - F0-017 already records that the
   sidecar proves integrity, not provenance - but the step did not do what it said.)
@@ -346,15 +349,19 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Closure evidence: Self-test: "a sidecar that describes another file is refused", "a missing checksum sidecar is
   refused", "a tampered artifact fails its checksum".
 
-### F0-041 — Duplicate archive members with identical content were not detected
-- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
-- Evidence: the verifier extracted the archive and compared the file set with the release manifest, so a member that
-  appeared twice with *different* content was caught (the hash no longer matched) - the case R0-002 records as
-  tested. A member that appeared twice with *identical* content passed every check: the extraction produced one
-  file, the manifest listed one path, and nothing ever compared the member list with itself.
-- Consequence: the artifact's actual contents were ambiguous. Which of the two members a consumer would get
-  depended on the extraction order, and the verifier's report of "41 files" did not describe the archive it had
-  checked. R0-002 listed this case as untested; it is now tested and refused.
+### F0-041 — A duplicate archive member was only caught as a side effect, and the release manifest could be duplicated unnoticed
+- Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: the verifier compared the archive's member list with the release manifest's paths, so a member that
+  appeared twice made the two lists differ and the artifact was refused - but with the message "artifact files and
+  release manifest disagree", which describes a different problem. One member was excluded from that comparison:
+  `engine/RELEASE-MANIFEST`, the file that describes the archive. A member duplicated under that name passed every
+  check.
+- Executed at the baseline: an archive with `engine/RELEASE-MANIFEST` listed twice and identical content produced
+  `verify: OK (build-engine-v0.5.0.tar.gz: 42 files, version 0.5.0)` - a 41-file artifact, reported as 42 files,
+  whose own description of itself was present twice.
+- Consequence: the archive's contents were ambiguous, and the verifier's own report did not describe the archive it
+  had checked. R0-002 listed the identical-content duplicate as untested; it is now tested and refused, for the
+  right reason.
 - Required resolution: refuse an archive that lists the same member name twice, and refuse two members that are
   equal under case folding.
 - Owner: implementation. Planned phase: Phase 3 - 3.2.1.
@@ -368,6 +375,8 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
   any rule, and the gateway's own directory and file names no longer matched either.
   (b) The content rules were matched with `grep -rI`, which skips any file that contains a NUL byte. A credential
   placed in such a file was not detected at all.
+- Executed at the baseline: an indented `class Gateway:` was not caught by any rule (`verify: OK`), and a file
+  containing a NUL byte and a `ghp_` token was not caught either (`verify: OK`).
 - Consequence: the second line of defence could be walked around by two small changes to a copied file.
 - Required resolution: match the gateway patterns anywhere in a line, and match the content rules against binary
   files as well.
