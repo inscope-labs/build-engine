@@ -225,9 +225,15 @@ must_fail "a Worker config is caught" "forbidden path rule" "$R/release/verify.s
 hostile file "docs/node_modules/x/package.json"
 must_fail "a node_modules tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 hostile file "variants/object-storage/README.md"
-must_fail "a variants tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+must_fail "a variants tree is caught" "not allowlisted" "$R/release/verify.sh" "$(ART)"
 hostile file "conformance/signing-vectors.json"
-must_fail "a conformance tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+must_fail "a conformance tree is caught" "not allowlisted" "$R/release/verify.sh" "$(ART)"
+# the forbidden rules are a second, independent layer: even with the allowlist widened they still refuse
+fresh; build; printf 'managed variants\nmanaged conformance\n' >> "$R/release/manifest.txt"
+hostile file "variants/object-storage/README.md"
+must_fail "a variants tree is caught even when the allowlist allows it" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "conformance/signing-vectors.json"
+must_fail "a conformance tree is caught even when the allowlist allows it" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
 
 # ---------------------------------------------------------------- the release gate
 fresh; python3 - "$R" <<'PY'
