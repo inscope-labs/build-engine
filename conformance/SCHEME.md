@@ -102,14 +102,21 @@ and MUST reject the link before doing any other work with it.
 
 ### 4.2 `exp` — expiry
 
-Unix time in seconds. The link is valid while `now <= exp`, and refused once `now > exp`. The boundary is
-**inclusive**: a link is served at exactly `exp` and refused at `exp + 1`.
+Unix time in seconds. The link is valid while `now <= exp + tolerance`, and refused once
+`now > exp + tolerance`. With a tolerance of zero the boundary is **inclusive**: a link is served at exactly
+`exp` and refused at `exp + 1`.
+
+`tolerance` is the **clock-skew tolerance** of the gateway (section 9): the number of seconds by which the
+gateway's clock is assumed to lag the minter's. A gateway MUST apply a fixed, documented tolerance and MUST
+NOT widen it silently. The operator's approved ceiling for the tolerance is 120 seconds
+(`docs/decisions/0003`); a deployment MUST NOT use a larger one, and the conformance suite enforces that bound.
 
 `exp` is bound into the signature, so it cannot be stretched by editing the URL.
 
 Separately from the expiry, a gateway enforces a maximum lifetime: it refuses any link for which
 `exp - now > max_ttl`. This stops a minter from minting a link that lives for a year, whatever the signer
-believes. The default `max_ttl` is 7 days (604800 seconds).
+believes. The operator's approved ceiling for `max_ttl` is 72 hours (259200 seconds,
+`docs/decisions/0003`).
 
 ### 4.3 `order` — work order id
 
@@ -160,6 +167,19 @@ Two consequences worth stating explicitly, because implementations get them wron
 
 A path that fails any rule is refused by a gateway, and MUST be refused by a minter.
 
+**What a platform may do to the request before the gateway sees it.** The scheme describes what a
+gateway does with the request it receives. Some runtimes resolve `.` and `..` segments in the
+request target before the Worker is invoked — the Cloudflare Workers runtime does. A traversal
+attempt then arrives as a path that no longer contains the traversal, and it is refused by the
+signature check rather than by the path rule. The outcome is the same (403, nothing served) and
+the audit reason differs. A conformance case for traversal therefore accepts `malformed` **or**
+`bad-signature`: the scheme does not pretend that two platforms produce the same reason.
+
+The rule the scheme does state: the gateway MUST NOT normalise a path itself, and MUST NOT rely
+on the platform having normalised one. A gateway that normalises, or that depends on the platform
+having done it, is not conformant — the normalisation is not part of the scheme and is not
+guaranteed to be present.
+
 ## 6. URL encoding
 
 The path travels in the URL, so it is percent-encoded **per segment**:
@@ -196,7 +216,7 @@ scheme, because it is what makes enumeration impossible.
 | 4 | `kid`, `exp`, `order`, `ref` and `path` are well-formed (sections 4 and 5) | 403 |
 | 5 | `kid` is a known key id | 403 |
 | 6 | the signature is valid, compared in constant time | 403 |
-| 7 | the link is not expired (`now <= exp`) | 403 |
+| 7 | the link is not expired (`now <= exp + tolerance`) | 403 |
 | 8 | `exp - now <= max_ttl` | 403 |
 | 9 | the order is not revoked | 403 |
 | 10 | the path is inside an allowed prefix and matches no deny rule | 403 |
@@ -219,6 +239,7 @@ rejections, and a forged link must not be able to tell "expired" from "no such f
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Content-SHA256` | lowercase hex SHA-256 of the body |
 | `X-Ctx-Order` | the order the link was minted for |
+| `X-Request-Id` | the per-request correlation id, the same one in the audit record |
 | `Content-Length` | the size of the body |
 
 A `HEAD` request returns the same headers with an empty body. `Cache-Control` MUST contain `no-store`: a cached
@@ -235,17 +256,32 @@ existence of a file to a caller who has proved it holds a valid link for that ex
 These are deployment decisions. A gateway is free to choose them, and the conformance suite is told what to
 expect.
 
-| Setting | Meaning | Reference default |
-|---|---|---|
-| `allow_prefixes` | which repository paths may be served at all | `amk/` |
-| `deny_regex` | paths that are refused even inside an allowed prefix | `.git`, `.github`, `.env`, `secrets`/`credentials`, `*.pem`/`*.key`/`*.p12` |
-| `max_bytes` | largest file that may be served | 1 MB |
-| `max_ttl` | longest lifetime a link may have | 7 days |
-| `revoked_orders` | orders whose links are dead | empty |
-| `audit_path` | where request records are written | none |
+| Setting | Meaning | Reference default | Approved ceiling |
+|---|---|---|---|
+| `allow_prefixes` | which repository paths may be served at all | `amk/` | operator's choice |
+| `deny_regex` | paths that are refused even inside an allowed prefix | `.git`, `.github`, `.env`, `secrets`/`credentials`, `*.pem`/`*.key`/`*.p12` | operator's choice |
+| `max_bytes` | largest file that may be served | 1 MB | operator's choice |
+| `max_ttl` | longest lifetime a link may have | 7 days | **72 h (259200 s)** — `docs/decisions/0003` |
+| `clock_skew_tolerance` | seconds the gateway's clock is assumed to lag the minter's | 0 | **120 s** — `docs/decisions/0003` |
+| `revoked_orders` | orders whose links are dead | empty | operator's choice |
+| `audit_path` | where request records are written | none | operator's choice |
 
 A gateway MUST NOT serve anything that is not named by a valid link: no directory listing, no search, no branch
 switching, no repository API proxying, no write path.
+
+### 9.1 The health endpoint
+
+A gateway MUST expose a health endpoint that reports the **effective** values of the settings that change how
+a link is judged, so that a verifier can test the gateway as it is actually configured rather than as it is
+assumed to be configured. It reports:
+
+```json
+{"status": "ok", "version": "...", "clock_skew_tolerance": 120, "max_ttl": 259200, "max_bytes": 1048576,
+ "key_ids": ["k1"], "scheme": "ctxgate-v1"}
+```
+
+It MUST NOT report the allowed prefixes, the deny patterns, the repository, the signing secrets, the revocation
+list or the audit contents. Those are protected state; the health endpoint is not the place for them.
 
 ## 10. Audit record
 
@@ -253,13 +289,15 @@ Every request writes exactly one record. The reference format is one JSON object
 
 ```json
 {"ts": 1700000000, "status": 200, "reason": "ok", "kid": "k1", "order": "10008-S001",
- "ref": "aaaa…", "path": "amk/spec.md", "bytes": 16}
+ "ref": "aaaa…", "path": "amk/spec.md", "bytes": 16, "request_id": "9f2c1a7e4b8d0356"}
 ```
 
 - `status` is the HTTP status returned to the caller.
 - `reason` is a short machine-readable cause (`ok`, `method`, `encoded-separator`, `malformed`, `unknown-key`,
   `bad-signature`, `expired`, `ttl-too-long`, `revoked`, `path-denied`, `not-found`, `too-large`).
-- `sig` is **never** recorded, and neither is the secret, nor the file content.
+- `request_id` is a per-request correlation id. It is unique per request, so an operator can follow one
+  request through the gateway's own logs, and it appears in the response headers as `X-Request-Id`.
+- `sig` is **never** recorded, and neither is the secret, nor the file content, nor the raw URL.
 
 A summary over the log reports, for one order: the paths **served**, the paths **never fetched**, and the
 requests **refused**.
@@ -272,12 +310,26 @@ An implementation is conformant when it passes `conformance/test_conformance.py`
   rejected;
 - `conformance/cases/behaviours.json` — the behaviours B1 to B10, as executable cases.
 
+The harness reads the gateway's **effective** `clock_skew_tolerance` and `max_ttl` from the health endpoint
+(section 9.1) and judges the expiry and lifetime behaviours against those values, so a deployment is tested
+as it is configured. It additionally asserts that both values are within the operator's approved ceilings
+(120 seconds and 72 hours): a gateway that is more permissive than the policy fails even if every other
+case passes.
+
+**Audit records.** A conformant gateway writes exactly one audit record per request, with exactly the fields
+of section 10 — including `request_id`, which is unique per request — and records no signature, no secret and
+no file content.
+
 **Test clock.** Behaviours B3 and B5 are about the exact comparison against `exp`, so the gateway under test
 needs a controllable notion of "now". A conformant implementation MUST provide one. The reference uses the
 environment variable `CTXGATE_NOW`, re-read on every request, and additionally honours a per-request override
-header `X-Conformance-Now` **only** when the process was started with `CTXGATE_CONFORMANCE=1`. That switch is a
+header `X-Conformance-Now` **only** when the process was started with `CTXGATE_TEST_CLOCK=1`. That switch is a
 test-mode switch: a production deployment MUST NOT set it, because the override header would let a caller
 extend the life of an expired link.
+
+**Operator channel.** A conformant gateway MUST expose an operator channel for revocation and for reading
+the audit trail, authenticated separately from the signing keys. Without it, a remote gateway cannot be
+revoked and the operator cannot see what was fetched.
 
 **Signer contract.** To be driven by the harness, a signer may be exposed as a program that reads one JSON
 object per line on stdin and writes one JSON object per line on stdout:

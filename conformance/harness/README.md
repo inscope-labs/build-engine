@@ -52,10 +52,10 @@ own; it is about twenty lines.
 
 B3 and B5 are about the exact comparison against `exp`, so the gateway under test needs a controllable
 notion of "now". The reference implementation reads `CTXGATE_NOW` and, when the process was started with
-`CTXGATE_CONFORMANCE=1`, honours a per-request `X-Conformance-Now` header. The harness sends that header
+`CTXGATE_TEST_CLOCK=1`, honours a per-request `X-Conformance-Now` header. The harness sends that header
 on every request.
 
-A production deployment must not set `CTXGATE_CONFORMANCE`: the override would let a caller extend the
+A production deployment must not set `CTXGATE_TEST_CLOCK`: the override would let a caller extend the
 life of an expired link. A port that provides no test clock cannot be checked on the exact expiry
 boundary, and the harness will fail the boundary cases rather than quietly pass them.
 

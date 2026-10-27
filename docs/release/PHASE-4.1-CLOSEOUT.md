@@ -58,7 +58,7 @@ WHAT THE SUITE IS WORTH
 CHANGES OUTSIDE conformance/
   template/engine/tools/ctxlink.py        safe_path() now refuses control characters (F0-024)
   template/engine/tools/test_ctxlink.py   three new shipped tests for the path rules
-  gateway/read/reference/ctxgate.py        the test clock (CTXGATE_CONFORMANCE + X-Conformance-Now),
+  gateway/read/reference/ctxgate.py        the test clock (CTXGATE_TEST_CLOCK + X-Conformance-Now),
                                           inert unless the switch is set, and the 15 existing tests
                                           now cite the behaviour IDs they cover
   .github/workflows/ci.yml                 two new steps: the conformance suite and the harness
@@ -67,6 +67,6 @@ WHAT THIS STAGE DOES NOT ESTABLISH
   Nothing about the production gateway. It has no code. The suite is ready to judge it: Stage 4.2
   must pass conformance/harness/run.py against the deployed port, and the port's signer must be
   driven through the adapter contract rather than a bespoke test.
-  The test clock is a test-mode switch. A production deployment must not set CTXGATE_CONFORMANCE.
+  The test clock is a test-mode switch. A production deployment must not set CTXGATE_TEST_CLOCK.
   The conformance suite is a development asset and is not shipped to consumers; release/manifest.txt
   does not allowlist it, and test_conformance.py asserts that it does not.

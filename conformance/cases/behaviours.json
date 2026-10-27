@@ -18,7 +18,8 @@
     "keys": {"k1": "test-secret"},
     "allow_prefixes": ["amk/"],
     "max_bytes": 4000,
-    "max_ttl": 3600,
+    "max_ttl": 259200,
+    "clock_skew_tolerance": 120,
     "revoked_orders": ["10008-S002"]
   },
   "cases": [
@@ -36,7 +37,8 @@
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
           "X-Content-SHA256": "$sha256",
-          "X-Ctx-Order": "10008-S001"
+          "X-Ctx-Order": "10008-S001",
+          "X-Request-Id": "$present"
         }
       }
     },
@@ -132,25 +134,33 @@
     {
       "id": "B3-valid-at-expiry",
       "behaviour": "B3",
-      "description": "The expiry boundary is inclusive: at exactly exp the link is still served.",
+      "description": "At exactly exp the link is still served. The boundary is inclusive.",
       "method": "GET",
-      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": 0},
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": "$exp"},
       "expect": {"status": 200, "body": "normative text\n"}
     },
     {
       "id": "B3-refused-one-past-expiry",
       "behaviour": "B3",
-      "description": "One second past exp the link is refused.",
+      "description": "One second past the end of the clock-skew window the link is refused.",
       "method": "GET",
-      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": 1},
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": "$exp_plus_skew_plus_1"},
       "expect": {"status": 403}
+    },
+    {
+      "id": "B3-served-inside-the-clock-skew-window",
+      "behaviour": "B3",
+      "description": "A link is still served at exp plus the gateway's declared clock-skew tolerance, and refused one second after it. The tolerance is the gateway's own, read from its health endpoint.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": "$exp_plus_skew"},
+      "expect": {"status": 200, "body": "normative text\n"}
     },
     {
       "id": "B3-expired-refused",
       "behaviour": "B3",
       "description": "A link that is already expired is refused.",
       "method": "GET",
-      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10, "at_offset": 0},
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$expired", "at_offset": 0},
       "expect": {"status": 403}
     },
     {
@@ -212,7 +222,7 @@
       "behaviour": "B5",
       "description": "A link whose remaining lifetime exceeds max_ttl is refused, however well it is signed.",
       "method": "GET",
-      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3601},
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$max_ttl_plus_1"},
       "expect": {"status": 403}
     },
     {
@@ -220,7 +230,7 @@
       "behaviour": "B5",
       "description": "A link whose remaining lifetime is exactly max_ttl is served. The limit is inclusive.",
       "method": "GET",
-      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3600},
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$max_ttl"},
       "expect": {"status": 200, "body": "normative text\n"}
     },
     {
@@ -331,7 +341,7 @@
       "requests": [
         {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
          "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
-        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": -10}},
+        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": "$expired"}},
         {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
          "mutate": {"kind": "field", "name": "kid", "value": "k2"}},
         {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "docs/other.md", "exp_offset": 600}}
@@ -343,7 +353,7 @@
       "behaviour": "B10",
       "description": "Every request writes exactly one audit record, and no record holds a signature.",
       "kind": "audit-invariants",
-      "expect": {"records_equal_requests": true, "no_signature_in_records": true}
+      "expect": {"records_equal_requests": true, "no_signature_in_records": true, "unique_request_ids": true}
     },
     {
       "id": "B10-audit-summary",
@@ -370,7 +380,7 @@
       "behaviour": "B3",
       "description": "An expired link is audited with the reason 'expired'.",
       "kind": "audit-reason",
-      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10}},
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$expired"}},
       "expect": {"status": 403, "reason": "expired"}
     },
     {
@@ -387,7 +397,7 @@
       "behaviour": "B4",
       "description": "A link that is forged AND expired is audited as 'bad-signature', not as 'expired'. The signature check comes first, so an expired forged link cannot be used to make the audit trail look like ordinary expiry.",
       "kind": "audit-reason",
-      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10},
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$expired"},
                   "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
       "expect": {"status": 403, "reason": "bad-signature"}
     },
@@ -423,7 +433,7 @@
       "behaviour": "B5",
       "description": "A link over max_ttl is audited with the reason 'ttl-too-long'.",
       "kind": "audit-reason",
-      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3601}},
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": "$max_ttl_plus_1"}},
       "expect": {"status": 403, "reason": "ttl-too-long"}
     },
     {
@@ -463,11 +473,11 @@
     {
       "id": "B8-dotdot-is-audited-as-malformed",
       "behaviour": "B8",
-      "description": "A '..' component is audited with the reason 'malformed'.",
+      "description": "A '..' component is refused. The audit reason is 'malformed' for a gateway that sees the raw request target, and 'bad-signature' for one whose runtime normalises dot segments away before the gateway sees them (the Cloudflare Workers runtime does). Both are 403 and neither serves anything; see conformance/SCHEME.md section 7.",
       "kind": "audit-reason",
       "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
                   "mutate": {"kind": "path", "value": "amk/../docs/other.md"}},
-      "expect": {"status": 403, "reason": "malformed"}
+      "expect": {"status": 403, "reason": ["malformed", "bad-signature"]}
     },
     {
       "id": "B9-not-found-is-audited-as-not-found",
