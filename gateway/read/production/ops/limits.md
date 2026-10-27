@@ -44,7 +44,9 @@ raise it far enough to make the budget meaningless.
 The resource controls sit around the scheme's checks, not inside them:
 
 1. the method must be `GET` or `HEAD`;
-2. the per-IP and global budgets are checked;
+2. the state is read: the per-IP and global budgets are checked, and the revocation list is
+   read. **If the state cannot be read, the request is refused with `503 state-unavailable`**
+   (see "When the state store is unavailable" below);
 3. the link is parsed, and its key id, signature, expiry, lifetime, revocation and path policy
    are checked in the order `conformance/SCHEME.md` section 7 gives;
 4. the per-order budget and the order's cooldown are checked, after the signature has verified;
@@ -61,6 +63,46 @@ Two consequences follow from step 4 being after the signature:
 The cost of that choice is that a flood of forged links is charged to the caller's address
 rather than to the order it names. If the gateway is being used as a signing oracle, the answer
 is a smaller per-IP budget, not a scheme change.
+
+## When the state store is unavailable
+
+The revocation set, the audit ring and the counters all live in one Durable Object. If that
+object cannot be read, the gateway **cannot know** whether the order in the link has been
+revoked, and it cannot know whether a budget has been spent. It therefore refuses every
+request with `503` and the reason `state-unavailable`.
+
+The alternative - treating an unreadable state store as an empty one - is how a revoked
+capability keeps working. "There are no revocations" is a fact the store can answer; "I could
+not read the revocations" is an absence of information, and an absence of information is not
+consent. The same reasoning applies to the budgets: a budget that cannot be read is not an
+exhausted budget, but it is certainly not an unlimited one.
+
+While the state store is down the audit ring is down too, so the refusals are written to the
+platform log instead. The record is the same record the ring would have held: it has no
+signature, no secret and no content in it. **A state-store outage costs availability, and
+nothing else.** It cannot serve a file, and it cannot lose a revocation.
+
+The operator channel fails the same way. A `POST /admin/revoke` that the state store did not
+accept is reported as a failure, never as a revocation: an operator who is told "revoked"
+stops watching that order.
+
+## The budgets per environment
+
+The numbers in the table above are the defaults. Each environment sets its own in
+`ops/environments.json`, and the values that are actually in force are reported on
+`/healthz`, so a verifier can test the gateway as it is configured rather than as it was
+intended to be.
+
+| Environment | `RATE_LIMIT_PER_ORDER` | `RATE_LIMIT_PER_IP` | `RATE_LIMIT_GLOBAL` |
+|---|---|---|---|
+| `test` | 120 | 600 | 2000 |
+| `staging` | 120 | 600 | 2000 |
+| `production` | 120 | 600 | 2000 |
+
+Staging is deliberately not tighter: the pilot has to exercise the same limits production
+has, or the pilot proves nothing about production. Staging is disposable, so a flood there
+costs nothing; production is not, and the budgets are the operator's to change in
+`environments.json` when the real workload says so.
 
 ## The refusal burst and the cooldown
 
@@ -105,12 +147,19 @@ reason, how many orders are revoked. It holds no order, no path and no key id.
 Revoking an order takes effect on the next request: the revocation set is held in the Durable
 Object, not in a cache, precisely so that a revoked capability stops working at once rather than
 up to a cache TTL later. `POST /admin/revoke` with `{"order": "..."}` is the operator's
-interface.
+interface. The documented bound is **two seconds**, and the staging checks measure it on every
+run: the revocation is refused on the first request after the revoke, and the measurement is
+asserted rather than assumed.
+
+The revocation set is durable: it survives a deployment, a restart and a key rotation, because
+it lives in the Durable Object and not in the Worker process. A rollback does not un-revoke
+anything, and that is the safe direction to be wrong in.
 
 Key rotation is a matter of minting with a new key id and removing the old secret from
 `SIGNING_KEYS`. A link signed with a removed key id is refused with `unknown-key` as soon as the
 new configuration is deployed. Because the gateway serves several key ids at once, rotation does
-not need an outage: add the new key id, switch the minter, then remove the old one.
+not need an outage: add the new key id, switch the minter, then remove the old one. The
+procedure is in `runbook.md`.
 
 The audit ring is bounded, not archived. `AUDIT_RETENTION` records are kept; older ones are
 dropped. If the operator needs a longer record, the ring has to be exported before it turns
