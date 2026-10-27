@@ -61,6 +61,21 @@ check "seed config still the consumer's" grep -q 'acme/widget-dev' "$C/engine/en
 must_fail "--dry-run reports and exits" "dry run" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d1' --version '$V1' --dry-run && exit 1"
 check "...and changes nothing" bash -c "test -f '$C/docs/NEW.md' && test ! -e '$C/docs/TEMPLATE.md' && grep -q '^version=0.5.1\$' '$C/.build-engine.lock'"
 
+# a name that merely contains two dots is a safe name (F0-016): the update installs it
+( cd "$T/src" && echo notes > template/docs/notes..v2.md && git add -A && git commit -qm "a name with two dots" )
+"$T/src/release/package.sh" "$T/d5" >/dev/null
+D="$T/dots"; mkdir "$D"; git -C "$D" init -q
+( cd "$D" && bash "$T/update.sh" --from-dir "$T/d5" --version "$V1" --repo OWNER/build-engine ) >"$T/o5" 2>&1 \
+  && ok "a release with a name containing two dots installs" || bad "install: $(tail -3 "$T/o5")"
+check "the file whose name contains two dots is installed" test -f "$D/docs/notes..v2.md"
+
+# integrity: an artifact with a traversal member is refused before anything is unpacked
+mkdir "$T/d4"; cp "$T/d1"/* "$T/d4"/
+python3 "$T/src/release/test-fixtures.py" add-member "$T/d4/build-engine-v$V1.tar.gz" file "../evil.txt"
+D2="$T/evil"; mkdir "$D2"; git -C "$D2" init -q
+must_fail "an artifact with a traversal member is refused" "unsafe path" bash -c "cd '$D2' && bash '$T/update.sh' --from-dir '$T/d4' --version '$V1'"
+check "...and nothing was written outside the repository" test ! -e "$D2/evil.txt"
+
 # integrity: a tampered artifact is refused before anything is unpacked
 mkdir "$T/d3"; cp "$T/d2"/* "$T/d3"/; printf 'x' >> "$T/d3/build-engine-v0.5.1.tar.gz"
 before="$(cd "$C" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
