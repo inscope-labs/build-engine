@@ -227,9 +227,11 @@ WHAT THIS STAGE DELIBERATELY DID NOT DO
     decisions about retries and provider error mapping. The `commit` route answers `501 not-implemented`,
     which is a documented code, so a 501 is never confused with a protocol error.
   - It did not write the chaos suite, the GitHub test helpers, the fixtures, or the CI wiring. Stage 5.5.
-  - It did not deploy anything, and it did not touch the repository's `.github/workflows/`. The write
-    gateway's CI job still runs typecheck and a bundle dry run; adding the test suite to it is Stage
-    5.5.8.
+  - It did not deploy anything. It did add one line to the repository's `.github/workflows/ci.yml`: the
+    write gateway's CI job now runs `npm test` as well as the typecheck and the bundle dry run. A pull
+    request whose CI does not run its own tests is weak, and the 171 tests are the evidence for this
+    stage. The full gate set of plan task 5.5.8 — the security, log-hygiene and load/chaos suites, and
+    the pull-request versus scheduled split — is still Stage 5.5.8.
   - It did not write the operator runbook's procedures. Stage 5.4.4.
   - It did not write the Phase 6 security sign-off. Stage 6.
   - It did not edit `RELEASE-PLAN.md`. Progress is recorded in this closeout, per the repo's convention.

@@ -33,7 +33,7 @@ jobs:
           release/package.sh dist
           release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz"
   write-gateway:
-    name: write gateway (typecheck + bundle)
+    name: write gateway (typecheck, tests + bundle)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,5 +49,7 @@ jobs:
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - name: Unit, integration and load tests (the real Worker and the real Durable Object)
+        run: npm test
       - name: Bundle dry run (validates wrangler.toml, no deploy, no credentials)
         run: npm run check:bundle
