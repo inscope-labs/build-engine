@@ -23,7 +23,7 @@ other directories.
    strings, on anything not allowlisted, on a manifest or version mismatch, and on a payload that fails its own tests.
    `release/test-release.sh` proves each of these failures is actually detected.
 
-The write gateway (`gateway/write`, a Cloudflare Worker proposed for Class B agents to submit deliverables) sits under the
+The write gateway (`gateway/write`, a Cloudflare Worker, currently a scaffold, required for Class B agents to submit deliverables) sits under the
 same rule: it is in `gateway/`, so it is excluded by structure, by the allowlist and by `verify.sh`, which also carries
 Worker-specific rules (`wrangler.toml`, `.dev.vars`, `node_modules`, `cloudflare:workers`). It would also change an
 engine invariant (agents hold no write credential), which is why adopting it needs `template/engine/AGENTS.md` and
@@ -38,7 +38,7 @@ engine invariant (agents hold no write credential), which is why adopting it nee
 - `conformance/` is the acceptance suite any signer or gateway must pass, kept outside every implementation so a port in
   another language is held to the same vectors and behaviours.
 - `variants/` previously held alternative designs; the object-storage variant was rejected in Stage 1.3 and removed.
-- `docs/decisions/` records the decisions, `docs/pilot/` the acceptance run, `docs/END-TO-END.md` the status of every
+- `docs/decisions/` records the read-gateway decisions (all decided), `docs/pilot/` the acceptance run, `docs/END-TO-END.md` the status of every
   stage from order to publish.
 
 ## What an update does

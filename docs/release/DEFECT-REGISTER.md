@@ -196,6 +196,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Consequence: contradictory status claims in the repository's own documents.
 - Owner: documentation. Planned phase: Phase 2 - 2.1.3, 2.1.4. (2.1.2 stays out until release-candidate time.)
 - Closure evidence: grep for stale terms returns only intentional uses (the `UNSET` sentinel in `COMPATIBILITY.md`).
+- **Closed in Phase 2.1** (`PHASE-2.1-REPORT.md`): stale text corrected; the grep for stale terms is clean outside this register, the changelog and the plan.
 
 ### F0-020 — Stage 1.1 product contract contradicted the later decisions and is still marked DRAFT
 - Severity: S1 for the Phase 1 exit gate. Status: CONFIRMED (source).
