@@ -25,7 +25,7 @@ must_fail "release gate refuses an undated changelog entry" "no dated" "$R/relea
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
-p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "UNSET"; json.dump(d, open(p, "w"))
+p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["protocol"] = "UNSET"; json.dump(d, open(p, "w"))
 PY
 build
 must_fail "release gate refuses an UNSET protocol" "protocol is missing or UNSET" "$R/release/verify.sh" "$(ART)" --release
@@ -78,7 +78,7 @@ must_fail "a payload that fails its own tests is caught" "payload tests fail" "$
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
-p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
+p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
 open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build

@@ -57,5 +57,5 @@ is organised differently, and these files follow the code rather than invent a s
 - write: the operator-side write path is `operator/cbridge` (`upload`, `publish`, `reconcile`). It was not split into a
   separate module.
 - `bin/install.sh` + `bin/update.sh` became one script, `engine/bin/update.sh` (install is an update with no lock yet).
-- `ENGINE.json` is `engine/ENGINE.json`, beside `engine/VERSION`, so `plan_tool.py` keeps finding `engine/` at the
+- `release.json` is `engine/release.json`, beside `engine/VERSION`, so `plan_tool.py` keeps finding `engine/` at the
   repository root.
