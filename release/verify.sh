@@ -69,8 +69,8 @@ cmp -s "$WORK/a" "$WORK/b" || die "artifact files and release manifest disagree"
 
 # 6. one version everywhere
 EV="$(tr -d ' \r\n' < "$X/engine/VERSION")"
-JV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_version"])' "$X/engine/ENGINE.json")"
-[[ "$EV" == "$AV" && "$JV" == "$AV" ]] || die "version disagreement: artifact $AV, engine/VERSION $EV, ENGINE.json $JV"
+JV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_version"])' "$X/engine/release.json")"
+[[ "$EV" == "$AV" && "$JV" == "$AV" ]] || die "version disagreement: artifact $AV, engine/VERSION $EV, engine/release.json $JV"
 grep -q "^# version $AV\$" "$RM" || die "release manifest version header disagrees"
 [[ ! -f "$ROOT/VERSION" || "$(tr -d ' \r\n' < "$ROOT/VERSION")" == "$AV" ]] || die "repo VERSION differs from the artifact version"
 
@@ -81,8 +81,8 @@ bash -n "$X/operator/cbridge"; sh -n "$X/operator/install.sh"; bash -n "$X/engin
 
 # 8. release gate
 if [[ "$MODE" == "--release" ]]; then
-  PROTO="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("protocol") or d.get("implements_abstract",""))' "$X/engine/ENGINE.json")"
-  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "ENGINE.json protocol is missing or UNSET: record the protocol version this release implements (e.g. build-engine/0.5)"
+  PROTO="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("protocol") or d.get("implements_abstract",""))' "$X/engine/release.json")"
+  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the protocol version this release implements (e.g. build-engine/0.5)"
   grep -Eq "^## $AV - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" "$ROOT/CHANGELOG.md" || die "CHANGELOG.md has no dated '## $AV - YYYY-MM-DD' entry"
 fi
 echo "verify: OK ($base: $(wc -l < "$WORK/names") files, version $AV${MODE:+, $MODE})"
