@@ -194,3 +194,43 @@ test("the write-gateway gates are all wired", () => {
     assert.ok(jobNames(nightly).includes(job), `nightly.yml has the ${job} job`);
   }
 });
+
+test("no workflow has the YAML trap: a plain value that contains a colon", () => {
+  // A plain scalar may not contain ": " — the parser reads the text after it as a nested
+  // mapping, and the file does not parse at all. GitHub's symptom is silent and confusing:
+  // the workflow's name falls back to its path, its triggers are not read, and it creates no
+  // jobs. It cost a run to find, so it is checked here.
+  //
+  // The value has to be quoted, or the colon has to go.
+  const offenders: string[] = [];
+
+  for (const file of [...workflowFiles(), ...readdirSync(DEFINITIONS).map((name) => join(DEFINITIONS, name))]) {
+    const lines = readFileSync(file, "utf-8").split("\n");
+    let inBlock = 0;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // A block scalar's body is literal text, and a colon in it is not a mapping.
+      if (inBlock > 0) {
+        if (trimmed !== "" && line.startsWith(" ".repeat(inBlock))) inBlock += 0;
+        if (trimmed === "") continue;
+        const indent = line.length - line.trimStart().length;
+        if (indent > inBlock) continue;
+        inBlock = 0;
+      }
+      if (trimmed === "" || trimmed.startsWith("#")) continue;
+      if (/: \||: >$/.test(trimmed)) {
+        inBlock = line.length - line.trimStart().length;
+        continue;
+      }
+      const match = /^([^:]+):\s+(.*)$/.exec(trimmed);
+      if (match === null) continue;
+      const value = match[2]!;
+      if (value.startsWith('"') || value.startsWith("'") || value.startsWith("|") || value.startsWith(">")) {
+        continue;
+      }
+      if (value.includes(": ")) offenders.push(`${file.split("/").pop()}: ${trimmed}`);
+    }
+  }
+
+  assert.deepEqual(offenders, [], "these lines do not parse as YAML:");
+});
