@@ -1,6 +1,6 @@
 # Status of build-engine 0.5.0 (unreleased)
 
-Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
+Audited commit: `main` at `5a8d06c` (after PR #24), plus PR #25 (`phase-1.2/conformance-fixes`), 2026-10-28. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
 
 **Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
@@ -13,7 +13,7 @@ Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the ful
 5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
 6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
 
-Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/release.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `release.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4). **Stage 1.1 product contract is APPROVED (2026-10-27)** with clarified Class A credential exception, managed/seed metadata names (`engine/engine.json` / `engine/release.json`), Supervisor-Agent transfer design (1.1.5), and environment acceptance matrix. Physical rename of template metadata files and code readers remains a Phase 2 task.
+Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/release.json`, enforced by `verify.sh --release` (form, version match, `COMPATIBILITY.md` row) and kept in step by `set-version.sh`; the retired `implements_abstract` key is rejected; CI on `main` was red at `5a8d06c` (`install.sh` mode) and is fixed in PR #25, with CI green on that PR (Stage 1.2 complete); version sources agree (`VERSION`, `template/engine/VERSION`, `release.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4). **Stage 1.1 product contract is APPROVED (2026-10-27)** with clarified Class A credential exception, managed/seed metadata names (`engine/engine.json` / `engine/release.json`), Supervisor-Agent transfer design (1.1.5), and environment acceptance matrix. Physical rename of template metadata files and code readers remains a Phase 2 task.
 
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
 
@@ -40,8 +40,8 @@ No allowlisted path under `template/` is missing. The three release-isolation la
 | `manifest.txt` | Allowlist (`managed` / `seed`) relative to `template/` |
 | `forbidden.txt` | Path and content deny rules (gateway, credentials, Worker artefacts, etc.) |
 | `package.sh` | Expand allowlist → stage → deterministic tarball + SHA-256 |
-| `verify.sh` | Independent inspection of finished artefact (checksum, safety, allowlist, forbidden, version agreement, payload tests); `--release` gate |
-| `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `release.json` |
+| `verify.sh` | Independent inspection of finished artefact (checksum, safety, allowlist, forbidden, version agreement, retired-key check, payload tests); `--release` gate (dated changelog, protocol form and version match, `COMPATIBILITY.md` row) |
+| `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `release.json` (`engine_version`, `protocol`), the `COMPATIBILITY.md` row and the `CHANGELOG.md` heading |
 | `test-release.sh` | Self-test proving clean packaging succeeds and each failure mode is detected |
 
 ### 3. Shipped product (`template/` — maps 1:1 onto consumer root)
@@ -133,4 +133,4 @@ Scaffold only. TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci 
 
 See the conclusion at the top of this file and `docs/release/DEFECT-REGISTER.md` (section F maps every finding to the plan stage that closes it).
 
-**Structural completeness of the shippable payload:** none missing. Every path in `release/manifest.txt` exists under `template/`; `package.sh` succeeds on a clean tree and ordinary `verify.sh` passes. `verify.sh --release` fails only on the dated changelog entry, by design, until release-candidate time.
+**Structural completeness of the shippable payload:** none missing. Every path in `release/manifest.txt` exists under `template/`; `package.sh` succeeds on a clean tree and ordinary `verify.sh` passes. `verify.sh --release` fails only on the dated changelog entry, by design, until release-candidate time (a scratch run on a copy confirms this).

@@ -2,7 +2,8 @@
 # verify.sh ARTIFACT.tar.gz [--release] - inspect a FINISHED artifact. Never trusts how it was built.
 # Fails on: bad checksum, unsafe tar entries, paths outside the allowlist, anything in forbidden.txt (the gateway
 # in particular), a bad release manifest, version disagreement, or a payload that does not pass its own tests.
-# --release additionally requires an abstract version to be recorded and a dated CHANGELOG entry.
+# --release additionally requires a compatibility protocol version (build-engine/<major.minor>) that matches the release
+# version and has a row in COMPATIBILITY.md, and a dated CHANGELOG entry.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ART="${1:-}"; MODE="${2:-}"
@@ -74,6 +75,10 @@ JV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_ve
 grep -q "^# version $AV\$" "$RM" || die "release manifest version header disagrees"
 [[ ! -f "$ROOT/VERSION" || "$(tr -d ' \r\n' < "$ROOT/VERSION")" == "$AV" ]] || die "repo VERSION differs from the artifact version"
 
+# 6b. the retired compatibility key must be gone (Stage 1.2): readers and gates use `protocol` only
+python3 -c 'import json,sys; sys.exit(1 if "implements_abstract" in json.load(open(sys.argv[1])) else 0)' "$X/engine/release.json" \
+  || die "engine/release.json still carries the retired key implements_abstract: use protocol (e.g. build-engine/0.5)"
+
 # 7. the payload works on its own (no gateway, no repo around it)
 bash -n "$X/operator/cbridge"; sh -n "$X/operator/install.sh"; bash -n "$X/engine/bin/update.sh"
 (cd "$X" && python3 -m compileall -q engine/tools >/dev/null) || die "payload python does not compile"
@@ -81,8 +86,11 @@ bash -n "$X/operator/cbridge"; sh -n "$X/operator/install.sh"; bash -n "$X/engin
 
 # 8. release gate
 if [[ "$MODE" == "--release" ]]; then
-  PROTO="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("protocol") or d.get("implements_abstract",""))' "$X/engine/release.json")"
-  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the protocol version this release implements (e.g. build-engine/0.5)"
+  PROTO="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("protocol",""))' "$X/engine/release.json")"
+  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the compatibility protocol version this release implements (e.g. build-engine/0.5)"
+  [[ "$PROTO" =~ ^build-engine/([0-9]+)\.([0-9]+)$ ]] || die "engine/release.json protocol '$PROTO' is not of the form build-engine/<major>.<minor>"
+  [[ "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" == "${AV%.*}" ]] || die "protocol $PROTO does not match release version $AV (expected build-engine/${AV%.*})"
+  grep -Eq "^\| ${AV//./\\.}( \(unreleased\))? \| ${PROTO//./\\.} \|" "$ROOT/COMPATIBILITY.md" || die "COMPATIBILITY.md has no row recording engine $AV with protocol $PROTO"
   grep -Eq "^## $AV - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" "$ROOT/CHANGELOG.md" || die "CHANGELOG.md has no dated '## $AV - YYYY-MM-DD' entry"
 fi
 echo "verify: OK ($base: $(wc -l < "$WORK/names") files, version $AV${MODE:+, $MODE})"

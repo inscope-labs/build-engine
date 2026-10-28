@@ -39,7 +39,7 @@ Cloudflare (or equivalent read-only endpoint)
   (static object storage + short-lived signed URLs)
 ```
 
-No new branches, no changes to `main` or public `castiel`, and no additional credentials granted to supervisor or worker agents.
+No new branches, no changes to `main`, and no additional credentials granted to supervisor or worker agents.
 
 ### Package Contents (allow-list)
 

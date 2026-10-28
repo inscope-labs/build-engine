@@ -162,6 +162,54 @@ p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["pr
 open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 plant; v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build
-must_pass "release gate passes once the abstract version and a dated changelog entry exist" "$R/release/verify.sh" "$(ART)" --release
+must_pass "release gate passes once the compatibility protocol version and a dated changelog entry exist" "$R/release/verify.sh" "$(ART)" --release
+
+# ---------------------------------------------------------------- Stage 1.2: compatibility protocol gate
+# helper: merge a JSON object into release.json (null deletes a key), date the changelog, commit, build
+relprep() { python3 - "$R" "$1" <<'PY'
+import json, sys
+p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d.update(json.loads(sys.argv[2]))
+for k in [k for k, v in d.items() if v is None]: del d[k]
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
+PY
+  local v; v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; plant; build; }
+
+fresh; relprep '{"implements_abstract": "build-engine/0.5"}'
+must_fail "the retired implements_abstract key is rejected" "retired key implements_abstract" "$R/release/verify.sh" "$(ART)"
+
+fresh; relprep '{"protocol": null, "implements_abstract": "build-engine/0.5"}'
+must_fail "the retired key no longer satisfies the release gate" "retired key implements_abstract" "$R/release/verify.sh" "$(ART)" --release
+
+fresh; relprep '{"protocol": "build-engine-0.5"}'
+must_fail "a malformed protocol value is refused" "not of the form build-engine/<major>.<minor>" "$R/release/verify.sh" "$(ART)" --release
+
+fresh; relprep '{"protocol": "build-engine/0.6"}'
+must_fail "a protocol that disagrees with the release version is refused" "does not match release version" "$R/release/verify.sh" "$(ART)" --release
+
+fresh; sed -i '/^| 0\.5\.0/d' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
+must_fail "a missing COMPATIBILITY.md row is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
+
+fresh; sed -i 's#^| 0\.5\.0 (unreleased) | build-engine/0\.5 |#| 0.5.0 (unreleased) | build-engine/0.4 |#' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
+must_fail "a COMPATIBILITY.md row with a different protocol is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
+
+# set-version.sh keeps every compatibility record in step, and running it twice changes nothing more
+fresh; "$R/release/set-version.sh" 0.6.0 >/dev/null; "$R/release/set-version.sh" 0.6.0 >/dev/null
+sv_ok=1
+[[ "$(tr -d ' \n' < "$R/VERSION")" == 0.6.0 && "$(tr -d ' \n' < "$R/template/engine/VERSION")" == 0.6.0 ]] || sv_ok=0
+python3 - "$R" <<'PY' || sv_ok=0
+import json, sys
+d = json.load(open(sys.argv[1] + "/template/engine/release.json"))
+sys.exit(0 if d == {"engine_version": "0.6.0", "protocol": "build-engine/0.6"} else 1)
+PY
+[[ "$(grep -c '^| 0\.6\.0 (unreleased) | build-engine/0\.6 |' "$R/COMPATIBILITY.md")" == 1 ]] || sv_ok=0
+[[ "$(grep -c '^## 0\.6\.0 - ' "$R/CHANGELOG.md")" == 1 ]] || sv_ok=0
+[[ $sv_ok -eq 1 ]] && ok "set-version.sh syncs VERSION, release.json, COMPATIBILITY.md and CHANGELOG.md (idempotent)" || bad "set-version.sh left a compatibility record out of step"
+
+"$R/release/set-version.sh" 0.6.1 >/dev/null
+grep -q '"protocol": "build-engine/0.6"' "$R/template/engine/release.json" && grep -q '^| 0\.6\.1 (unreleased) | build-engine/0\.6 |' "$R/COMPATIBILITY.md" \
+  && ok "a patch bump keeps the protocol and adds its own COMPATIBILITY.md row" || bad "a patch bump did not record its compatibility row"
+
+sed -i "s/^## 0\.6\.1 - unreleased\$/## 0.6.1 - 2026-01-01/" "$R/CHANGELOG.md"; plant; build
+must_pass "a version set with set-version.sh passes the release gate" "$R/release/verify.sh" "$(ART)" --release
 
 echo "$PASS passed, $FAILN failed"; [[ $FAILN -eq 0 ]]
