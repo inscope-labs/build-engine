@@ -45,8 +45,8 @@ Exact metadata pair (authoritative):
 ### Supported operating environments
 
 - **Linux and Termux/Android:** supported. The operator bridge is a Termux-oriented script and the maintainer builds and operates from Termux.
-- **macOS:** not claimed as supported. The shipped scripts need bash 4 or newer, `sha256sum` and (for packaging) GNU `tar`, which stock macOS does not provide (it ships bash 3.2 and BSD tools). Support can be added later either by documenting Homebrew `bash`, `coreutils` and `gnu-tar` as requirements or by porting the scripts (register F0-014).
-- Required tools (minimum versions for both Linux and Termux/Android): bash ≥ 4.0, python3 ≥ 3.10, git ≥ 2.30, GNU tar, sha256sum (coreutils), mktemp, gh (GitHub CLI).
+- **macOS:** not claimed as supported. The shipped scripts need bash 4.4 or newer, `sha256sum` and (for packaging) GNU `tar`, which stock macOS does not provide (it ships bash 3.2 and BSD tools). Support can be added later either by documenting Homebrew `bash`, `coreutils` and `gnu-tar` as requirements or by porting the scripts (register F0-014).
+- Required tools (minimum versions for both Linux and Termux/Android): bash ≥ 4.4 (raised from 4.0 in Stage 2.4: older bash 4.x treats empty arrays as unset under `set -u`), python3 ≥ 3.10, git ≥ 2.30, GNU tar, sha256sum (coreutils), mktemp, gh (GitHub CLI).
 - The write gateway runs on Cloudflare Workers with a Durable Object (Stage 1.4); the read gateway runs on Cloudflare, operator-owned and single-tenant (decision 0001). Operators need accounts for those platforms; the consumer artifact has no runtime dependency on them beyond the links and the work-order contents.
 - Network access is needed only for operations the operator chooses to perform; offline plan authoring and local verification remain possible.
 

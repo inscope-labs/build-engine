@@ -146,7 +146,7 @@ directory entry|lines|[('docs/emptydir',b'','dir','')]|non-regular
 absolute tar member|lines|[('/tmp/abs',b'x','file','')]|unsafe path
 traversal tar member|lines|[('docs/../../up',b'x','file','')]|unsafe path
 EOF2
-crafted fold 0.5.0 "lines+['$H64 managed docs/readme.MD','$H64 managed docs/README.md']"
+crafted fold 0.5.0 "lines+['%s managed docs/fold-test.md' % hashlib.sha256(b'a').hexdigest(), '%s managed docs/FOLD-TEST.md' % hashlib.sha256(b'b').hexdigest()]" "[('docs/fold-test.md',b'a','file',''),('docs/FOLD-TEST.md',b'b','file','')]"
 must_fail "the artifact has no manifest at all" "RELEASE-MANIFEST" bash -c "mkdir -p '$T/nm' && python3 - <<'PY'
 import tarfile,io,gzip,hashlib
 s=tarfile.open('$T/r_a/build-engine-v0.5.0.tar.gz'); b=io.BytesIO()
@@ -159,9 +159,11 @@ cd '$(consumer n1)' && bash '$UPD' --from-dir '$T/nm' --version 0.5.0"
 
 echo "case-insensitive filesystems (test hook simulates one)"
 C="$(consumer f1)"; before="$(tree "$C")"
-must_fail "paths differing only by case are refused on a case-insensitive filesystem" "differ only by case" env BUILD_ENGINE_TEST_CASE_INSENSITIVE=1 bash -c "cd '$C' && bash '$UPD' --from-dir '$T/r_a' --version 0.5.0"
+must_fail "paths differing only by case are refused on a case-insensitive filesystem" "differ only by case" env BUILD_ENGINE_TEST_CASE_INSENSITIVE=1 bash -c "cd '$C' && bash '$UPD' --from-dir '$T/x_fold' --version 0.5.0"
 is "...and nothing changed" "$before" "$(tree "$C")"
-run "$C" "$T/r_a" 0.5.0 >/dev/null 2>&1 && ok "the same release installs on a case-sensitive filesystem" || bad "case-sensitive install failed"
+run "$C" "$T/x_fold" 0.5.0 >/dev/null 2>&1 && ok "the same release installs on a case-sensitive filesystem" || bad "case-sensitive install failed"
+C="$(consumer f2)"; run "$C" "$T/r_a" 0.5.0 >/dev/null 2>&1 && ok "the real release has no case-colliding paths, so it installs where case is ignored too" || bad "real release install failed"
+check "...even on a (simulated) case-insensitive filesystem" bash -c "cd '$(consumer f3)' && BUILD_ENGINE_TEST_CASE_INSENSITIVE=1 bash '$UPD' --from-dir '$T/r_a' --version 0.5.0"
 
 echo "symlinks and non-directories in the way"
 C="$(consumer y1)"; mkdir -p "$T/outside"; rm -rf "$T/outside"/*; ln -s "$T/outside" "$C/docs"; before="$(tree "$C")"
