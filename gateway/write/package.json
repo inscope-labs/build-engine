@@ -4,12 +4,20 @@
   "private": true,
   "description": "Task-scoped write gateway: a GET-only Cloudflare Worker for Class B agents (ctxwrite-v1; the commit delivery is Stage 5.3)",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0 <23"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.scripts.json",
     "test": "node --import ./tests/helpers/register.mjs --test \"tests/**/*.test.ts\"",
+    "test:unit": "node --import ./tests/helpers/register.mjs --test \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --import ./tests/helpers/register.mjs --test \"tests/integration/**/*.test.ts\"",
+    "test:load": "node --import ./tests/helpers/register.mjs --test \"tests/load/**/*.test.ts\"",
+    "test:chaos": "node --import ./tests/helpers/register.mjs --test \"tests/chaos/**/*.test.ts\"",
     "dev": "wrangler dev",
     "check:bundle": "wrangler deploy --dry-run --outdir .wrangler-dryrun",
     "verify:log-hygiene": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/verify-log-hygiene.ts",
+    "check:token-scope": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/check-token-scope.ts",
     "check:contract": "python3 scripts/check-contract-consistency.py"
   },
   "devDependencies": {

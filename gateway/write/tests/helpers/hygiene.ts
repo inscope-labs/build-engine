@@ -1,3 +1,5 @@
+import { containsSecret } from "../../src/audit/redaction.ts";
+
 /**
  * The log-hygiene check: put sentinels everywhere and prove that none of them comes out.
  *
@@ -79,7 +81,6 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
   const { default: worker } = await import("../../src/index.ts");
   const { base64url } = await import("../../src/util/base64.ts");
   const { utf8 } = await import("../../src/util/hash.ts");
-  const { containsSecret } = await import("../../src/audit/redaction.ts");
 
   const namespace = new MemoryNamespace();
   const github = await testRepo();
@@ -94,21 +95,28 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
   const driver = await commitDriver(github, env, SENTINEL_SIGNING_SECRET);
 
   const logs: string[] = [];
-  const original = console.log;
-  console.log = (...args: unknown[]): void => {
-    logs.push(args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" "));
+  // Every channel is captured, not only `log`. A record that reaches `console.error` is just as
+  // leaked as one that reaches `console.log`, and the audit logger is the only thing in the
+  // gateway that is allowed to write to the platform's log at all.
+  const channels = ["log", "info", "warn", "error", "debug"] as const;
+  const originals = channels.map((channel) => console[channel]);
+  const capture = (channel: string) => (...args: unknown[]): void => {
+    logs.push(
+      `[${channel}] ` + args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" "),
+    );
   };
+  for (const channel of channels) console[channel] = capture(channel);
 
   const outputs: CapturedOutput[] = [];
   const errorBodies: string[] = [];
 
-  try {
-    // The capability, over the sentinel signing secret.
-    const capability = driver.capability;
-    const rootUrl =
-      `/w1/${capability.kid}/${capability.exp}/${capability.order}/${capability.plan}` +
-      `/${capability.task}/${capability.writer}/${capability.head}/${capability.sig}`;
+  // The capability, over the sentinel signing secret.
+  const capability = driver.capability;
+  const rootUrl =
+    `/w1/${capability.kid}/${capability.exp}/${capability.order}/${capability.plan}` +
+    `/${capability.task}/${capability.writer}/${capability.head}/${capability.sig}`;
 
+  try {
     // The whole protocol, with the sentinel content in it.
     await driver.stage(SENTINEL_FILE, SENTINEL_CONTENT);
     await driver.get("status");
@@ -124,6 +132,7 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
     for (const [name, path] of failures) {
       const response = await worker.fetch(new Request(`https://write.example.internal${path}`), env);
       errorBodies.push(await response.text());
+      errorBodies.push([...response.headers.entries()].map(([key, value]) => `${key}: ${value}`).join("\n"));
       void name;
     }
     // The wrong method: this protocol is GET only.
@@ -157,7 +166,9 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
     );
     errorBodies.push(await audit.text());
   } finally {
-    console.log = original;
+    channels.forEach((channel, index) => {
+      console[channel] = originals[index]!;
+    });
     await github.stop();
   }
 
@@ -171,8 +182,33 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
     { name: "payload", value: SENTINEL_CONTENT },
     { name: "payload-base64", value: base64url(utf8(SENTINEL_CONTENT)) },
     { name: "query-value", value: SENTINEL_FILE },
+    // The capability itself and the signature it carries. The capability is the agent's only
+    // secret, and the signature is the proof of it: neither may reach a log, an error body, a
+    // header or the durable stream.
+    { name: "capability-url", value: rootUrl },
+    { name: "signature", value: driver.capability.sig },
   ];
 
+  const findings = findLeaks(outputs, sentinels);
+
+  return { sentinels, outputs, findings };
+}
+
+/**
+ * Find the leaks in the captured outputs.
+ *
+ * It is exported, and it is the only place the rule is written down, so that the unit test can
+ * prove that it **can** fail: a check that cannot fail is a check that proves nothing. The test
+ * feeds it a synthetic leak and insists that it is found.
+ *
+ * Two rules are applied to every output:
+ *
+ *  1. the **value** of a planted sentinel must not appear;
+ *  2. the **shape** of a secret must not appear either, even for a secret nobody planted — a
+ *     token that reached the log without ever being in the fixture is exactly the case this
+ *     catches.
+ */
+export function findLeaks(outputs: CapturedOutput[], sentinels: Sentinel[]): HygieneFinding[] {
   const findings: HygieneFinding[] = [];
   for (const output of outputs) {
     for (const sentinel of sentinels) {
@@ -180,11 +216,10 @@ export async function runHygieneCheck(): Promise<HygieneResult> {
         findings.push({ where: output.where, sentinel: sentinel.name });
       }
     }
-    // And the shapes: anything that looks like a secret, even one we did not plant.
     if (containsSecret(output.text)) {
       findings.push({ where: output.where, sentinel: "shape" });
     }
   }
-
-  return { sentinels, outputs, findings };
+  return findings;
 }
+

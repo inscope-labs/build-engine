@@ -1,4 +1,52 @@
-# ci/deploy-gate.yml: Log-hygiene + security checklist gate
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/deploy-gate.yml: the log-hygiene and credential-boundary gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
+# `write-gateway/security` (a pull-request gate) and into `.github/workflows/deploy.yml` as the
+# `gate` job (which must pass before anything is published).
+#
+# The gate is one command, `npm run verify:log-hygiene`, and it is four checks:
+#
+#   1. the **dynamic check**: the gateway is driven through the whole protocol with a sentinel in
+#      every place a secret could be, and every output it produces is scanned. The driver is the
+#      same one the unit test uses, so the gate and the test cannot check different things;
+#   2. the **static credential scan**: the gateway's own source and configuration are scanned for
+#      the shapes of real credentials. A credential that was committed is in the history, whatever
+#      happens to the file afterwards;
+#   3. the **logging check**: only the audit logger may write to the platform's log;
+#   4. the **workflow check**: a workflow that references a deployment credential must not be
+#      triggered by a pull request, because a pull request can be written by anyone.
+#
+# The credential-scope check (`npm run check:token-scope`) is beside it. Its static half runs
+# here, on every pull request; its live half needs a credential and is the operator's to run
+# before a deployment — the runbook says where.
+#
+# **This gate holds no deployment credential, and it must never be given one.** That is the
+# property the fourth check exists to protect, and it is why the job below is safe to run on
+# every pull request.
+name: write gateway deploy gate
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  write-gateway-deploy-gate:
+    name: write gateway (log hygiene and the credential boundary)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The log hygiene and the credential boundary
+        run: npm run verify:log-hygiene
+      - name: The credential's reach in the code
+        run: npm run check:token-scope -- --static

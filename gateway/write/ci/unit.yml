@@ -1,4 +1,36 @@
-# ci/unit.yml
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/unit.yml: the unit gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
+# `write-gateway/unit`, and it runs on every pull request and on every push to main.
+#
+# The unit suite is the fast half of the test suite: every module on its own, with no server and
+# no provider. It is the gate that catches a change that broke a rule, and it is the first thing
+# to run because it is the first thing to finish.
+#
+# The suite is Node 22's built-in runner with type stripping, driven by the scripts in
+# `package.json`. The runner's glob is checked by `tests/unit/config/test-inventory.test.ts`:
+# a glob that matches nothing is silent, and a silent glob is how a suite reports a pass while no
+# test has run.
+name: write gateway unit
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  write-gateway-unit:
+    name: write gateway (unit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The unit suite
+        run: npm run test:unit

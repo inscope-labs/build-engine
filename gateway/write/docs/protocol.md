@@ -608,6 +608,19 @@ Two consequences worth stating explicitly, because implementations get them wron
 
 A path that fails any rule is refused, and MUST be refused by the minter.
 
+**Where the rules are enforced.** A path arrives with every operation that carries one — `create`, `append`,
+`replace`, `read` and `delete` (section 4.2) — and the gateway MUST check it against these rules **at that
+operation**, and refuse it there with `400 malformed-path`. Two reasons, and the second is the one that matters:
+
+- the path is not part of the capability, so the signature does not cover it and the minter cannot have checked
+  it on the agent's behalf. The minter's check is a courtesy; the gateway's check is the rule;
+- a path that fails a rule cannot be committed (section 8.2), so a gateway that accepted it at staging time would
+  let the agent spend a file slot and a byte budget on a file that can never be delivered, and would only tell it
+  at the commit, three steps later.
+
+The failure message MUST NOT echo the path: it is client-supplied text, and the rule that keeps client-supplied
+text out of a response body is section 10.3.
+
 <a id="sessions"></a>
 
 ### 5.2 Session state

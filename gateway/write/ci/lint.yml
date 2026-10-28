@@ -1,4 +1,47 @@
-# ci/lint.yml
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/lint.yml: the static gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
+# `write-gateway/lint`, and it runs on every pull request and on every push to main.
+#
+# The gate is three things, and all three must pass:
+#
+#   1. the **typecheck**, over three separate programs: the source (with no Node types, so that
+#      a source file cannot quietly use a Node API the Workers runtime does not have), the source
+#      and the tests, and the scripts;
+#   2. the **bundle dry run**, which validates `wrangler.toml` and builds the Worker without
+#      publishing it — no credentials, no deployment;
+#   3. the **contract consistency check**, which proves that the contract documents and the
+#      machine-readable authorities agree with each other. A document that has drifted from the
+#      code is a lie told to an agent, and the check is what keeps the two together.
+#
+# Note: GitHub only runs workflows from the repository's root `.github/workflows/`. This file is
+# the definition of the job; the root workflow carries the copy that actually runs.
+name: write gateway lint
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  write-gateway-lint:
+    name: write gateway (typecheck, bundle, contract)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The typecheck, over three programs
+        run: npm run typecheck
+      - name: The bundle dry run (validates wrangler.toml and bundles the Worker; no deploy)
+        run: npm run check:bundle
+      - name: The contract documents agree with the code
+        run: npm run check:contract

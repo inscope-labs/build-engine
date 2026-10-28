@@ -75,13 +75,17 @@ export interface TestSession {
  *
  * `blockConcurrencyWhile` is a no-op here: the real runtime serialises the requests that touch
  * one object, and the tests drive them one at a time.
+ *
+ * The storage is a parameter, so that a test can hand a **surviving** storage to a **new**
+ * instance. That is what a Durable Object eviction is: the instance is recycled and its memory
+ * goes with it, but the storage is the platform's and stays.
  */
 export function testSession(
   env: Record<string, unknown> = {},
   factory: (state: DurableObjectState, env: Record<string, unknown>) => DurableInstance = (state, e) =>
     new TaskSession(state, e as never),
+  storage: MemoryStorage = new MemoryStorage(),
 ): TestSession {
-  const storage = new MemoryStorage();
   const state = {
     storage,
     blockConcurrencyWhile: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
@@ -104,6 +108,13 @@ export function testSession(
  */
 export class MemoryNamespace {
   private readonly sessions = new Map<string, TestSession>();
+  /**
+   * The storages, by name.
+   *
+   * The storage outlives the instance, because that is how the platform's storage works: an
+   * eviction reclaims the object's memory, not the data the platform keeps for it.
+   */
+  private readonly storages = new Map<string, MemoryStorage>();
   /**
    * The environment the sessions are created with.
    *
@@ -146,27 +157,51 @@ export class MemoryNamespace {
 
   get(id: { toString: () => string }): { fetch: (url: string, init?: RequestInit) => Promise<Response> } {
     const name = id.toString();
-    let session = this.sessions.get(name);
-    if (session === undefined) {
-      session = testSession(this.env, this.factory);
-      this.sessions.set(name, session);
-    }
-    return { fetch: session.fetch };
+    return { fetch: this.session(name).fetch };
   }
 
-  /** The session behind a name, for a test that wants to look inside. */
+  /**
+   * The session behind a name, for a test that wants to look inside.
+   *
+   * The instance is created on demand, over the storage that belongs to the name. The storage
+   * outlives the instance — that is the point of the two eviction methods below.
+   */
   session(name: string): TestSession {
     let session = this.sessions.get(name);
     if (session === undefined) {
-      session = testSession(this.env, this.factory);
+      let storage = this.storages.get(name);
+      if (storage === undefined) {
+        storage = new MemoryStorage();
+        this.storages.set(name, storage);
+      }
+      session = testSession(this.env, this.factory, storage);
       this.sessions.set(name, session);
     }
     return session;
   }
 
-  /** Drop a session, to simulate an isolate eviction. */
+  /**
+   * Recycle the instance, keeping the storage.
+   *
+   * This is a **Durable Object eviction**: the platform reclaims the object's memory, the
+   * staged content goes with it, and the storage — which is the platform's, not the object's —
+   * stays. Everything the session recorded durably is still there; the bytes are not.
+   */
+  restart(name: string): void {
+    this.sessions.delete(name);
+  }
+
+  /**
+   * Drop the instance and the storage.
+   *
+   * This is the worst case, and it is not something the platform does on its own: the task's
+   * durable state is gone as well. A test that asserts the gateway behaves sanely here is
+   * asserting that a task whose state has been destroyed is treated as a **new** task, not as a
+   * task with a half-remembered history.
+   */
   evict(name: string): void {
     this.sessions.delete(name);
+    this.storages.delete(name);
   }
 }
 
