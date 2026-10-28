@@ -23,9 +23,22 @@ a="$(sha256sum "$(ART)" | cut -d' ' -f1)"; build; [[ "$a" == "$(sha256sum "$(ART
 must_fail "release gate refuses an undated changelog entry" "no dated" "$R/release/verify.sh" "$(ART)" --release
 [[ -z "$(tar -tzf "$(ART)" | grep -E '(^|/)(gateway/|ctxgate\.py|test_ctxgate\.py)')" ]] && ok "clean artifact has no gateway file" || bad "clean artifact contains gateway files"
 
+python3 - "$SRC" <<'PY' && ok "no two manifest or template paths differ only by case" || bad "case-colliding paths exist"
+import subprocess, sys
+root = sys.argv[1]
+paths = [l.split(None, 1)[1].strip() for l in open(root + "/release/manifest.txt") if l.strip() and not l.startswith("#")]
+paths += subprocess.check_output(["git", "-C", root, "ls-files", "template"], text=True).split("\n")
+seen = {}
+for p in filter(None, paths):
+    q = p.replace("template/", "", 1).lower()
+    if q in seen and seen[q] != p.replace("template/", "", 1):
+        sys.exit("case collision: %s vs %s" % (seen[q], p))
+    seen[q] = p.replace("template/", "", 1)
+PY
+
 fresh; python3 - "$R" <<'PY'
 import json, sys
-p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "UNSET"; json.dump(d, open(p, "w"))
+p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["protocol"] = "UNSET"; json.dump(d, open(p, "w"))
 PY
 build
 must_fail "release gate refuses an UNSET protocol" "protocol is missing or UNSET" "$R/release/verify.sh" "$(ART)" --release
@@ -78,7 +91,7 @@ must_fail "a payload that fails its own tests is caught" "payload tests fail" "$
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
-p = sys.argv[1] + "/template/engine/ENGINE.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
+p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
 open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
 v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build

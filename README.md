@@ -168,8 +168,8 @@ release/package.sh && release/verify.sh dist/build-engine-v$(cat VERSION).tar.gz
 ## Releasing
 
 1. Branch from `main`. Make and test changes. Add any new shipping paths to `release/manifest.txt`.
-2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/ENGINE.json`).
-3. Confirm the protocol version this release implements: `protocol` in `template/engine/ENGINE.json`, with a matching row in `COMPATIBILITY.md`.
+2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/release.json`).
+3. Confirm the protocol version this release implements: `protocol` in `template/engine/release.json`, with a matching row in `COMPATIBILITY.md`.
 4. Update `CHANGELOG.md` (replace the unreleased section with a dated entry).
 5. Open a pull request; CI must pass (unit tests, release self-test, update-flow test, dry-run package + verify).
 6. After merge: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`.
@@ -190,7 +190,7 @@ Release isolation is enforced by three independent layers:
 
 | Engine | Protocol | Notes |
 |--------|----------|-------|
-| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/ENGINE.json` (`protocol`) |
+| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/release.json` (`protocol`) |
 
 A release build (`release/verify.sh --release`) refuses to publish while `protocol` is missing or `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
 

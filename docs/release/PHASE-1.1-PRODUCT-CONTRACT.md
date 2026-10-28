@@ -30,7 +30,7 @@ This revision replaces the earlier draft, which classified the Class B read gate
 
 A consumer repository that has received the artifact via `engine/bin/update.sh` (or the first-install equivalent) contains at minimum:
 
-- `engine/` — managed files from the artifact (VERSION, engine.json, tools, schemas, prompts, templates, `bin/update.sh`, AGENTS.md) and the seed file `engine/release.json`.
+- `engine/` — managed files from the artifact (VERSION, release.json, tools, schemas, prompts, templates, `bin/update.sh`, AGENTS.md) and the seed file `engine/engine.json`.
 - `operator/` — managed operator bridge (`cbridge`, `install.sh`, example config).
 - `docs/` — managed operational documentation shipped with the artifact.
 - `plans/` — consumer-owned plan data; the artifact ships only `plans/README.md`.
@@ -39,8 +39,8 @@ A consumer repository that has received the artifact via `engine/bin/update.sh` 
 The updater treats only paths declared in the release manifest as managed or seed; all other consumer files are left untouched. The gateways are infrastructure, not artifact content: they are never packaged (release boundary in the plan, section 1).
 
 Exact metadata pair (authoritative):
-- managed `engine/engine.json`
-- seed    `engine/release.json`
+- managed `engine/release.json` (release metadata: `engine_version`, `protocol`; renamed from `ENGINE.json`)
+- seed    `engine/engine.json` (the consumer's editable configuration, read by `plan_tool.py`; never overwritten)
 
 ### Supported operating environments
 
@@ -156,7 +156,7 @@ High-level design decisions (implementation later assigned to Phase 2 or Phase 6
 | Item | Recorded answer | Effect |
 |---|---|---|
 | Class A credential exception | Class A (including Supervisor Agent) is an intentional exception; operator supplies short-lived task-scoped token | Global rule clarified; Class B remains credential-free |
-| Managed / seed metadata | managed `engine/engine.json`; seed `engine/release.json` | Naming collision resolved |
+| Managed / seed metadata | managed `engine/release.json`; seed `engine/engine.json` (corrected 2026-10-28: the first merge of this row had the two roles transposed) | Naming collision resolved; `ENGINE.json` renamed to `release.json` |
 | Transfer actor | Supervisor Agent (operator-initiated Class A) | Workflow step 5 updated |
 | Contract status | APPROVED 2026-10-27 with listed amendments | Stage 1.1 exit criteria satisfied for design |
 

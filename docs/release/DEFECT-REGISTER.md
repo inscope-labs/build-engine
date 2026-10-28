@@ -146,6 +146,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: rename the managed file (touches `release/manifest.txt`, `set-version.sh`, `verify.sh`, `test-release.sh`, and five docs); add a case-fold duplicate check to packaging and verification.
 - Owner: operator (decision), implementation. Planned phase: decision in Phase 2.4 planning; implementation 2.4 and 3.1.2.
 - Closure evidence: no two manifest paths equal under case folding; update test covers migration.
+- **Closed (2026-10-28):** the operator decided managed `engine/release.json` (renamed from `ENGINE.json`) and seed `engine/engine.json`. No two manifest paths differ only by case any more; a guard test in `release/test-release.sh` keeps it that way. Nothing had been released, so no consumer migration was needed.
 
 ### F0-014 — Shipped shell tooling requires bash 4+ and GNU tools, but the draft contract named macOS as a primary target
 - Severity: S2. Status: CONFIRMED by source; not executed on macOS.

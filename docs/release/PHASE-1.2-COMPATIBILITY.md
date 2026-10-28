@@ -26,7 +26,7 @@ Build Engine is **product-agnostic**. It is not tied to any external project or 
 ### Synchronisation (1.2.4)
 
 - `VERSION` / `template/engine/VERSION` remain `0.5.0` (no version bump required for this metadata change).
-- `template/engine/ENGINE.json` now contains `"protocol": "build-engine/0.5"`.
+- `template/engine/release.json` (named `ENGINE.json` when this stage was done) now contains `"protocol": "build-engine/0.5"`.
 - `COMPATIBILITY.md` rewritten for the neutral protocol model.
 - `CHANGELOG.md` records the neutrality and field migration under the still-unreleased 0.5.0 section.
 - `release/verify.sh` and `release/test-release.sh` accept the new field (with a temporary fallback read of the old key for safety during transition).
@@ -48,7 +48,7 @@ Historical Phase 0 records (`docs/release/DEFECT-REGISTER.md`, baseline/closeout
 
 - [x] Product-neutral decision recorded.
 - [x] Field migrated and value set.
-- [x] VERSION / ENGINE.json / COMPATIBILITY.md / CHANGELOG synchronised.
+- [x] VERSION / release.json (then ENGINE.json) / COMPATIBILITY.md / CHANGELOG synchronised.
 - [x] Castiel references removed from current/shipped content.
 - [ ] Operator review and merge of this branch.
 - [ ] Subsequent CI green (package, verify, unit tests, update-flow).
