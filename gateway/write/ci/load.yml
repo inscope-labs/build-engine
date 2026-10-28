@@ -1,4 +1,36 @@
-# ci/load.yml
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/load.yml: the load gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/nightly.yml` as
+# `write-gateway/load`, and it runs on a schedule and on demand — **not** on a pull request.
+#
+# The load suite fills the published quota and concurrency envelope to its edges: 20 live files,
+# 245760 bytes in total, 12288 bytes for one file, 30 requests per 60 seconds, one writer at a
+# time. A pull request does not need it — the envelope does not change often, and the suite takes
+# long enough that running it on every push would be a tax on every change. A schedule does: the
+# envelope is a promise, and a promise is worth re-checking while nobody is looking.
+#
+# **No test in this suite deploys anything, and none of them writes to a production repository.**
+# The suite runs against the in-memory harness and the loopback mock, and the workflow holds no
+# deployment credential of any kind.
+name: write gateway load
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+jobs:
+  write-gateway-load:
+    name: write gateway (load)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The load suite (the quota and the concurrency envelope)
+        run: npm run test:load

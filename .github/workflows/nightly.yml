@@ -1,0 +1,88 @@
+name: nightly
+# The scheduled write-gateway gates: the load suite, the chaos suite, and a rehearsal of the
+# deployment.
+#
+# These do not run on a pull request. The load suite fills the published quota and concurrency
+# envelope to its edges, and the chaos suite asks what happens when the Durable Object is evicted
+# and when the provider misbehaves. Both are slow, both are about failure rather than about
+# behaviour, and neither needs to run on every push. A schedule runs them while nobody is
+# waiting, which is exactly when a regression in the recovery rules is worth noticing.
+#
+# **Nothing in this workflow deploys anything, and nothing in it writes to a production
+# repository.** The rehearsal below builds the bundle and runs the deploy gate, and then stops: it
+# publishes nothing, it holds no deployment credential, and it must never be given one. The first
+# real deployment is the operator's decision, on the operator's host, with the operator's
+# acceptance of the residual transport risk in writing (protocol section 10.1).
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  write-gateway-load:
+    name: write gateway (load)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The load suite (the quota and the concurrency envelope)
+        run: npm run test:load
+
+  write-gateway-chaos:
+    name: write gateway (chaos)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The chaos suite (eviction, provider failure, recovery)
+        run: npm run test:chaos
+
+  write-gateway-staging-rehearsal:
+    name: "write gateway (staging rehearsal: the whole gate, and a bundle that is not published)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The whole test suite
+        run: npm test
+      - name: The contract documents agree
+        run: npm run check:contract
+      - name: The log hygiene and the credential boundary
+        run: npm run verify:log-hygiene
+      - name: The credential's reach in the code
+        run: npm run check:token-scope -- --static
+      - name: The bundle is built, and is not published
+        run: npm run check:bundle
+      - name: What this rehearsal did not do
+        run: |
+          echo "the bundle was built and inspected. Nothing was deployed."
+          echo "the gateway has never been deployed; the first deployment is the operator's"
+          echo "decision, and the runbook says how:"
+          echo "  gateway/write/docs/operator-runbook.md"

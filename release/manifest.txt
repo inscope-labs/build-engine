@@ -4,15 +4,20 @@
 #            A directory entry includes everything beneath it (minus __pycache__ and *.pyc).
 #   seed     installed only if absent, never overwritten (consumer-owned configuration). Files only.
 # The gateway (gateway/) is NOT under template/ and must never be listed here.
+#
+# The engine metadata is engine/release.json: it is **managed**, because it is replaced on every
+# update. It was engine/ENGINE.json until the F0-013 case-folding collision with the consumer's
+# configuration file engine/engine.json forced a distinct, lowercase name. The consumer's
+# configuration is the **seed**: it is installed only if absent and is never overwritten.
 managed engine/AGENTS.md
 managed engine/VERSION
-managed engine/engine.json
+seed    engine/engine.json
 managed engine/bin
 managed engine/prompts
 managed engine/schemas
 managed engine/templates
 managed engine/tools
-seed    engine/release.json
+managed engine/release.json
 managed operator
 managed docs
 managed plans/README.md

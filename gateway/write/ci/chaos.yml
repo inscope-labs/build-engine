@@ -1,4 +1,37 @@
-# ci/chaos.yml
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/chaos.yml: the chaos gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/nightly.yml` as
+# `write-gateway/chaos`, and it runs on a schedule and on demand — **not** on a pull request.
+#
+# The chaos suite is the one that asks what happens when the world misbehaves: the Durable Object
+# is evicted and the staged content is lost while the inventory survives; the Worker isolate is
+# recycled and nothing of the agent's is lost; the provider answers 403, 404, 409, 422, 429 or
+# 5xx; the provider acts and then stops talking, so that a blind retry would commit twice.
+#
+# It is a scheduled gate for the same reason the load gate is: the cases are slow, they are about
+# failure rather than about behaviour, and a change to the contract's recovery rules deserves a
+# second look a week later.
+#
+# **No test in this suite deploys anything, and none of them writes to a production repository.**
+name: write gateway chaos
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+jobs:
+  write-gateway-chaos:
+    name: write gateway (chaos)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The chaos suite (eviction, provider failure, recovery)
+        run: npm run test:chaos

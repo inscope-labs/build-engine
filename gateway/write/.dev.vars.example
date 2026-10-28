@@ -1,7 +1,48 @@
-# Local secrets template. Copy to .dev.vars (gitignored). Names are PROVISIONAL until src/config/env.ts exists.
-# Signing secret per key id (the same scheme as the read gateway: see ../../template/engine/tools/ctxlink.py).
-CTXGATE_SECRET_K1=
-# GitHub credential for the commit step. Scope it as narrowly as GitHub allows (see README, "Open questions").
+# Local secrets template. Copy to .dev.vars (gitignored). NEVER put a secret in wrangler.toml.
+#
+# The names here are the ones src/config/env.ts reads. A missing or malformed setting makes the
+# gateway fail closed: it serves nothing and names the setting that is wrong.
+
+# The signing secrets, as a JSON object of key id to secret. The key id is a selector, not a
+# secret: it names the key so that a key can be rotated without an outage. Several may be served
+# at once. The scheme is the same family as the read gateway's, with its own domain separator:
+# see ../../template/engine/tools/ctxlink.py for the read side and docs/protocol.md section 3 for
+# this one.
+SIGNING_KEYS={"k1":"dev-only-signing-secret"}
+
+# The GitHub credential for the commit step (Stage 5.3). Scope it to the submissions repository
+# only, and as narrowly as GitHub allows. It is repository-scoped, NOT path-scoped: a leak could
+# modify any task's submissions in that repository, and nothing else. See docs/protocol.md
+# section 12.4.
 GITHUB_TOKEN=
-GITHUB_REPO=OWNER/PROJECT-dev
-GITHUB_BRANCH=build-engine
+
+# The operator credential for /admin/*. A different secret from the signing keys: holding a
+# signing key does not grant operator rights, and holding this does not mint capabilities.
+OPERATOR_TOKEN=
+
+# The non-secret settings live in wrangler.toml's [vars]. The ones that are deployment-specific
+# are here so that a local run can differ from the deployment:
+# MAX_TTL_SECONDS=604800
+# LEASE_SECONDS=300
+# AUDIT_RETENTION_SECONDS=86400
+
+# The provider's base URL. The default is GitHub's own; a different one is legitimate, because
+# GitHub Enterprise Server runs the same API on the operator's own host. Plain HTTP is accepted
+# only for a loopback address, which is what lets the test suite run the real client against a
+# real local server. The default is https://api.github.com.
+# GITHUB_API_BASE=
+
+# The per-call timeout for the provider, in milliseconds. A provider that has not answered in
+# this long is treated as a failure rather than as a wait: an agent left hanging is an agent that
+# will retry into a duplicate commit. The default is 10000, and the bounds are 1000 to 60000.
+# GITHUB_TIMEOUT_MS=
+
+# The commit's author and committer identity, as "Name <email>". The gateway signs as itself and
+# as nobody else, so that a commit it made can be told apart from a commit a person made by
+# hand. The default is "build-engine write gateway <ctxwrite@users.noreply.github.com>".
+# GITHUB_COMMIT_AUTHOR=
+
+# The test clock. A local development convenience ONLY. A production deployment MUST NOT set it:
+# it would let a caller extend the life of an expired capability. The health endpoint reports
+# whether it is engaged.
+# CTXGATE_TEST_CLOCK=

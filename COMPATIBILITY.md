@@ -1,7 +1,7 @@
 # Compatibility
 
 Build Engine is product-agnostic. Each engine release records the protocol version it implements in
-`template/engine/ENGINE.json` under the key `protocol`. The value is shipped inside the release
+`template/engine/release.json` under the key `protocol`. The value is shipped inside the release
 artifact. A release build (`release/verify.sh --release`) fails while the field is missing, empty,
 or set to the sentinel `UNSET`.
 
