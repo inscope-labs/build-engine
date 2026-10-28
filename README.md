@@ -118,7 +118,15 @@ Consumers install a release artifact into their private `<project>-dev` reposito
 - Installs **seed** files (e.g. `engine/engine.json`) only when absent and never overwrites them.
 - Removes files dropped by the new release (if unmodified).
 - Records state in `.build-engine.lock`.
-- Performs no commit; the consumer reviews the diff and opens a pull request.
+- Performs no commit, staging or push; the consumer reviews the diff and opens a pull request.
+- Is **all or nothing**: new files are staged and every file about to change is backed up in `.build-engine.txn/` first. A
+  failure restores the previous state; if the process is killed, the next run recovers automatically and says so.
+- **Stops before touching anything** on a damaged lock or manifest, a locally edited or unrecorded managed file
+  (conflict), an artifact whose contents are a different version than requested, a downgrade, and any path that goes
+  through a symlink, a directory where a file belongs, or a file where a directory belongs.
+- Refuses a release whose paths differ only by case when the filesystem ignores case.
+- Requires **bash 4.4 or newer**, GNU coreutils (`sha256sum`), `tar`, `gzip`, `find` and `sed`; `gh` only to download.
+  Supported on Linux and Termux. macOS's stock bash 3.2 is not supported.
 
 ### First install
 
@@ -136,7 +144,9 @@ engine/bin/update.sh --version X.Y.Z
 engine/bin/update.sh
 ```
 
-Useful options: `--dry-run`, `--force` (overwrite local conflicts), `--repo OWNER/build-engine`, `--from-dir DIR`.
+Useful options: `--dry-run`, `--force` (overwrite local conflicts), `--allow-downgrade`, `--repo OWNER/build-engine`, `--from-dir DIR`.
+
+If an update is interrupted, just run it again: it restores the previous state first. `--dry-run` refuses to run while an interrupted update is waiting to be recovered. If `.build-engine.lock` is damaged, restore it with `git checkout -- .build-engine.lock`, or delete it and re-run with `--force` to re-adopt the managed files, then review `git diff`.
 
 Because this repository is private, authenticated `gh` access is required to fetch release assets.
 
@@ -181,8 +191,7 @@ Never edit or delete a published release asset; publish a new version instead. F
 Release isolation is enforced by three independent layers:
 
 1. **Structure** — `gateway/` sits outside `template/`; nothing under `template/` imports from it.
-2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`, and only the files git
-   tracks: an untracked or locally modified file under `template/` fails the build instead of being shipped.
+2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`.
 3. **Inspection** — `release/verify.sh` unpacks the artifact and fails on gateway-like paths, credential-shaped strings, non-allowlisted content, manifest/version mismatches, or payloads that fail their own tests.
 
 ---
