@@ -53,7 +53,7 @@ check "new file added" test -f "$C/docs/NEW.md"
 check "file dropped by the release removed" test ! -e "$C/docs/TEMPLATE.md"
 check "lock moved to the new version" grep -q '^version=0.5.1$' "$C/.build-engine.lock"
 check "seed config still the consumer's" grep -q 'acme/widget-dev' "$C/engine/engine.json"
-must_fail "--dry-run reports and exits" "dry run" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d1' --version '$V1' --dry-run && exit 1"
+must_fail "--dry-run reports and exits" "dry run" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d1' --version '$V1' --dry-run --allow-downgrade && exit 1"
 check "...and changes nothing" bash -c "test -f '$C/docs/NEW.md' && test ! -e '$C/docs/TEMPLATE.md' && grep -q '^version=0.5.1\$' '$C/.build-engine.lock'"
 
 # integrity: a tampered artifact is refused before anything is unpacked
@@ -62,5 +62,9 @@ before="$(cd "$C" && find . -path ./.git -prune -o -type f -print0 | sort -z | x
 must_fail "a tampered artifact is refused" "checksum mismatch" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d3' --version 0.5.1"
 after="$(cd "$C" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
 [[ "$before" == "$after" ]] && ok "...and the repository is untouched" || bad "repository changed after a refused update"
+
+# Stage 2.4: adversarial inputs, symlinks, downgrade, corrupt state, and interruption recovery
+echo; echo "hardening suite (tests/test_update_hardening.sh)"
+bash "$SRC/tests/test_update_hardening.sh" || FAILN=$((FAILN+1))
 
 echo "$PASS passed, $FAILN failed"; [[ $FAILN -eq 0 ]]
