@@ -838,7 +838,7 @@ class TestHardenPlanOrder(Base):
         msg = ctxlink.message(kid, exp, order, ref, path)
         self.assertEqual(msg, b"ctxgate-v1\nk1\n1700000000\nS001\n" + (b"a" * 40) + b"\nsrc/file.txt")
         # mint produces a URL containing the same signature
-        urls = ctxlink.mint("https://gw.example", secret, kid, order, ref, [path], ttl=0, at=exp)
+        urls = ctxlink.mint("https://gw.example", secret, kid, order, ref, [path], ttl=60, at=exp - 60)
         self.assertIn(sig1, urls[0])
         self.assertIn(ref, urls[0])
         self.assertIn(path.replace("/", "/"), urls[0])  # path segments present

@@ -13,7 +13,7 @@ Audited commit: `main` after PR #6 (`121f2e4`), 2026-10-26. Evidence and the ful
 5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
 6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
 
-Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4); the write-gateway protocol contract is specified as `ctxwrite-v1` (Stage 5.1).
+Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/ENGINE.json` (Stage 1.2); version sources agree (`VERSION`, `template/engine/VERSION`, `ENGINE.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4); the write-gateway protocol contract is specified as `ctxwrite-v1` (Stage 5.1). **Stage 1.1 product contract is APPROVED (2026-10-27)** with clarified Class A credential exception, managed/seed metadata names (`engine/engine.json` / `engine/release.json`), Supervisor-Agent transfer design (1.1.5), and environment acceptance matrix. Physical rename of template metadata files and code readers remains a Phase 2 task.
 
 No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
 

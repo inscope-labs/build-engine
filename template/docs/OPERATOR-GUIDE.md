@@ -52,6 +52,17 @@ supervisor run its light gates. If no code ships: `$PT set <plan> <ID> done --by
 `cbridge halt` (all plans) or `cbridge halt <plan>`; `cbridge resume` to lift it. `plan_tool.py` refuses
 writes while a HALT file exists, and the supervisor prompt stops at the next gate.
 
+## What `plan_tool.py` guarantees
+
+- **Orders need a valid plan.** `order`, `render` and `next` refuse a plan that fails `plan_tool.py check`, and say why.
+- **Pinned context.** Context URLs always carry a full 40-character commit id. A moving ref such as `main` is refused.
+- **One writer at a time.** Commands that change files take a per-plan lock; a second run waits up to 15 seconds
+  (`PLAN_LOCK_TIMEOUT`) and then reports that another run is still writing.
+- **All-or-nothing files.** Each file is replaced atomically. If a multi-file command (`order --write --start`, `decide`,
+  `new`) fails part-way, the files it already wrote are restored.
+- **Exit codes.** 0 success; 1 validation or operator error; 2 usage error; 70 unexpected internal error (set
+  `PLAN_DEBUG=1` for a traceback); 130 interrupted.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
