@@ -6,13 +6,13 @@
 # The gateway (gateway/) is NOT under template/ and must never be listed here.
 managed engine/AGENTS.md
 managed engine/VERSION
-managed engine/ENGINE.json
+managed engine/engine.json
 managed engine/bin
 managed engine/prompts
 managed engine/schemas
 managed engine/templates
 managed engine/tools
-seed    engine/engine.json
+seed    engine/release.json
 managed operator
 managed docs
 managed plans/README.md
