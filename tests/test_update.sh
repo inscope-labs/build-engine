@@ -14,6 +14,8 @@ must_fail() { local name="$1" want="$2"; shift 2; local out; out="$("$@" 2>&1)";
 
 # a private copy of the source repo so the test can build two releases
 mkdir "$T/src"; (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/src" -xf -
+# since Stage 3.1 the artifact is built from the tracked file list, so the private copy is a committed git repository
+( cd "$T/src" && git init -q . && git config user.email t@example.invalid && git config user.name t && git add -A && git commit -qm baseline )
 "$T/src/release/package.sh" "$T/d1" >/dev/null
 V1="$(tr -d ' \n' < "$T/src/VERSION")"
 
@@ -46,7 +48,7 @@ D="$T/adopt"; mkdir "$D"; git -C "$D" init -q; mkdir -p "$D/engine"; echo old > 
 must_fail "first install over an existing engine file needs --force" "was not installed by update.sh" bash -c "cd '$D' && bash '$T/update.sh' --from-dir '$T/d1' --version '$V1'"
 
 # second release: bump, add a doc, drop a doc
-( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md )
+( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md && git add -A && git commit -qm "second release" )
 "$T/src/release/package.sh" "$T/d2" >/dev/null
 ( cd "$C" && git add -A && git -c user.name=t -c user.email=t@x commit -qm v1 --allow-empty && bash engine/bin/update.sh --from-dir "$T/d2" --version 0.5.1 ) >"$T/o3" 2>&1 && ok "update to the next release" || bad "update: $(tail -3 "$T/o3")"
 check "new file added" test -f "$C/docs/NEW.md"

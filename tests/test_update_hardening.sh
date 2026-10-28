@@ -18,7 +18,9 @@ build() { # build NAME VERSION [shell mutation run inside the copy, before packa
   local name="$1" ver="$2"; shift 2
   rm -rf "$T/s_$name"; mkdir "$T/s_$name"
   (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/s_$name" -xf -
-  ( cd "$T/s_$name" && release/set-version.sh "$ver" >/dev/null && eval "${*:-true}" ) || { bad "build $name"; return 1; }
+  # since Stage 3.1 the artifact is built from the tracked file list: the copy is a git repository and every mutation is committed
+  ( cd "$T/s_$name" && git init -q . && git config user.email t@example.invalid && git config user.name t && git add -A && git commit -qm baseline ) >/dev/null 2>&1
+  ( cd "$T/s_$name" && release/set-version.sh "$ver" >/dev/null && eval "${*:-true}" && git add -A && git commit -qm mutation --allow-empty >/dev/null 2>&1 ) || { bad "build $name"; return 1; }
   "$T/s_$name/release/package.sh" "$T/r_$name" >/dev/null || { bad "package $name"; return 1; }
 }
 consumer() { local c="$T/c_$1"; rm -rf "$c"; mkdir -p "$c"; git -C "$c" init -q; "${G[@]}" -C "$c" commit -q --allow-empty -m init; echo "$c"; }

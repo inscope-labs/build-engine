@@ -14,3 +14,7 @@
 - Product neutrality: removed all project-specific (Castiel) references from shipped documentation, prompts, examples,
   and machine metadata. Compatibility field migrated from `implements_abstract` to `protocol` with value
   `build-engine/0.5`.
+- Stage 1.2 conformance: `release/verify.sh` rejects the retired `implements_abstract` key and, in `--release` mode,
+  requires `protocol` of the form `build-engine/<major.minor>` matching the release version, with a matching
+  `COMPATIBILITY.md` row. `release/set-version.sh` now also updates `release.json` (including `protocol`), the
+  `COMPATIBILITY.md` row and the `CHANGELOG.md` heading. `template/operator/install.sh` is executable again (CI fix).
