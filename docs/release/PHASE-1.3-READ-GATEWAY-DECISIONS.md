@@ -4,16 +4,16 @@
 - Branch: phase-1/read-gateway-decisions
 - Baseline: main @ b1923be5a940b8e87810c01485607b5b4e452cf7
 - Date: 2026-10-26
-- Status: **Decisions recorded; submitted for review**
+- Status: **Decisions recorded and merged; scope updated by revised Stage 1.1 contract (APPROVED 2026-10-27)**
 
 ## Scope change relative to Stage 1.1
 
-Stage 1.1 product contract classified the production Class B read gateway as explicitly out of scope for the first release. Operator answers to the Stage 1.3 validation questions override that classification:
+**Superseded note (2026-10-27):** The original Stage 1.1 draft classified the production Class B read gateway as out of scope. That classification has been superseded by the operator decision recorded here and by the APPROVED Stage 1.1 product contract (2026-10-27). The authoritative statement is now:
 
-- The read gateway is **in-scope** for 0.5.0.
-- It is a **mandatory** part of the tools provided to Build Engine workers (Class B).
+- The read gateway is **in-scope** and **mandatory** for 0.5.0.
+- The revised and approved product contract (`docs/release/PHASE-1.1-PRODUCT-CONTRACT.md`) is the sole authoritative source for release scope.
 
-The product contract will be amended in a follow-up change once the remaining Phase 1 decisions (Stage 1.4) are closed, or as part of Phase 2 documentation alignment. Until then, the Stage 1.1 contract’s Level-A boundary is understood to have been expanded by this decision.
+Historical account (preserved for traceability): Stage 1.1 product contract classified the production Class B read gateway as explicitly out of scope for the first release. Operator answers to the Stage 1.3 validation questions overrode that classification.
 
 ## Closed decisions
 
@@ -49,7 +49,7 @@ Where the operator answered “standard”, the following concrete values are ad
 - [x] Decisions 0001–0005 closed with recorded answers and dates.
 - [x] Object-storage variant rejected and removal initiated.
 - [x] Scope change (read gateway in-scope for 0.5.0) recorded.
-- [ ] Operator review and merge of this branch.
+- [x] Operator review and merge of this branch (reconciled 2026-10-27).
 - [ ] Subsequent production implementation work may begin under Phase 4, subject to Phase 1 exit gate (including Stage 1.4).
 
 ## Next
