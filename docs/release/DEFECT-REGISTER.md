@@ -5,11 +5,12 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 5.2 added F0-033 (closed), Stage 5.3 added F0-034 (closed) and Stage 5.4 added F0-035 (closed)**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 5.2 added F0-033 (closed), Stage 5.3 added F0-034 (closed), Stage 5.4 added F0-035 (closed) and Stage 5.5 added F0-063 and F0-064 (both closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Stage 5.2 addendum: 2026-10-27; F0-033, found by the concurrency test of Stage 5.2 and closed in it
 - Stage 5.3 addendum: 2026-10-27; F0-034, found while the commit was being implemented and closed in it
 - Stage 5.4 addendum: 2026-10-27; F0-035, found by the sentinel injection and closed in it
+- Stage 5.5 addendum: 2026-10-27; F0-063, found by the adversarial input suite of Stage 5.5 and closed in it; F0-064, `main`'s release manifest, found when the Stage 5.5 branch merged `main` and closed in it
 
 ## Status and evidence rules
 
@@ -62,6 +63,7 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Planned phase: Phase 5.
 - Closure evidence: deployed integration tests for allowed and denied operations, task isolation, retries, audit, revocation, and recovery.
 - Update (Stage 5.2): the contract was specified in Stage 5.1 and the **core is now implemented**: the Worker routes and authenticates, the Durable Object holds the session, and staging, sequencing, replay, quotas, the type policy, the writer lease, the seal, the operator revocation and closure, the hypermedia links and the redacted audit record all work. 171 tests pass against the real Worker and the real Durable Object. What is still missing is the GitHub delivery (Stage 5.3 — the `commit` route answers the documented `501 not-implemented`), the full adversarial and chaos suite (Stage 5.5), and the deployment (Stage 5.4.6). The gateway is **not deployed**, and the Phase 5 exit gate is not met.
+- Update (Stage 5.5): the delivery (Stage 5.3) and the audit, privacy and operations (Stage 5.4) are implemented, and the **test suite and the CI wiring are now real**. 362 tests pass: the unit suite covers every module that had none (the authorisation policy, the tombstones, the seal, the rate limit, the error mapping, the counters, the status view, the encodings and the retry policy), the integration suite drives the real Worker and the real Durable Object through the whole protocol including the cross-task refusals, the chaos suite covers the Durable Object eviction, the Worker isolate eviction and every row of the provider's status table, the load suite fills the published quota and concurrency envelope to its edges, and the log-hygiene check plants a sentinel in the capability URL and the signature as well as in the three secrets and the payload. The CI gates are wired: four gates on every pull request (typecheck and bundle, unit, integration, and the log-hygiene and credential-boundary gate) and three on a schedule (the load suite, the chaos suite, and a staging rehearsal that builds the bundle and publishes nothing). **No stub remains in `gateway/write`** — the test inventory guard fails the build if one appears. What is still missing is the **deployment** and the **pilot**: the gateway has never been deployed and has never spoken to the real GitHub, so the Phase 5 exit gate is still not met.
 
 ### F0-005 — Shared conformance vectors and executable harness are incomplete
 - Severity: S2, blocking conformance claims.
@@ -304,6 +306,89 @@ IDs F0-050 onward, to avoid collisions with parallel branches. Every item was re
 ### R0-020 — Path normalisation (Unicode form, case) is not specified for links
 - Severity: S3; Status: OPEN, owned by the conformance vectors (Stage 4.1). The signing test now compares against an independent implementation for spaces, accents, `%`, `+`, `?`, `#`, emoji and 20-level paths and agrees.
 
+## A5. Additional confirmed findings (Stage 5.5 — the write gateway's real test suite, 2026-10-27)
+
+Two findings. The first was found by the adversarial input suite that Stage 5.5 added (plan task 5.5.4); the
+second was found by the merge of `main` into the Stage 5.5 branch, and it was already breaking `main` itself.
+Both were reproduced by execution before the fix, and both are closed in the same stage. The evidence is a
+transcript, not a narrative.
+
+### F0-063 — The staging operations did not apply the path rules
+
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED in Stage 5.5.
+- Evidence: the contract validates the `path` parameter of `create`, `append`, `replace`, `read` and `delete`
+  against the path rules of section 5.1 (protocol section 4.2, "the `path` parameter"), and the error catalogue
+  defines `malformed-path` (400) for exactly that failure. The implementation applied those rules in **one** place
+  only: `src/commit/selection.ts`, at the commit. `checkPath` was called from nowhere else in `src/`, so a path
+  that failed a rule was accepted by every staging operation and refused only three steps later, at the commit.
+- Reproduction, against the pre-fix code, with a capability for one task and a probe that creates each path:
+
+      CREATE ../escape.md     -> 200 ok
+      CREATE .git/config.md   -> 200 ok
+      CREATE a/../b.md        -> 200 ok
+      CREATE /abs.md          -> 200 ok
+      CREATE notes/na~me.v1..2.md -> 200 ok      (legal: a component may contain ".." as a substring)
+      INVENTORY: ["../escape.md",".git/config.md","/abs.md","a/../b.md","notes/na~me.v1..2.md"]
+
+- Consequence: an agent could stage a traversal path, an absolute path or a hidden path. The blast radius was
+  bounded — the commit's selection refuses such a path, so nothing ever escaped the task folder — but the
+  consequence was still real: the staged file took a file slot and a byte budget out of the published envelope,
+  and the agent was told nothing until the commit refused it with a code the contract had already assigned to the
+  staging operations. The placeholder rule (protocol section 12.3, "a `create` of `.keep`, or of any hidden path,
+  is refused by the path rules") was enforced only by accident, by the type policy, under the wrong code.
+- Required resolution: apply the path rules at the operation that carries the path, and refuse the path there with
+  `malformed-path` and a message that does not echo the path (the rule from F0-035).
+- Owner: implementation. Planned phase: Stage 5.5 (5.5.4).
+- Closure evidence: `src/session/task-session.ts` checks the path with `checkPath` before the operation runs, and
+  `tests/integration/adversarial-inputs.test.ts` drives thirteen paths that fail a rule through all five
+  operations that carry a path and asserts `400 malformed-path` for each, asserts that a refused path takes no
+  slot and leaves no file behind, and asserts that the paths the rules accept — including
+  `notes/na~me.v1..2.md` — still work. The contract was clarified at the same time (protocol section 5.1 now
+  says where the rules are enforced and why), and the error catalogue now points at the contract's path rules
+  rather than promising that its own help link lists them.
+
+### F0-064 — `main`'s release manifest named a file that does not exist, and had the two metadata roles the wrong way round
+
+- Severity: S1 for the release pipeline. Status: CONFIRMED (executed) and CLOSED in Stage 5.5.
+- Evidence: the Stage 1.1 change (PR #21, merged as `8a9279d`) rewrote `release/manifest.txt` to
+  `managed engine/engine.json` and `seed engine/release.json`, and adopted the names `engine/engine.json` (the
+  consumer's configuration) and `engine/release.json` (the machine metadata). It did **not** rename
+  `template/engine/ENGINE.json` to `template/engine/release.json` — the Stage 1.1 closeout says the physical
+  rename "remains a Phase 2 task" — and it **swapped the roles** of the two files: the machine metadata is the
+  file that is replaced on every update (managed), and the consumer's configuration is the file that is installed
+  only if absent (seed).
+- Reproduction, on a pristine checkout of `main` @ `1348f99`:
+
+      $ release/package.sh dist
+      package: manifest lists 'engine/release.json' but template/engine/release.json does not exist
+      rc=1
+
+      $ release/test-release.sh
+      4 passed, 18 failed
+      $ bash tests/test_update.sh
+      5 passed, 17 failed
+
+- Consequence: **the packaging did not work at all**, so the artifact could not be built, and every downstream
+  check that needs an artifact failed with it. `main`'s CI has been red since the Stage 1.1 merge; the three
+  most recent runs on `main` (`40617447829`, `40617334926`, `40612975602`, `40612873665`) all failed, and the
+  failing step is "Release machinery self-test" — while the write-gateway job passed. The run before the Stage
+  1.1 merge (`40523784995`) passed. Every branch derived from `main` inherits the breakage.
+- Required resolution: complete the rename the Stage 1.1 decision asked for — `template/engine/ENGINE.json` becomes
+  `template/engine/release.json` — put the two files back in their proper roles (`managed engine/release.json`,
+  `seed engine/engine.json`), and update the readers: `release/set-version.sh`, `release/verify.sh`,
+  `release/test-release.sh`, `README.md`, `COMPATIBILITY.md`, `docs/ARCHITECTURE.md`, `docs/RELEASING.md` and
+  `docs/STATUS.md`. The rename is the same one Stage 3.1 performs (register F0-013); the roles are the half of it
+  that Stage 3.1's manifest also carries.
+- Owner: implementation. Planned phase: Phase 2 / Phase 3.1 (the rename and the role correction were already
+  implemented on `phase-3/3.1-allowlist-packaging`; this finding is the merge of that work into a branch that
+  descends from `main`).
+- Closure evidence: on the Stage 5.5 branch, `release/package.sh dist` builds the artifact,
+  `release/verify.sh` answers `verify: OK (build-engine-v0.5.0.tar.gz: 42 files, version 0.5.0)`, the artifact
+  contains `engine/VERSION`, `engine/engine.json` and `engine/release.json` and no gateway, conformance or
+  variants path, `release/test-release.sh` is 22 passed / 0 failed and `tests/test_update.sh` is 22 passed /
+  0 failed. The seed and the managed file are now in the roles the shipped `update.sh` and the consumer flow
+  assume.
+
 ## B. Risks and verification gaps (not proven defects)
 
 ### R0-001 — Path validation may reject safe names containing `..`
@@ -414,7 +499,9 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-001, F0-007 | Phase 1.2 (done) + 2.1.1 | Field migrated to `protocol`; remaining doc sync in F0-019 |
 | F0-002 | Phase 2.1.2 / 7.1 | Only at release-candidate time |
 | F0-003 | Phase 4 (4.1-4.3) | Production read gateway, conformance, deployment |
-| F0-004, F0-009 | Phase 5 (5.1-5.5) | Write gateway, all stub source/tests/scripts/CI; exit gate forbids stubs |
+| F0-004, F0-009 | Phase 5 (5.1-5.5) | Write gateway, all stub source/tests/scripts/CI; exit gate forbids stubs. **5.5 closed the last of them** — the chaos tests, the CI wiring and the three operator scripts are implemented; the deployment and the pilot (Phase 6) remain |
+| F0-063 | Phase 5 (5.5.4) | The staging operations did not apply the path rules; found by the adversarial input suite, closed in the same stage |
+| F0-064 | Phase 2 / Phase 3.1 | `main`'s release manifest named a file that did not exist and had the two metadata roles the wrong way round, so the packaging failed and `main`'s CI was red; the rename and the role correction are Stage 3.1's work, applied in the same stage that found it |
 | F0-005 | Phase 4.1 | Vectors and harness |
 | F0-006 | Phase 6 | Real pilot |
 | F0-008 | This PR + 3.3.1/3.4.3 | Fix now, guard later |
