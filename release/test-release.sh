@@ -31,6 +31,7 @@ echo "release machinery self-test"
 fresh; must_pass "clean tree packages" build
 must_pass "clean artifact verifies" "$R/release/verify.sh" "$(ART)"
 a="$(sha256sum "$(ART)" | cut -d' ' -f1)"; build; [[ "$a" == "$(sha256sum "$(ART)" | cut -d' ' -f1)" ]] && ok "packaging is reproducible" || bad "packaging is not reproducible"
+fresh; sed -i -E "s/^## ([0-9.]+) - [0-9]{4}-[0-9]{2}-[0-9]{2}\$/## \1 - unreleased/" "$R/CHANGELOG.md"; plant; build
 must_fail "release gate refuses an undated changelog entry" "no dated" "$R/release/verify.sh" "$(ART)" --release
 [[ -z "$(tar -tzf "$(ART)" | grep -E '(^|/)(gateway/|ctxgate\.py|test_ctxgate\.py)')" ]] && ok "clean artifact has no gateway file" || bad "clean artifact contains gateway files"
 
@@ -318,7 +319,7 @@ must_fail "a protocol that disagrees with the release version is refused" "does 
 fresh; sed -i '/^| 0\.5\.0/d' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
 must_fail "a missing COMPATIBILITY.md row is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
 
-fresh; sed -i 's#^| 0\.5\.0 (unreleased) | build-engine/0\.5 |#| 0.5.0 (unreleased) | build-engine/0.4 |#' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
+fresh; sed -i -E 's#^\| 0\.5\.0( \(unreleased\))? \| build-engine/0\.5 \|#| 0.5.0\1 | build-engine/0.4 |#' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
 must_fail "a COMPATIBILITY.md row with a different protocol is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
 
 # set-version.sh keeps every compatibility record in step, and running it twice changes nothing more
