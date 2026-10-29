@@ -1,15 +1,14 @@
-# Status of build-engine 0.5.0 (unreleased) — Basic, Class A-only
+# Status of build-engine 0.5.0 (released 2026-10-29) — Basic, Class A-only
 
-Audited commit: `main` at `28b04aa` (Stage 3.2 verifier hardening merged via PR #26), 2026-10-29. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
+Audited commit: `main` at `c95ae51`, tagged `v0.5.0`; published by `release.yml` run 40879890746 (all gates passed), 2026-10-29. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
 
 **Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
 **Conclusion.** 0.5.0 is redesignated **Basic, Class A-only** by operator decision D1 (2026-10-29). The consumer artifact (template, packaging, independent static verification, install/update) and the Class A workflow are the release scope. Deployed Class B read and write gateways are **unsupported in 0.5.0** and planned for **0.6.0 Standard**. Class B implementation work exists on unmerged branches (`phase-4/*`, `phase-5/*`); it is to be landed, not discarded. Only deployment, the pilot, and the submissions-transfer path are deferred.
 
-**Basic blockers remaining (in order):**
+**Basic blockers:** none. v0.5.0 is published (https://github.com/inscope-labs/build-engine/releases/tag/v0.5.0). Observed after publication: the checksum matches, `verify.sh --release` passes on the downloaded asset, and a clean consumer install and an idempotent re-run succeed from the asset alone. Asset SHA-256: `9fcc05d2beed8931978e44571fd7b62adf0aae4a6ccbaecf0fa57e053f1ddb96`.
 
-1. Repository protection (branch and tag rules, required checks) is not configured (R0-004). Operator policy recorded 2026-10-29: require PR + `ci` on `main`, no force-push, deletions allowed; no `v*` tag restriction; apply **after** the `v0.5.0` tag is created.
-2. Final operator authorization of the artifact and release notes at tag time (G-12) — pre-authorised 2026-10-29 pending gate pass.
+**Repository protection (R0-004), applied 2026-10-29 after the tag:** `main` requires a pull request and the `test` check, force-push is blocked, deletion is allowed, administrators are not forced; no `v*` tag restriction; no Actions allow-list. The remaining exposure (no required reviews, administrators can bypass, no tag rules) is an accepted risk for 0.5.0 per the operator decision of 2026-10-29.
 
 **Closed for Basic (2026-10-29 decisions):**
 - F0-002 — changelog dated `## 0.5.0 - 2026-10-29` with Basic scope statement.
@@ -75,7 +74,7 @@ Product contract, STATUS, END-TO-END, README aligned to Basic redesignation. Def
 
 1. F0-002 — dated changelog entry (RC time only).
 2. F0-023 — release workflow hardening.
-3. R0-004 — repository branch/tag protection (operator/admin action).
+3. R0-004 residual — required reviews, tag rules and Actions allow-list (accepted for 0.5.0; revisit for 0.6.0).
 4. R0-011 — Class A delivery route decision.
 5. Final operator authorization of the artifact and release notes (G-12).
 
