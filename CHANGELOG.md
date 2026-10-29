@@ -24,3 +24,7 @@
   checksum sidecar that describes another file, a duplicate archive member, a release manifest that contradicts
   itself, an allowlist that contradicts itself, and a gateway copy that has been renamed or indented. Paths are
   checked component by component, so a file name that contains two dots is no longer rejected.
+- Stage 1.2 conformance: `release/verify.sh` rejects the retired `implements_abstract` key and, in `--release` mode,
+  requires `protocol` of the form `build-engine/<major.minor>` matching the release version, with a matching
+  `COMPATIBILITY.md` row. `release/set-version.sh` now also updates `release.json` (including `protocol`), the
+  `COMPATIBILITY.md` row and the `CHANGELOG.md` heading. `template/operator/install.sh` is executable again (CI fix).

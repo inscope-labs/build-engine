@@ -1,0 +1,418 @@
+# Build Engine — Baseline Performance Stability Index (BPSI)
+
+**Recommendation:** Implement a versioned, evidence-backed Baseline Performance Stability Index (BPSI) that measures how closely a Build Engine implementation conforms to its defined operational requirements, how reliably it performs its supported workflows, and whether those claims can be independently verified.
+
+Repository reviewed: https://github.com/inscope-labs/build-engine/tree/main
+
+The key design principle is that **the index must measure demonstrated operational conformance, not merely the presence of code, successful CI runs, or the number of completed tasks.**
+
+The repository already provides a useful foundation: a release plan, a defect register, an allowlisted release manifest, packaging and verification scripts, consumer update tests, gateway designs, and a proposed language-neutral conformance suite. Its documentation also distinguishes implemented functionality from reference implementations, scaffolds, and unstarted components. These distinctions should become machine-readable inputs to the index.
+
+## 1. Define exactly what the index measures
+
+The index should answer five questions:
+
+1. **Conformance:** Does the implementation satisfy its defined requirements and behavioral contracts?
+2. **Reliability:** Does it produce correct, repeatable outcomes across repeated executions and failure scenarios?
+3. **Performance:** Does it complete supported operations within established resource and timing limits?
+4. **Operational readiness:** Can it be installed, configured, operated, updated, recovered, and released safely?
+5. **Evidence confidence:** How much of the reported status is backed by recent, reproducible, independently verifiable evidence?
+
+These questions should produce two complementary outputs rather than a single misleading percentage:
+
+- **BPSI score:** A normalized score from 0 to 100 for the implementation's measured stability and conformance.
+- **Conformance status:** A categorical determination of whether it meets the mandatory requirements for its declared operational profile.
+
+This separation is important. An implementation can score well on unit tests and packaging while still lacking a required production gateway. It must not receive a production-ready designation merely because its weighted average is high.
+
+## 2. Numbered implementation processes
+
+I recommend implementing the following 16 processes in dependency order. Together, they form a continuous measurement, verification, and improvement system.
+
+### Foundation: Define the measurement contract
+
+### 1. Establish the authoritative conformance specification
+
+Create a versioned specification describing what every supported Build Engine implementation must do.
+
+Include:
+- Functional requirements and expected outputs.
+- Security and authorization invariants.
+- Performance limits and resource budgets.
+- Installation, update, recovery, and release requirements.
+- Required operational workflows and failure-handling behavior.
+- Mandatory requirements versus optional capabilities.
+
+Each requirement receives a stable identifier, severity, applicability profile, verification method, and acceptance threshold.
+
+**Output:** `conformance/requirements.json` and a human-readable requirements specification.
+
+### 2. Define implementation profiles and capability boundaries
+
+Different implementations may support different capabilities, deployment environments, or protocol versions. The index must compare each implementation against its declared and approved profile rather than assume every implementation is identical.
+
+For Build Engine, distinguish at least:
+- Shipped artifact and consumer installation.
+- Operator-controlled workflows.
+- Class A authenticated-agent workflows.
+- Class B signed-link read and submission workflows.
+- Full end-to-end deployment and operational workflows.
+
+A capability must be marked as implemented, verified, unavailable, unsupported, or not applicable, with justification and evidence.
+
+An implementation must not improve its score simply by declaring a mandatory capability unsupported.
+
+**Output:** A machine-readable capability profile and compatibility matrix.
+
+### 3. Create the requirement-to-test traceability graph
+
+Connect every requirement to its implementation, configuration, tests, CI checks, operational evidence, and release gates.
+
+For example:
+
+`Requirement → Code → Test → Execution result → Evidence → Score contribution`
+
+Missing links must be reported explicitly. A test that exists but does not meaningfully assert the expected behavior cannot establish conformance.
+
+This extends the repository's existing requirement-to-test traceability objective in [RELEASE-PLAN.md](https://github.com/inscope-labs/build-engine/blob/main/RELEASE-PLAN.md).
+
+**Output:** A traceability graph that identifies untested requirements, orphan tests, and unsupported claims.
+
+### 4. Establish a reproducible baseline
+
+Select a known implementation revision and record its initial condition before making changes.
+
+Capture:
+- Commit SHA, version, protocol, configuration, and dependency versions.
+- Test results and coverage of applicable requirements.
+- Build and packaging outcomes.
+- Runtime and resource measurements.
+- Known defects, missing capabilities, and unresolved decisions.
+- Test environment, workload, timestamps, and execution parameters.
+
+Distinguish verified failures from risks that have not yet been tested.
+
+**Output:** An immutable baseline record against which subsequent revisions can be compared.
+
+### Measurement: Gather operational evidence
+
+### 5. Build a unified conformance test harness
+
+Implement an executable harness that runs common acceptance tests against each applicable implementation.
+
+For Build Engine, prioritize the existing `conformance/` directory. Populate its signing vectors, implement the harness, and execute the defined gateway behaviors against the signing client, reference gateway, and production implementation.
+
+Add positive, negative, boundary, malformed-input, expiration, replay, revocation, and authorization-isolation cases.
+
+**Output:** Machine-readable pass, fail, blocked, and not-applicable results, each linked to a requirement.
+
+### 6. Measure functional correctness and repeatability
+
+Run supported operations against known inputs and verify their actual outputs.
+
+Measure:
+- Correctness of generated work orders and signed links.
+- Correct file and revision selection.
+- Correct authorization and refusal behavior.
+- Submission, publication, and reconciliation correctness.
+- Deterministic behavior where determinism is a contractual requirement.
+- Consistency between repeated executions.
+
+Repeated success must be measured over a specified number of trials; one successful execution is insufficient evidence of stability.
+
+**Output:** Functional conformance and repeatability measurements.
+
+### 7. Measure latency, throughput, and resource efficiency
+
+Establish repeatable workloads for the engine's supported operations.
+
+Record:
+- Median, p95, and p99 latency where sample sizes support them.
+- Throughput and queue or processing delays.
+- CPU and memory consumption.
+- Network requests, storage operations, and relevant cost per operation.
+- Timeout, throttling, and error rates.
+- Performance under idle, normal, and peak expected load.
+
+Measure individual operations as well as complete workflows. For a Cloudflare gateway, for example, include authorization validation, upstream access, response generation, and relevant platform limits.
+
+**Output:** A performance profile with explicit thresholds and workload definitions.
+
+### 8. Perform fault-injection and recovery tests
+
+Deliberately introduce controlled failures and verify that the implementation fails safely and recovers correctly.
+
+Scenarios should include:
+- Invalid or expired authorization.
+- Unavailable dependencies and network interruptions.
+- Rate limits, timeouts, and exhausted quotas.
+- Interrupted updates and incomplete artifacts.
+- Duplicate requests, concurrent requests, and retries.
+- Gateway restart, revocation, and state loss.
+- Partial failure during a multi-step workflow.
+
+Score recovery time, failure containment, data integrity, duplicate effects, and whether a failed operation leaves the system in an ambiguous state.
+
+**Output:** A recovery and fault-tolerance profile.
+
+### Operational verification: Test the complete system
+
+### 9. Verify security and isolation invariants
+
+Security must be evaluated independently of ordinary functional success.
+
+Verify that:
+- Agents cannot obtain unauthorized repository write credentials.
+- Signed links are restricted to the intended file, revision, and work order.
+- Expiration and revocation are enforced by the actual serving system.
+- Cross-task or cross-tenant access is rejected.
+- Gateway secrets and internal implementation files do not leak into release artifacts.
+- Audit records are useful without exposing secrets or sensitive content.
+
+Critical authorization failures should be hard gates, not defects that can be offset by faster performance.
+
+**Output:** Security conformance results and an evidence-backed exception register.
+
+### 10. Verify packaging and release integrity
+
+Test the exact artifact that consumers will receive, rather than only the source checkout.
+
+Verify:
+- Release manifest completeness and allowlist enforcement.
+- Version and protocol consistency.
+- Checksums and artifact integrity.
+- Absence of forbidden gateway files, credentials, and unintended content.
+- Reproducibility of package contents.
+- Successful execution of the packaged tools.
+
+**Output:** A release-integrity score and a signed or otherwise tamper-evident verification record.
+
+### 11. Verify installation, updates, and rollback safety
+
+Exercise the consumer installation path in disposable environments.
+
+Test first installation, clean upgrades, local modifications, untracked collisions, removed managed files, corrupted lock state, interrupted updates, and recovery.
+
+Confirm that consumer-owned configuration is preserved, conflicts are detected, and partial updates do not silently corrupt the installation.
+
+The existing `tests/test_update.sh` and updater provide a natural starting point.
+
+**Output:** An installation and lifecycle reliability score.
+
+### 12. Execute end-to-end staging pilots
+
+Test a real, disposable work order through the complete supported workflow.
+
+For the full Build Engine profile, the pilot should cover:
+
+1. Plan and work-order creation.
+2. Context authorization and retrieval.
+3. Agent deliverable submission.
+4. Operator review and acceptance.
+5. Publication and reconciliation.
+6. Revocation, closure, and audit inspection.
+7. Recovery from at least one controlled failure.
+
+A successful unit-test suite cannot substitute for this evidence.
+
+**Output:** A repeatable end-to-end acceptance report.
+
+### Scoring and continuous maintenance
+
+### 13. Implement the BPSI scoring engine
+
+Aggregate the verified results into a transparent score with configurable weights, mandatory gates, and evidence-completeness rules.
+
+The scoring engine must be deterministic: the same inputs, specification version, and scoring rules must produce the same result.
+
+Preserve the raw measurements and per-requirement results so the final score can always be reconstructed.
+
+**Output:** A versioned score, dimension breakdown, gate status, and explanation of every deduction.
+
+### 14. Maintain an immutable evidence ledger
+
+Every assessment should identify the implementation commit, artifact digest, test suite version, environment, workload, execution time, raw results, and scoring-rule version.
+
+Store evidence so that a later assessor can distinguish:
+- A verified pass.
+- A verified failure.
+- A test that was not run.
+- A test that could not run.
+- Evidence that has expired or become invalid after a relevant change.
+
+Evidence integrity and reproducibility are essential to prevent an index from becoming an editable status report.
+
+**Output:** A historical, auditable sequence of BPSI assessments.
+
+### 15. Automate regression detection and reassessment
+
+Run inexpensive conformance and regression tests on every pull request, broader tests after merges, and performance and fault-injection suites on an appropriate schedule.
+
+Reassess whenever a relevant code path, protocol, dependency, configuration, deployment, or release artifact changes.
+
+Compare results with the previous valid baseline and detect:
+- Performance regressions.
+- Newly failing requirements.
+- Increased failure rates or resource use.
+- Missing evidence.
+- Previously passing tests that no longer exercise current behavior.
+
+**Output:** Automated BPSI history, regression alerts, and evidence-backed release-gate decisions.
+
+### 16. Govern index evolution and corrective action
+
+When requirements, workloads, scoring weights, or test procedures change, version the changes and explain their effect on comparability.
+
+Every significant regression should generate a finding containing severity, evidence, affected requirement, remediation owner, closure criteria, and retest results.
+
+Never silently rewrite historical scores using a new formula. Preserve the original assessment and, if necessary, produce a separately identified recalculation.
+
+**Output:** A controlled improvement cycle in which each correction is measurable and verifiable.
+
+## 3. Proposed BPSI scoring model
+
+I recommend a 100-point model comprising six dimensions.
+
+The following weights are a proposed starting point, not values measured from the repository. They should be validated against actual requirements and pilot results before becoming authoritative.
+
+| Dimension | Weight | What it measures |
+|---|---:|---|
+| Functional and protocol conformance | 25% | Correctness against requirements and behavioral contracts |
+| Reliability and repeatability | 20% | Success rates, consistency, fault handling, and recovery |
+| Performance and resource efficiency | 15% | Latency, throughput, resource consumption, and limits |
+| Security and isolation | 15% | Authorization, access boundaries, revocation, and information protection |
+| Lifecycle and release integrity | 15% | Packaging, installation, updates, recovery, and release correctness |
+| Operational readiness and observability | 10% | End-to-end operation, auditability, diagnostics, and evidence quality |
+
+### How individual requirements are scored
+
+Each requirement should be evaluated against its own acceptance criteria, not scored based on subjective impressions.
+
+For a quantitative requirement, a normalized score may be calculated from measured performance relative to its approved target. For a binary acceptance test, use the verified pass or fail result. For a requirement with multiple test cases, aggregate the case results using predefined weights and mandatory-case rules.
+
+The dimension score is:
+
+`D_j = (sum of w_i * s_i) / (sum of w_i)`
+
+Where:
+- `D_j` is the score for dimension `j`, normalized to 0–100.
+- `s_i` is the measured score for a requirement or test.
+- `w_i` is its predefined importance weight.
+
+The overall weighted score is:
+
+`BPSI_raw = sum of (W_j * D_j / 100)`
+
+Here, `W_j` is the dimension's weight in percentage points.
+
+A simple example illustrates the calculation.
+
+| Dimension | Weight | Illustrative score | Weighted contribution |
+|---|---:|---:|---:|
+| Functional conformance | 25% | 90 | 22.50 |
+| Reliability | 20% | 80 | 16.00 |
+| Performance | 15% | 85 | 12.75 |
+| Security | 15% | 95 | 14.25 |
+| Lifecycle | 15% | 90 | 13.50 |
+| Operational readiness | 10% | 70 | 7.00 |
+| **Total** | **100%** | | **85.25 / 100** |
+
+*Illustrative example only — not an assessment of the repository.*
+
+Even with this illustrative score, a mandatory production gateway failure would prevent a full end-to-end conformance designation.
+
+### Mandatory gates
+
+Some requirements must never be averaged away.
+
+Examples include:
+- A mandatory operation is not implemented.
+- A required authorization boundary can be bypassed.
+- A release artifact fails integrity verification.
+- A required end-to-end workflow cannot complete.
+- Critical test results or required evidence are missing.
+
+For the declared operational profile, any unresolved mandatory failure should block the corresponding conformance designation. The system may still report its raw score, but it must not report the implementation as fully conformant.
+
+I also recommend displaying an **evidence coverage percentage** separately. An unexecuted test is unknown, not a pass. Missing evidence should reduce confidence and can block certification, rather than silently disappearing from the denominator.
+
+## 4. Map the processes to the existing repository
+
+The following mapping minimizes unnecessary architectural changes.
+
+| Existing repository area | Proposed responsibility |
+|---|---|
+| `RELEASE-PLAN.md` | Implementation roadmap and acceptance gates |
+| `docs/release/DEFECT-REGISTER.md` | Evidence-backed findings and remediation tracking |
+| `conformance/` | Shared behavioral requirements, signing vectors, and executable conformance harness |
+| `.github/workflows/ci.yml` | Automated conformance and regression execution |
+| `release/manifest.txt` | Authoritative release allowlist |
+| `release/package.sh`, `release/verify.sh` | Artifact construction and release-integrity evidence |
+| `tests/test_update.sh` and `template/engine/bin/update.sh` | Consumer lifecycle and update-safety verification |
+| `docs/pilot/` | End-to-end operational acceptance |
+| New `bpsi/` directory | Scoring, evidence schemas, historical records, and reporting |
+
+I would introduce the BPSI subsystem as a separate measurement layer rather than embed scoring logic throughout the engine. That keeps the implementation modular and allows future implementations to use the same conformance rules without adopting the same programming language or deployment platform.
+
+A possible initial structure is:
+
+```text
+bpsi/
+├── README.md
+├── SPECIFICATION.md
+├── SCORING-MODEL.md
+├── requirements/
+│   ├── requirements.json
+│   └── profiles.json
+├── schemas/
+│   ├── assessment.schema.json
+│   ├── evidence.schema.json
+│   └── result.schema.json
+├── harness/
+├── collectors/
+├── scoring/
+├── gates/
+├── history/
+└── reports/
+```
+
+This is a proposed structure, not a claim that these files already exist.
+
+## 5. What the current repository establishes
+
+The repository's current documentation gives a concrete starting point for the first assessment.
+
+### Existing measurement infrastructure
+
+The repository documents unit tests, CI, package verification, consumer update tests, a release allowlist, and an implementation defect register. These can supply initial evidence without requiring a new testing framework for everything.
+
+### Missing or incomplete end-to-end evidence
+
+The repository's current status documentation identifies the production read gateway as not started, the write gateway as a scaffold returning HTTP 501, the conformance vectors and harness as incomplete, and the end-to-end pilot as not started.
+
+Reference: https://github.com/inscope-labs/build-engine/blob/main/docs/END-TO-END.md
+
+### Release-governance evidence must also be checked
+
+The repository documents missing branch and tag protection as a release concern, alongside release-tooling and updater hardening work. These conditions should be rechecked against live configuration and executed tests rather than assumed to remain unchanged.
+
+Consequently, the repository has enough existing structure to begin designing BPSI, but the information currently documented is not enough to calculate a defensible, verified operational stability score. I have not executed the complete test suite, measured runtime performance, or independently verified the current deployment and protection settings in this review.
+
+## 6. Recommended implementation order
+
+Implement the system in six gated stages, using the numbered processes above as the work breakdown.
+
+| Stage | Scope | Exit condition |
+|---|---|---|
+| 1. Specification | Processes 1–3 | Approved requirements, profiles, and traceability |
+| 2. Baseline | Process 4 | Reproducible initial assessment with known gaps |
+| 3. Measurement | Processes 5–8 | Executable conformance, reliability, performance, and recovery tests |
+| 4. Operational acceptance | Processes 9–12 | Security, lifecycle, release, and applicable end-to-end gates pass |
+| 5. Index engine | Processes 13–14 | Reproducible score with auditable evidence |
+| 6. Continuous maintenance | Processes 15–16 | Automated regression detection and governed reassessment |
+
+**My strongest recommendation is to complete Stages 1 and 2 before implementing the scoring engine.** Otherwise, the project risks producing a polished number without a sufficiently rigorous definition of what that number proves.
+
+The final deliverable should not merely say that Build Engine is, for example, 85% stable. It should explain *which operational requirements passed, which failed, which were not tested, how the results were measured, which mandatory gates remain blocked, and exactly what evidence supports the assessment*.
+
+That makes BPSI a useful operational conformance instrument rather than a vanity metric.

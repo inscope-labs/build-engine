@@ -13,7 +13,8 @@
 # Fails on: a bad or misdirected checksum, an unreadable or truncated archive, a non-regular entry, an unsafe or
 # duplicated member name, a file outside the allowlist, anything forbidden.txt forbids (the gateway in particular),
 # a bad release manifest, version disagreement, or - with --test-payload - a payload that does not pass its own tests.
-# --release additionally requires the protocol version to be recorded and a dated CHANGELOG entry.
+# --release additionally requires a compatibility protocol version (build-engine/<major.minor>) that matches the release
+# version and has a row in COMPATIBILITY.md, and a dated CHANGELOG entry.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 die() { echo "verify: FAIL: $*" >&2; exit 1; }
@@ -154,6 +155,10 @@ JV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_ve
 [[ "$EV" == "$AV" && "$JV" == "$AV" ]] || die "version disagreement: artifact $AV, engine/VERSION $EV, engine/release.json $JV"
 grep -qx "# version $AV" "$RM" || die "release manifest version header disagrees"
 
+# 6b. the retired compatibility key must be gone (Stage 1.2): readers and gates use `protocol` only
+python3 -c 'import json,sys; sys.exit(1 if "implements_abstract" in json.load(open(sys.argv[1])) else 0)' "$X/engine/release.json" \
+  || die "engine/release.json still carries the retired key implements_abstract: use protocol (e.g. build-engine/0.5)"
+
 # 10. the payload is sound on its own: the shell scripts parse and the python compiles
 bash -n "$X/operator/cbridge" || die "operator/cbridge does not parse"
 sh -n "$X/operator/install.sh" || die "operator/install.sh does not parse"
@@ -175,8 +180,11 @@ if [[ "$MODE" == "--release" ]]; then
   [[ -f "$ROOT/template/engine/release.json" ]] || die "the release gate needs the repository's template/engine/release.json"
   RJV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_version"])' "$ROOT/template/engine/release.json")"
   [[ "$RJV" == "$AV" ]] || die "the repository's engine/release.json differs from the artifact version"
-  PROTO="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("protocol") or d.get("implements_abstract",""))' "$X/engine/release.json")"
-  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the protocol version this release implements (e.g. build-engine/0.5)"
+  PROTO="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("protocol",""))' "$X/engine/release.json")"
+  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the compatibility protocol version this release implements (e.g. build-engine/0.5)"
+  [[ "$PROTO" =~ ^build-engine/([0-9]+)\.([0-9]+)$ ]] || die "engine/release.json protocol '$PROTO' is not of the form build-engine/<major>.<minor>"
+  [[ "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" == "${AV%.*}" ]] || die "protocol $PROTO does not match release version $AV (expected build-engine/${AV%.*})"
+  grep -Eq "^\| ${AV//./\\.}( \(unreleased\))? \| ${PROTO//./\\.} \|" "$ROOT/COMPATIBILITY.md" || die "COMPATIBILITY.md has no row recording engine $AV with protocol $PROTO"
   grep -Eq "^## $AV - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" "$ROOT/CHANGELOG.md" || die "CHANGELOG.md has no dated '## $AV - YYYY-MM-DD' entry"
 fi
 

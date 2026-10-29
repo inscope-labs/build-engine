@@ -7,8 +7,8 @@
 - Baseline date: 2026-10-26
 - Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
-- Addendum A3 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
-- Addendum A4 (Stage 3.2, independent verification), 2026-10-27: F0-040 to F0-044 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
+- Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
+- Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
 
 ## Status and evidence rules
 
@@ -164,8 +164,10 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: rename the managed file (touches `release/manifest.txt`, `set-version.sh`, `verify.sh`, `test-release.sh`, and five docs); add a case-fold duplicate check to packaging and verification.
 - Owner: operator (decision), implementation. Planned phase: decision in Phase 2.4 planning; implementation 2.4 and 3.1.2.
 - Closure evidence: no two manifest paths equal under case folding; update test covers migration.
+- **Closed (2026-10-28):** the operator decided managed `engine/release.json` (renamed from `ENGINE.json`) and seed `engine/engine.json`. No two manifest paths differ only by case any more; a guard test in `release/test-release.sh` keeps it that way. Nothing had been released, so no consumer migration was needed.
+- Defence in depth (Phase 2.4): `update.sh` also refuses any future release whose paths differ only by case when the filesystem ignores case, so nothing could be silently overwritten (tested with a simulation hook).
 - **Closed in Stage 3.1** (`PHASE-3.1-REPORT.md`): the managed metadata file is `template/engine/release.json` - the
-  name proposed in the Phase 1.1 product contract, which the operator has not yet confirmed; the packaging side of the
+  name proposed in the Phase 1.1 product contract, confirmed by the operator on 2026-10-28; the packaging side of the
   check is in place (a case-folded duplicate is refused) and the verification side is Stage 3.2.3. `release/manifest.txt`,
   `set-version.sh`, `verify.sh`, `test-release.sh`, `README.md`, `COMPATIBILITY.md`, `docs/ARCHITECTURE.md`,
   `docs/STATUS.md` and `docs/release/REQUIREMENT-TRACEABILITY.md` were updated. The seed file `engine/engine.json` is
@@ -183,6 +185,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: state the requirement (bash >= 4, GNU coreutils/tar) and add a preflight check with a clear error so unsupported shells fail clearly.
 - Owner: operator (environment decision), implementation. Planned phase: Phase 1.1 contract (this PR), Phase 2.4 preflight.
 - Closure evidence: preflight test on an older-bash stub; docs state the requirement.
+- **Updater part closed in Phase 2.4** (`PHASE-2.4-REPORT.md`): `update.sh` checks for bash 4.4+ and every required tool before doing anything and fails with a clear message; macOS is documented as not supported. `release/package.sh` still needs GNU `tar` (Phase 3).
 
 ### F0-015 — `update.sh` is not transactional
 - Severity: S2. Status: CONFIRMED by source; interruption not executed.
@@ -190,6 +193,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Consequence: recoverability gap; the operator would be pushed to `--force`. Stage 2.4.7 requires all-or-nothing behaviour or a staged backup/rollback.
 - Owner: implementation. Planned phase: Phase 2.4 - 2.4.4, 2.4.5, 2.4.7.
 - Closure evidence: interrupted-update test that recovers without `--force`.
+- **Closed in Phase 2.4:** `update.sh` stages new files and backs up every changed file in `.build-engine.txn/` before touching the tree, swaps files atomically, writes the lock last, and rolls back on failure. A hard kill is recovered automatically on the next run. Proven by interruption tests after every step and by SIGKILL tests (`tests/test_update_hardening.sh`).
 
 ### F0-016 — Path checks use the substring glob `*..*` (confirms R0-001)
 - Severity: S3 (latent: no current file name contains `..`). Status: CONFIRMED (executed).
@@ -203,6 +207,7 @@ Added after the operator asked for a register that omits no known defect. Method
   that merely contains two dots is accepted by all three, a `..` component is refused by all three. The three
   implementations are kept identical on purpose, and the self-test covers the packer, the verifier and the consumer
   side.
+- (The `update.sh` part was closed first, in Phase 2.4; Stage 3.2 closed the packer and verifier parts.)
 
 ### F0-017 — Checksum sidecar proves integrity, not authenticity or provenance
 - Severity: S3. Status: CONFIRMED by design (source).
@@ -258,7 +263,102 @@ Added after the operator asked for a register that omits no known defect. Method
 - Owner: implementation/administrator. Planned phase: Phase 3 - 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7.
 - Closure evidence: a tag on a commit with failed or missing CI publishes nothing, shown by a dry-run test.
 
-### A3. Findings from Stage 3.1 (allowlist packaging), 2026-10-27
+## A4. Additional confirmed findings (Stage 2.2 plan/order tooling audit, follow-up to PR #10, 2026-10-26)
+
+IDs F0-050 onward, to avoid collisions with parallel branches. Every item was reproduced by execution against `main` before the fix (probes and a schema-wide fuzz), and each now has a regression test in `template/engine/tools/test_plan_tool_hardening.py`; run against the pre-fix tools those tests produced 22 failures and 16 errors. PR #10 had already made `write_json` atomic, aligned `safe_rel` and required a 40-hex ref in `context_urls`; items marked "(partly #10)" were completed here.
+
+### F0-050 — A task file with a duplicate id was silently ignored
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: two files declaring the same `id` loaded as one task and `check` passed. Resolution: reported as an error by `check`; `order`, `render` and `next` refuse.
+
+### F0-051 — Only `write_json` was atomic (partly #10)
+- Severity: S2. Status: CONFIRMED and CLOSED. Evidence: `PLAN.md`, `CONCURRENCY.md`, order files and the plan scaffold were still written in place. Resolution: all writes go through an atomic temp-file-and-rename helper that preserves file mode and creates parent directories.
+
+### F0-052 — Concurrent `order --write` runs lost work orders
+- Severity: S2. Status: CONFIRMED (executed: in 19 of 20 paired runs one order was overwritten because both took the same submission id) and CLOSED. Resolution: a per-plan lock held by every writing command (waits up to `PLAN_LOCK_TIMEOUT`, default 15 s, then reports clearly) and exclusive creation of order files.
+
+### F0-053 — A failure part-way through a multi-file command left partial state
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: with the second task save failing, `order --write --start` left the order file and one task in progress. Resolution: a rollback transaction restores every file already written (also for `decide`; `new` is built in a temporary directory and moved into place; the plan counter is bumped last).
+
+### F0-054 — `order` accepted moving refs and mislabelled the result as pinned (partly #10)
+- Severity: S1 for the "pinned context" invariant. Status: CONFIRMED (executed) and CLOSED. Evidence: `--ref main` and `--plan-ref main` were accepted. Resolution: both must be full 40-hex commit ids; `context_ref_pinned` is always true because nothing else is accepted; gateway link minting can no longer meet an unpinned ref.
+
+### F0-055 — Order hashes came from the working tree, not the pinned commit
+- Severity: S2. Status: CONFIRMED (executed: an uncommitted edit changed the hash, which no longer matched the file served at the pinned commit) and CLOSED. Resolution: hashes and "current file" edit items are computed from `git cat-file blob <ref>:<path>`; an uncommitted file is not offered; a non-git target is refused.
+
+### F0-056 — `order` did not validate the plan (partly #10)
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: a plan with a schema-invalid `plan.json`, or a context path `../secret.txt`, still produced an order and hashed a file outside the target checkout. Resolution: `order`, `render` and `next` refuse a plan that fails `check`; context paths are validated again where the URL is built.
+
+### F0-057 — Wrong-typed input crashed with raw tracebacks and unstable exit codes
+- Severity: S2. Status: CONFIRMED (executed: a fuzz of every schema field with wrong types or removed fields, run across `check`, `render`, `next`, `plans`, `order`, found crashes in several commands, including non-object entries in `decisions.json`, a non-list `tasks` in `SUBMISSION.json`, and `render` on a schema-invalid plan) and CLOSED. Resolution: loaders and `check_plan` validate shape first; unexpected errors print one clear line and exit 70 (`PLAN_DEBUG=1` shows the traceback); exit codes are documented (0, 1, 2, 70, 130). The fuzz is now a permanent test.
+
+### F0-058 — Trailing newlines were accepted in identifiers
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED. Evidence: `$` anchors accepted `x\n` as a plan id (creating a directory) and `ref + "\n"` in `ctxlink.mint`, which produced a link containing a newline. Resolution: full-match semantics everywhere; control characters are rejected in link paths.
+
+### F0-059 — Link lifetime was unbounded
+- Severity: S2. Status: CONFIRMED (executed: ttl 0, -5 and 1,000,000,000 minted) and CLOSED. Resolution: `ctxlink.mint` accepts 1 to 259200 seconds (decision 0003, 72 hours) and `plan_tool` validates `ttl_seconds` even for orders without links.
+
+### F0-060 — Reference gateway default maximum link lifetime contradicts decision 0003
+- Severity: S3. Status: CONFIRMED (source: `ctxgate.py` defaults `max_ttl` to 7 days). Not changed here; belongs to Phase 4 (`gateway/read`), which has open PRs.
+
+### F0-061 — Identifier arguments were used unvalidated inside file paths
+- Severity: S3. Status: CONFIRMED and CLOSED. Evidence: `links`, `check-submission` and `--rework-of` accepted `../` forms. Resolution: order and submission ids must match `NNNNN-SNNN`; order files read back from disk are schema-validated.
+
+### F0-062 — Product-specific wording remained in the shipped tool
+- Severity: S3. Status: CONFIRMED and CLOSED. A docstring, a comment and an error message named one project; they are neutral now.
+
+### R0-018 — The plan lock is per machine
+- Severity: S3; Status: ACCEPTED, documented. It prevents two processes on one machine from corrupting a plan; it does not coordinate two machines, where git merge conflicts remain the safety net.
+
+### R0-019 — A pinned commit that was never pushed cannot be detected offline
+- Severity: S3; Status: ACCEPTED. `order` proves the commit and files exist in the local checkout, not that the remote has them; agents would get 404s.
+
+### R0-020 — Path normalisation (Unicode form, case) is not specified for links
+- Severity: S3; Status: OPEN, owned by the conformance vectors (Stage 4.1). The signing test now compares against an independent implementation for spaces, accents, `%`, `+`, `?`, `#`, emoji and 20-level paths and agrees.
+
+## A3. Additional confirmed findings (Stage 2.4 install/update audit, 2026-10-26)
+
+IDs F0-040 onward are used here to avoid collisions with entries added by parallel branches. Evidence: the new `tests/test_update_hardening.sh` run against the previous `update.sh` failed 58 of 147 checks; the items below are the ones demonstrated by execution.
+
+### F0-040 — The updater wrote through a symlinked managed directory, outside the repository
+- Severity: S1. Status: CONFIRMED (executed) and CLOSED in Phase 2.4.
+- Evidence: with `docs` a symlink to a directory outside the repository, the previous `update.sh` installed 10 files into that outside directory.
+- Resolution: managed and seed paths, and every directory component, are checked before any change; symlinks, directories where files belong and files where directories belong are refused, even with `--force`.
+
+### F0-041 — An artifact whose contents are a different version than requested was accepted
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: a 0.5.1 artifact packaged as `v0.5.9` installed, recorded `version=0.5.9` in the lock while `engine/VERSION` said 0.5.1.
+- Resolution: the artifact's `engine/VERSION` must equal the requested version.
+
+### F0-042 — Release manifests and archives were validated too loosely
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: unknown modes, duplicate paths, `a/./b`, backslash paths, short or uppercase hashes and an empty manifest were all accepted by the previous updater.
+- Resolution: strict manifest parsing (64 lowercase hex, mode `managed` or `seed`, safe unique paths, non-empty), plus the existing non-regular-entry and unlisted-file checks, all tested with crafted archives.
+
+### F0-043 — A damaged lock file caused a cryptic shell error instead of a clear refusal
+- Severity: S3. Status: CONFIRMED (executed) and CLOSED.
+- Resolution: the lock is parsed strictly; any damage stops the run before changes, with recovery instructions. Seven damage variants are tested.
+
+### F0-044 — Pruning removed the consumer's `plans/` directory
+- Severity: S2. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: a release that drops `plans/README.md` made the previous updater remove an otherwise empty `plans/` through `rmdir -p`.
+- Resolution: only nested directories (depth 2 or more) that release files emptied are pruned.
+
+### F0-045 — Option values were not validated
+- Severity: S3. Status: CONFIRMED (executed) and CLOSED.
+- Evidence: `--repo --web`, `--repo a/b/c`, `--repo '../x'` and an empty `--version` were accepted or produced raw shell errors.
+- Resolution: `--repo` must be `OWNER/NAME`; empty or missing option values report "needs a value".
+
+### R0-016 — Residual risks of the updater transaction
+- Severity: S3; Status: ACCEPTED, documented. After a hard kill, `.build-engine.txn/` stays in the working tree (untracked) until the next run recovers it, so it must not be committed; the live-process check uses the saved process id and can be wrong across PID namespaces; the bash 4.4+ requirement is tested on this environment's bash only.
+- Planned phase: Stage 3.3 (CI matrix) for the bash versions; documented in the README.
+
+### R0-017 — `tests/test_cbridge.sh` (Stage 2.3) is not run by CI
+- Severity: S2; Status: CONFIRMED (source: neither `.github/workflows/ci.yml` nor `release.yml` mentions it).
+- Evidence: the 36-check operator-bridge suite added in Stage 2.3 exists but no workflow executes it, so a regression in `cbridge` would not turn CI red. (In an environment without `jq`, 8 of its checks fail identically on pristine `main`; that is an environment gap, not a defect.)
+- Required action: run it from `tests/test_update.sh` (as done for the updater hardening suite) or add a CI step; make its `jq` dependency explicit in the CI job.
+- Owner: implementation. Planned phase: Stage 3.3.1 / 3.4.3.
+
+## A5. Findings from Stage 3.1 (allowlist packaging), 2026-10-27
 
 Found while validating the packaging path for Stage 3.1, audited commit `99a5a73` (main after Stage 2.3). All four are
 CONFIRMED by an executed baseline run (the commands and their output are in `docs/release/PHASE-3.1-REPORT.md`), and all
@@ -328,12 +428,12 @@ four are closed by that stage. They were not in A2 because A2 audited the baseli
 - Closure evidence: a tracked generated file stops the build with the path named. Self-test: "a tracked generated file
   stops packaging", "a tracked node_modules tree stops packaging".
 
-### A4. Findings from Stage 3.2 (independent verification), 2026-10-27
+## A6. Findings from Stage 3.2 (independent verification), 2026-10-27
 
 Found while hardening the verifier for Stage 3.2, audited commit `3149df0` (Stage 3.1). All five are CONFIRMED by an
 executed baseline run or by reading the verifier's own control flow, and all five are closed by that stage.
 
-### F0-040 — The checksum sidecar did not have to describe the artifact it accompanied
+### F0-065 — The checksum sidecar did not have to describe the artifact it accompanied
 - Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
 - Evidence: `release/verify.sh` ran `sha256sum -c "$base.sha256"`, which verifies whatever files the sidecar names.
   Nothing checked that the sidecar named *this* artifact, so a sidecar that described a different file - one that
@@ -349,7 +449,7 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Closure evidence: Self-test: "a sidecar that describes another file is refused", "a missing checksum sidecar is
   refused", "a tampered artifact fails its checksum".
 
-### F0-041 — A duplicate archive member was only caught as a side effect, and the release manifest could be duplicated unnoticed
+### F0-066 — A duplicate archive member was only caught as a side effect, and the release manifest could be duplicated unnoticed
 - Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
 - Evidence: the verifier compared the archive's member list with the release manifest's paths, so a member that
   appeared twice made the two lists differ and the artifact was refused - but with the message "artifact files and
@@ -367,7 +467,7 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Owner: implementation. Planned phase: Phase 3 - 3.2.1.
 - Closure evidence: Self-test: "a duplicate archive member is refused".
 
-### F0-042 — The forbidden content rules could be bypassed
+### F0-067 — The forbidden content rules could be bypassed
 - Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
 - Evidence: two separate bypasses of `release/forbidden.txt`.
   (a) The gateway patterns were anchored to the start of a line (`^class Gateway[(:]`, `^def make_server\(`), so a
@@ -384,7 +484,7 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Closure evidence: Self-test: "an indented copy of the gateway code is caught", "a copy of the gateway entry point
   is caught", "a credential in a binary file is caught".
 
-### F0-043 — The release manifest inside the artifact was never validated for its own shape
+### F0-068 — The release manifest inside the artifact was never validated for its own shape
 - Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
 - Evidence: `release/verify.sh` compared the manifest's path set with the artifact's file set, so most contradictions
   between the two were caught - but as a set mismatch, and the message named a different problem. Executed at the
@@ -409,7 +509,7 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
   field is refused", "a release manifest listing a missing file is refused", "a release manifest without a header is
   refused".
 
-### F0-044 — The allowlist was not validated by the verifier
+### F0-069 — The allowlist was not validated by the verifier
 - Severity: S3. Status: CONFIRMED (source). **Closed in Stage 3.2.**
 - Evidence: `release/verify.sh` read `release/manifest.txt` and used it to decide what is allowed, but never checked
   the file itself. An allowlist that declared a path twice, or two paths equal under case folding, or an unsafe
@@ -480,12 +580,14 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 - Evidence: `update.sh` records `LOCK_VERSION` but never compares it with the target version.
 - Required action: refuse or warn on a lower version unless a flag is passed; add a test.
 - Planned phase: Phase 2.4 (2.4.5 "wrong version").
+- **Closed in Phase 2.4:** a downgrade is refused unless `--allow-downgrade` is passed (tested).
 
 ### R0-010 — Updater path handling around symlinks and empty parents
 - Severity: S3; Status: RISK TO TEST (source only).
 - Evidence: `cp -p` writes through a symlinked destination directory; `rmdir -p` removes empty ancestor directories of dropped files, which may include consumer-owned empty directories.
 - Required action: refuse symlinked managed paths; remove only directories the lock file recorded.
 - Planned phase: Phase 2.4 (2.4.2, 2.4.5).
+- **Closed in Phase 2.4:** any managed path through a symlink, over a directory, or under a non-directory is refused before any change (even with `--force`); only nested directories that release files emptied are pruned, never top-level ones such as `plans/`.
 
 ## C. Release scope classification — proposed for operator approval
 
@@ -541,7 +643,8 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-011, F0-012, F0-013, F0-018 | Phase 3 - **closed in Stage 3.1** | Packaging: tracked sources, normalised modes, case-fold rule, shipped modes. F0-013's verification half stays in 3.2.3; F0-018's documentation half in 2.1.3 |
 | F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Install/update (F0-014 needs an operator decision) |
 | F0-036 to F0-039 | Phase 3 - **Stage 3.1** | Found and closed in Stage 3.1: dead duplicate check, partial artifact, output inside the packaged tree, silently dropped generated file |
-| F0-040 to F0-044 | Phase 3 - **Stage 3.2** | Found and closed in Stage 3.2: misdirected sidecar, duplicate members, forbidden-rule bypasses, unvalidated release manifest, unvalidated allowlist |
+| F0-065 to F0-069 | Phase 3 - **Stage 3.2** | Found and closed in Stage 3.2: misdirected sidecar, duplicate members, forbidden-rule bypasses, unvalidated release manifest, unvalidated allowlist |
+| F0-040 to F0-045, R0-016 | Phase 2.4 | Closed; R0-016 accepted. (Updater findings. The Stage 3.2 verifier findings are F0-065 to F0-069.) |
 | F0-019 | Phase 2.1.3-2.1.4 | Documentation |
 | F0-020 | Phase 1.1 (this PR) | Needs operator approval |
 | F0-021, F0-022 | Phase 4 / 3.3.2 | Lint and dev dependencies |
@@ -549,6 +652,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
+| F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
 | R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)

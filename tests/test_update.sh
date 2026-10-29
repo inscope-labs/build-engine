@@ -12,11 +12,10 @@ check() { local name="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else
 must_fail() { local name="$1" want="$2"; shift 2; local out; out="$("$@" 2>&1)"; local rc=$?
   if [[ $rc -ne 0 && "$out" == *"$want"* ]]; then ok "$name"; else bad "$name (rc=$rc, wanted '$want', got: $(echo "$out" | tail -2 | tr '\n' ' '))"; fi; }
 
-# a private copy of the source repo so the test can build two releases. The copy is a git checkout
-# because the artifact is built from the tracked file list (Stage 3.1): a release is built from a
-# committed tree, and so is this test.
+# a private copy of the source repo so the test can build two releases
 mkdir "$T/src"; (cd "$SRC" && tar --exclude=.git --exclude=dist --exclude=node_modules -cf - .) | tar -C "$T/src" -xf -
-( cd "$T/src" && git init -q && git config user.email test@example.invalid && git config user.name test && git add -A && git commit -qm baseline )
+# since Stage 3.1 the artifact is built from the tracked file list, so the private copy is a committed git repository
+( cd "$T/src" && git init -q . && git config user.email t@example.invalid && git config user.name t && git add -A && git commit -qm baseline )
 "$T/src/release/package.sh" "$T/d1" >/dev/null
 V1="$(tr -d ' \n' < "$T/src/VERSION")"
 
@@ -48,34 +47,16 @@ check "--force restores the released file" bash -c "! grep -q 'local tweak' '$C/
 D="$T/adopt"; mkdir "$D"; git -C "$D" init -q; mkdir -p "$D/engine"; echo old > "$D/engine/AGENTS.md"
 must_fail "first install over an existing engine file needs --force" "was not installed by update.sh" bash -c "cd '$D' && bash '$T/update.sh' --from-dir '$T/d1' --version '$V1'"
 
-# second release: bump, add a doc, drop a doc. The change is committed first: a release is built
-# from a committed tree.
-( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md \
-  && git add -A && git commit -qm "release 0.5.1" )
+# second release: bump, add a doc, drop a doc
+( cd "$T/src" && release/set-version.sh 0.5.1 >/dev/null && echo "# new" > template/docs/NEW.md && rm template/docs/TEMPLATE.md && git add -A && git commit -qm "second release" )
 "$T/src/release/package.sh" "$T/d2" >/dev/null
 ( cd "$C" && git add -A && git -c user.name=t -c user.email=t@x commit -qm v1 --allow-empty && bash engine/bin/update.sh --from-dir "$T/d2" --version 0.5.1 ) >"$T/o3" 2>&1 && ok "update to the next release" || bad "update: $(tail -3 "$T/o3")"
 check "new file added" test -f "$C/docs/NEW.md"
 check "file dropped by the release removed" test ! -e "$C/docs/TEMPLATE.md"
 check "lock moved to the new version" grep -q '^version=0.5.1$' "$C/.build-engine.lock"
 check "seed config still the consumer's" grep -q 'acme/widget-dev' "$C/engine/engine.json"
-must_fail "--dry-run reports and exits" "dry run" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d1' --version '$V1' --dry-run && exit 1"
+must_fail "--dry-run reports and exits" "dry run" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d1' --version '$V1' --dry-run --allow-downgrade && exit 1"
 check "...and changes nothing" bash -c "test -f '$C/docs/NEW.md' && test ! -e '$C/docs/TEMPLATE.md' && grep -q '^version=0.5.1\$' '$C/.build-engine.lock'"
-
-# a name that merely contains two dots is a safe name (F0-016): the update installs it
-( cd "$T/src" && echo notes > template/docs/notes..v2.md && git add -A && git commit -qm "a name with two dots" )
-"$T/src/release/package.sh" "$T/d5" >/dev/null
-V5="$(tr -d ' \n' < "$T/src/VERSION")"
-D="$T/dots"; mkdir "$D"; git -C "$D" init -q
-( cd "$D" && bash "$T/update.sh" --from-dir "$T/d5" --version "$V5" --repo OWNER/build-engine ) >"$T/o5" 2>&1 \
-  && ok "a release with a name containing two dots installs" || bad "install: $(tail -3 "$T/o5")"
-check "the file whose name contains two dots is installed" test -f "$D/docs/notes..v2.md"
-
-# integrity: an artifact with a traversal member is refused before anything is unpacked
-mkdir "$T/d4"; cp "$T/d1"/* "$T/d4"/
-python3 "$T/src/release/test-fixtures.py" add-member "$T/d4/build-engine-v$V1.tar.gz" file "../evil.txt"
-D2="$T/evil"; mkdir "$D2"; git -C "$D2" init -q
-must_fail "an artifact with a traversal member is refused" "unsafe path" bash -c "cd '$D2' && bash '$T/update.sh' --from-dir '$T/d4' --version '$V1'"
-check "...and nothing was written outside the repository" test ! -e "$D2/evil.txt"
 
 # integrity: a tampered artifact is refused before anything is unpacked
 mkdir "$T/d3"; cp "$T/d2"/* "$T/d3"/; printf 'x' >> "$T/d3/build-engine-v0.5.1.tar.gz"
@@ -83,5 +64,9 @@ before="$(cd "$C" && find . -path ./.git -prune -o -type f -print0 | sort -z | x
 must_fail "a tampered artifact is refused" "checksum mismatch" bash -c "cd '$C' && bash engine/bin/update.sh --from-dir '$T/d3' --version 0.5.1"
 after="$(cd "$C" && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
 [[ "$before" == "$after" ]] && ok "...and the repository is untouched" || bad "repository changed after a refused update"
+
+# Stage 2.4: adversarial inputs, symlinks, downgrade, corrupt state, and interruption recovery
+echo; echo "hardening suite (tests/test_update_hardening.sh)"
+bash "$SRC/tests/test_update_hardening.sh" || FAILN=$((FAILN+1))
 
 echo "$PASS passed, $FAILN failed"; [[ $FAILN -eq 0 ]]

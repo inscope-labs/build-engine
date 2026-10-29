@@ -57,6 +57,5 @@ is organised differently, and these files follow the code rather than invent a s
 - write: the operator-side write path is `operator/cbridge` (`upload`, `publish`, `reconcile`). It was not split into a
   separate module.
 - `bin/install.sh` + `bin/update.sh` became one script, `engine/bin/update.sh` (install is an update with no lock yet).
-- The engine metadata is `engine/release.json`, beside `engine/VERSION`, so `plan_tool.py` keeps finding `engine/` at the
-  repository root. It was `engine/ENGINE.json` until Stage 3.1: on a case-insensitive filesystem that name collided with
-  the consumer's seed file `engine/engine.json` (F0-013).
+- The release metadata is `engine/release.json` (managed), beside `engine/VERSION`, and the consumer's editable configuration is `engine/engine.json` (seed); so `plan_tool.py` keeps finding `engine/` at the
+  repository root.
