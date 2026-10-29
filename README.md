@@ -191,8 +191,9 @@ Never edit or delete a published release asset; publish a new version instead. F
 Release isolation is enforced by three independent layers:
 
 1. **Structure** — `gateway/` sits outside `template/`; nothing under `template/` imports from it.
-2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`.
-3. **Inspection** — `release/verify.sh` unpacks the artifact and fails on gateway-like paths, credential-shaped strings, non-allowlisted content, manifest/version mismatches, or payloads that fail their own tests.
+2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`, and only the files git
+   tracks: an untracked or locally modified file under `template/` fails the build instead of being shipped.
+3. **Inspection** — `release/verify.sh` unpacks the artifact and fails on gateway-like paths, credential-shaped strings, non-allowlisted content, manifest/version mismatches, or a payload that does not parse. It does **not** run the artifact's code: the payload's own test suite is a separate, explicit step (`--test-payload`) that the build side opts into and that whoever downloads an artifact never does.
 
 ---
 

@@ -7,6 +7,8 @@
 - Baseline date: 2026-10-26
 - Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
+- Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
+- Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
 
 ## Status and evidence rules
 
@@ -121,6 +123,12 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: perform all static/integrity checks first and treat payload tests as a separate, explicitly sandboxed or opt-in step; never run payload code as part of default verification of a downloaded artifact.
 - Owner: implementation. Planned phase: Phase 3 - Stage 3.2.7 (verify independently), 3.4.1 (negative test).
 - Closure evidence: a negative test with a planted payload test proving verification does not execute it.
+- **Closed in Stage 3.2** (`PHASE-3.2-REPORT.md`): the payload's own test suite is no longer part of the default
+  verification. `release/verify.sh` performs only static checks; running the payload's tests is an explicit,
+  separate step (`--test-payload`) that the build side opts into and that a consumer never does. The static checks
+  that remain - the shell syntax check and `compileall` - parse the payload, they do not execute it. Self-test: "the
+  payload tests are run when they are asked for", "verification does not execute the payload" (a planted payload test
+  that writes a marker file outside the extraction directory; the marker must not appear).
 
 ### F0-011 — Packaging includes untracked files from `template/` and verification passes them
 - Severity: S2. Status: CONFIRMED (executed).
@@ -129,6 +137,11 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: package from tracked files only (`git ls-files`) or refuse a dirty template tree; add a negative test.
 - Owner: implementation. Planned phase: Phase 3 - 3.1.2, 3.1.5, 3.4.1.
 - Closure evidence: dirty-tree test fails closed; positive test packages the clean tree.
+- **Closed in Stage 3.1** (`PHASE-3.1-REPORT.md`): the artifact is built from `git ls-files` under `template/`, and a
+  modified, deleted, staged or untracked file under `template/` (or a modified manifest) fails the build with the
+  offending paths named. Executed at the baseline: an untracked `template/docs/.scratch-local.txt` was packaged and
+  `verify.sh` reported OK; after the change the same file stops the build. Self-test: "an untracked file in template/
+  stops packaging", "a locally modified file stops packaging".
 
 ### F0-012 — Tarball bytes depend on the builder's umask
 - Severity: S2. Status: CONFIRMED (executed).
@@ -137,6 +150,11 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: normalise modes in the archive (explicit 0644/0755 from the manifest or git mode) rather than inheriting them.
 - Owner: implementation. Planned phase: Phase 3 - 3.1.4.
 - Closure evidence: identical hashes across at least two umasks, tested in `test-release.sh`.
+- **Closed in Stage 3.1** (`PHASE-3.1-REPORT.md`): the staged files are given explicit modes from the git index
+  (0644, or 0755 when the index says 100755) and the generated release manifest is given 0644 as well - a shell
+  redirect was the last umask-dependent byte in the archive. Executed at the baseline: the same commit built under
+  umask 022 and under umask 002 produced two different SHA-256 values; after the change they are identical.
+  Self-test: "a group-writable checkout builds the same bytes", "a different umask builds the same bytes".
 
 ### F0-013 — Managed `engine/ENGINE.json` and seed `engine/engine.json` differ only by case
 - Severity: S2. Status: CONFIRMED (source: `release/manifest.txt` lines 9 and 15, both files present in `template/engine/`).
@@ -148,6 +166,16 @@ Added after the operator asked for a register that omits no known defect. Method
 - Closure evidence: no two manifest paths equal under case folding; update test covers migration.
 - **Closed (2026-10-28):** the operator decided managed `engine/release.json` (renamed from `ENGINE.json`) and seed `engine/engine.json`. No two manifest paths differ only by case any more; a guard test in `release/test-release.sh` keeps it that way. Nothing had been released, so no consumer migration was needed.
 - Defence in depth (Phase 2.4): `update.sh` also refuses any future release whose paths differ only by case when the filesystem ignores case, so nothing could be silently overwritten (tested with a simulation hook).
+- **Closed in Stage 3.1** (`PHASE-3.1-REPORT.md`): the managed metadata file is `template/engine/release.json` - the
+  name proposed in the Phase 1.1 product contract, confirmed by the operator on 2026-10-28; the packaging side of the
+  check is in place (a case-folded duplicate is refused) and the verification side is Stage 3.2.3. `release/manifest.txt`,
+  `set-version.sh`, `verify.sh`, `test-release.sh`, `README.md`, `COMPATIBILITY.md`, `docs/ARCHITECTURE.md`,
+  `docs/STATUS.md` and `docs/release/REQUIREMENT-TRACEABILITY.md` were updated. The seed file `engine/engine.json` is
+  unchanged, so no consumer migration is needed. Executed at the baseline: both names were in one artifact.
+- **The verification half was closed in Stage 3.2**: `release/verify.sh` now refuses an allowlist that declares a
+  path twice or two paths equal under case folding, and refuses a release manifest that lists a path twice or two
+  paths equal under case folding. Self-test: "an allowlist that declares a path twice is refused", "an allowlist
+  with a case-folded duplicate is refused".
 
 ### F0-014 — Shipped shell tooling requires bash 4+ and GNU tools, but the draft contract named macOS as a primary target
 - Severity: S2. Status: CONFIRMED by source; not executed on macOS.
@@ -174,7 +202,12 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: reject only a `..` path component (split on `/`), keep rejecting real traversal; add positive and negative tests.
 - Owner: implementation. Planned phase: Phase 3 - 3.2.2, 3.4.2; and 2.4 for `update.sh`.
 - Closure evidence: safe `a..b` name accepted; `../x` and `a/../b` rejected, in all three scripts.
-- **`update.sh` part closed in Phase 2.4:** paths are validated by character set and by component (`.`/`..`/empty rejected), so `a..b` is accepted and `../x`, `a/./b`, absolute and backslash paths are rejected. `package.sh` and `verify.sh` still use the substring glob (Phase 3.2.2).
+- **Closed in Stage 3.2** (`PHASE-3.2-REPORT.md`): all three scripts now validate a path component by component
+  instead of by substring - `release/package.sh`, `release/verify.sh` and the shipped `engine/bin/update.sh`. A name
+  that merely contains two dots is accepted by all three, a `..` component is refused by all three. The three
+  implementations are kept identical on purpose, and the self-test covers the packer, the verifier and the consumer
+  side.
+- (The `update.sh` part was closed first, in Phase 2.4; Stage 3.2 closed the packer and verifier parts.)
 
 ### F0-017 — Checksum sidecar proves integrity, not authenticity or provenance
 - Severity: S3. Status: CONFIRMED by design (source).
@@ -191,6 +224,12 @@ Added after the operator asked for a register that omits no known defect. Method
 - Required resolution: decide the intended modes, set them explicitly (ties to F0-012), and make docs match.
 - Owner: implementation. Planned phase: Phase 2.3 / 2.1.3 (docs), 3.1.4 (modes).
 - Closure evidence: tarball modes match the manifest-declared modes; docs agree.
+- **Partly closed in Stage 3.1** (`PHASE-3.1-REPORT.md`): `operator/cbridge` was already executable (Stage 2.3);
+  `operator/install.sh` is now tracked as 100755 and ships 0755, and the shipped modes are normalised for every file
+  (0644, or 0755 when the git index says 100755) - the policy is written down in `release/manifest.txt` and
+  `docs/RELEASING.md`. Self-test: "the artifact ships exactly the three executables", "every packaged file ships 0644
+  or 0755". The documentation side (the operator README telling the reader to `chmod +x` after download) is still open
+  and belongs to Stage 2.1.3.
 
 ### F0-019 — Stale post-Stage-1.2 status text (compatibility field)
 - Severity: S2 for documentation accuracy (Stage 2.1.3/2.1.4). Status: CONFIRMED (source).
@@ -319,6 +358,170 @@ IDs F0-040 onward are used here to avoid collisions with entries added by parall
 - Required action: run it from `tests/test_update.sh` (as done for the updater hardening suite) or add a CI step; make its `jq` dependency explicit in the CI job.
 - Owner: implementation. Planned phase: Stage 3.3.1 / 3.4.3.
 
+## A5. Findings from Stage 3.1 (allowlist packaging), 2026-10-27
+
+Found while validating the packaging path for Stage 3.1, audited commit `99a5a73` (main after Stage 2.3). All four are
+CONFIRMED by an executed baseline run (the commands and their output are in `docs/release/PHASE-3.1-REPORT.md`), and all
+four are closed by that stage. They were not in A2 because A2 audited the baseline before this stage looked at
+`release/package.sh` in detail.
+
+### F0-036 — The duplicate/conflicting manifest declaration check never ran
+- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.1.**
+- Evidence: `release/package.sh` expanded the manifest into a `<mode> <path>` list and then ran
+  `LC_ALL=C sort -u -k2` on it. `-u` removes every line whose *key* (the path) is already present, so a path declared
+  twice was collapsed to one line **before** the check `sort "$WORK/files" | uniq -d | wc -l` ran - and that check
+  could then never find a duplicate. A path declared as both `managed` and `seed` was silently resolved to one mode
+  (`managed` sorts first), and the conflict was invisible.
+- Executed at the baseline: appending `seed engine/VERSION` to the manifest produced a successful build whose release
+  manifest listed `engine/VERSION` once, as `managed`.
+- Consequence: the allowlist could not express the two things it is for - a single ownership mode per path, and a
+  refusal when the same file is claimed twice. A seed file could be claimed as managed and the artifact would ship it
+  as managed, overwriting consumer configuration on update.
+- Required resolution: validate the manifest declarations before the expansion, and refuse a path that is declared
+  twice, declared with two different modes, or equal to another path under case folding.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.2.
+- Closure evidence: a duplicate, a managed/seed conflict and a case-folded duplicate are each refused with a message
+  that names the path. Self-test: "a path declared twice is refused", "a path declared managed and seed is refused",
+  "a case-folded duplicate is refused".
+
+### F0-037 — A failed build left a partial artifact that looked like a finished one
+- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.1.**
+- Evidence: `release/package.sh` wrote the tarball straight into `$OUT/$NAME` with a shell redirect, and wrote the
+  sidecar afterwards. A failure during the archive write left the truncated file in place under the exact name of the
+  expected artifact, with no sidecar to mark it as incomplete.
+- Executed at the baseline: with the file size capped (`ulimit -f 64`), the build failed and left a 65536-byte
+  `dist/build-engine-v0.5.0.tar.gz` behind.
+- Consequence: an operator or a workflow that picks up "the artifact" by name could publish or install a truncated
+  archive. The missing sidecar makes `verify.sh` fail, but only if it is run.
+- Required resolution: remove any previous artifact before the build starts, write the new one to a temporary file,
+  and move it into place only when it is complete.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.5.
+- Closure evidence: after a failed build the output directory holds no file named like the artifact. Self-test: "a
+  failed build leaves no artifact behind".
+
+### F0-038 — The output directory could sit inside the packaged tree
+- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.1.**
+- Evidence: `release/package.sh` accepted any output directory, including one under `template/`. Because the allowlist
+  expansion used `find` over a manifest-listed directory, an artifact written there was picked up by the next build.
+- Executed at the baseline: building into `template/docs/dist` twice produced an artifact that contained the previous
+  artifact (`docs/dist/build-engine-v0.5.0.tar.gz`) and its sidecar.
+- Consequence: the artifact could contain a previous artifact - a growing, self-referential archive, and a file that
+  should never reach a consumer.
+- Required resolution: refuse an output directory inside the packaged tree.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.5.
+- Closure evidence: the build is refused with the two paths named. Self-test: "an output directory inside the packaged
+  tree is refused".
+
+### F0-039 — A tracked generated file was silently dropped from the artifact
+- Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.1.**
+- Evidence: the expansion filtered `__pycache__` and `*.pyc` out of the file list, so a file that was **tracked** in
+  `template/` simply disappeared from the artifact. The build reported success and said nothing about it.
+- Executed at the baseline: a tracked `template/docs/junk.pyc` produced a successful build with no `.pyc` in the
+  artifact and no warning.
+- Consequence: the artifact and the repository disagreed, and the difference was invisible. A tracked `.pyc` is also a
+  sign that a build artefact was committed by mistake.
+- Required resolution: refuse a tracked file that must not be in a consumer artifact (a `.pyc`, a `node_modules/` tree,
+  a `.env`, an archive, an editor backup) instead of quietly excluding it. A file that is merely untracked and ignored
+  by `.gitignore` stays excluded without failing the build: `.gitignore` is the maintainer's own statement that the file
+  is not part of the tree.
+- Owner: implementation. Planned phase: Phase 3 - 3.1.2.
+- Closure evidence: a tracked generated file stops the build with the path named. Self-test: "a tracked generated file
+  stops packaging", "a tracked node_modules tree stops packaging".
+
+## A6. Findings from Stage 3.2 (independent verification), 2026-10-27
+
+Found while hardening the verifier for Stage 3.2, audited commit `3149df0` (Stage 3.1). All five are CONFIRMED by an
+executed baseline run or by reading the verifier's own control flow, and all five are closed by that stage.
+
+### F0-065 — The checksum sidecar did not have to describe the artifact it accompanied
+- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: `release/verify.sh` ran `sha256sum -c "$base.sha256"`, which verifies whatever files the sidecar names.
+  Nothing checked that the sidecar named *this* artifact, so a sidecar that described a different file - one that
+  existed and matched - left the artifact itself unverified.
+- Executed at the baseline: a sidecar naming a copy of the artifact under another name, with that copy present in the
+  directory, produced `verify: OK (build-engine-v0.5.0.tar.gz: 41 files, version 0.5.0)`. The artifact had not been
+  checked at all.
+- Consequence: the checksum check could pass without the artifact ever being checked, which is exactly the
+  guarantee the step exists to provide. (It is not an authenticity problem - F0-017 already records that the
+  sidecar proves integrity, not provenance - but the step did not do what it said.)
+- Required resolution: the sidecar must hold exactly one line, and that line must name the artifact being verified.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.1.
+- Closure evidence: Self-test: "a sidecar that describes another file is refused", "a missing checksum sidecar is
+  refused", "a tampered artifact fails its checksum".
+
+### F0-066 — A duplicate archive member was only caught as a side effect, and the release manifest could be duplicated unnoticed
+- Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: the verifier compared the archive's member list with the release manifest's paths, so a member that
+  appeared twice made the two lists differ and the artifact was refused - but with the message "artifact files and
+  release manifest disagree", which describes a different problem. One member was excluded from that comparison:
+  `engine/RELEASE-MANIFEST`, the file that describes the archive. A member duplicated under that name passed every
+  check.
+- Executed at the baseline: an archive with `engine/RELEASE-MANIFEST` listed twice and identical content produced
+  `verify: OK (build-engine-v0.5.0.tar.gz: 42 files, version 0.5.0)` - a 41-file artifact, reported as 42 files,
+  whose own description of itself was present twice.
+- Consequence: the archive's contents were ambiguous, and the verifier's own report did not describe the archive it
+  had checked. R0-002 listed the identical-content duplicate as untested; it is now tested and refused, for the
+  right reason.
+- Required resolution: refuse an archive that lists the same member name twice, and refuse two members that are
+  equal under case folding.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.1.
+- Closure evidence: Self-test: "a duplicate archive member is refused".
+
+### F0-067 — The forbidden content rules could be bypassed
+- Severity: S2. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: two separate bypasses of `release/forbidden.txt`.
+  (a) The gateway patterns were anchored to the start of a line (`^class Gateway[(:]`, `^def make_server\(`), so a
+  copy of the gateway with the code indented - inside a class, a function, or simply re-indented - was not caught by
+  any rule, and the gateway's own directory and file names no longer matched either.
+  (b) The content rules were matched with `grep -rI`, which skips any file that contains a NUL byte. A credential
+  placed in such a file was not detected at all.
+- Executed at the baseline: an indented `class Gateway:` was not caught by any rule (`verify: OK`), and a file
+  containing a NUL byte and a `ghp_` token was not caught either (`verify: OK`).
+- Consequence: the second line of defence could be walked around by two small changes to a copied file.
+- Required resolution: match the gateway patterns anywhere in a line, and match the content rules against binary
+  files as well.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.4.
+- Closure evidence: Self-test: "an indented copy of the gateway code is caught", "a copy of the gateway entry point
+  is caught", "a credential in a binary file is caught".
+
+### F0-068 — The release manifest inside the artifact was never validated for its own shape
+- Severity: S3. Status: CONFIRMED (executed). **Closed in Stage 3.2.**
+- Evidence: `release/verify.sh` compared the manifest's path set with the artifact's file set, so most contradictions
+  between the two were caught - but as a set mismatch, and the message named a different problem. Executed at the
+  baseline, one malformed manifest at a time:
+  - a duplicated entry -> "artifact files and release manifest disagree" (caught, wrong diagnosis);
+  - an entry with an extra field -> "manifest lists a file that is not in the artifact: docs/CONTEXT-EXPORT.md
+    surprise" (caught, wrong diagnosis);
+  - a malformed hash -> "hash mismatch: docs/CONTEXT-EXPORT.md" (caught, but the hash was never checked for being a
+    hash);
+  - two entries equal under case folding -> "artifact files and release manifest disagree" (caught, wrong diagnosis);
+  - **a manifest with no header at all -> `verify: OK`** (accepted).
+  Nothing validated the manifest's shape: the header was not required, the field count was not checked, and a hash
+  was only ever compared, never parsed.
+- Consequence: the manifest is the artifact's own description of itself, and the consumer's `update.sh` reads it. A
+  contradiction was usually caught, but the tool never said what was wrong with it, and one contradiction - a manifest
+  with no header - was not caught at all.
+- Required resolution: validate the header, the field count, the hash format, the mode, the path shape, and the
+  uniqueness of the entries (exactly and under case folding), each with its own message.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.3.
+- Closure evidence: Self-test: "a release manifest with a duplicate entry is refused", "a release manifest with a
+  malformed hash is refused", "a release manifest with a bad mode is refused", "a release manifest with an unexpected
+  field is refused", "a release manifest listing a missing file is refused", "a release manifest without a header is
+  refused".
+
+### F0-069 — The allowlist was not validated by the verifier
+- Severity: S3. Status: CONFIRMED (source). **Closed in Stage 3.2.**
+- Evidence: `release/verify.sh` read `release/manifest.txt` and used it to decide what is allowed, but never checked
+  the file itself. An allowlist that declared a path twice, or two paths equal under case folding, or an unsafe
+  path, was used as a policy without complaint. Stage 3.1 made the packer refuse such a manifest; the verifier, which
+  reads the same file independently, did not.
+- Consequence: the verifier and the packer could disagree about what a manifest means, and the verifier - the tool a
+  consumer runs - would accept a policy the packer would reject.
+- Required resolution: the verifier validates its own policy input.
+- Owner: implementation. Planned phase: Phase 3 - 3.2.3.
+- Closure evidence: Self-test: "an allowlist that declares a path twice is refused", "an allowlist with a case-folded
+  duplicate is refused", "an allowlist with an unsafe path is refused".
+
 ## B. Risks and verification gaps (not proven defects)
 
 ### R0-001 — Path validation may reject safe names containing `..`
@@ -435,10 +638,13 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-005 | Phase 4.1 | Vectors and harness |
 | F0-006 | Phase 6 | Real pilot |
 | F0-008 | This PR + 3.3.1/3.4.3 | Fix now, guard later |
-| F0-010 to F0-012, F0-016, F0-017, F0-023 | Phase 3 | Packaging, verify, workflow |
-| F0-013, F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Closed except F0-013 (rename pending operator's name) and `package.sh` GNU tar (Phase 3) |
-| F0-040 to F0-045, R0-016 | Phase 2.4 | Closed; R0-016 accepted |
-| F0-018 | Phase 2.3 / 3.1.4 | Modes |
+| F0-010, F0-017, F0-023 | Phase 3 | F0-010 **closed in Stage 3.2**; F0-017 and F0-023 stay (3.3.3-3.3.8) |
+| F0-016 | Phase 3 - **closed in Stage 3.2** | The path check is component-wise in the packer, the verifier and the shipped updater |
+| F0-011, F0-012, F0-013, F0-018 | Phase 3 - **closed in Stage 3.1** | Packaging: tracked sources, normalised modes, case-fold rule, shipped modes. F0-013's verification half stays in 3.2.3; F0-018's documentation half in 2.1.3 |
+| F0-014, F0-015, R0-009, R0-010 | Phase 2.4 | Install/update (F0-014 needs an operator decision) |
+| F0-036 to F0-039 | Phase 3 - **Stage 3.1** | Found and closed in Stage 3.1: dead duplicate check, partial artifact, output inside the packaged tree, silently dropped generated file |
+| F0-065 to F0-069 | Phase 3 - **Stage 3.2** | Found and closed in Stage 3.2: misdirected sidecar, duplicate members, forbidden-rule bypasses, unvalidated release manifest, unvalidated allowlist |
+| F0-040 to F0-045, R0-016 | Phase 2.4 | Closed; R0-016 accepted. (Updater findings. The Stage 3.2 verifier findings are F0-065 to F0-069.) |
 | F0-019 | Phase 2.1.3-2.1.4 | Documentation |
 | F0-020 | Phase 1.1 (this PR) | Needs operator approval |
 | F0-021, F0-022 | Phase 4 / 3.3.2 | Lint and dev dependencies |

@@ -106,6 +106,135 @@ n_exec="$(tar -tvzf "$(ART)" | grep -c '^-rwxr-xr-x')"
 [[ "$n_exec" -eq 3 ]] && ok "the artifact ships exactly the three executables" || bad "the artifact ships $n_exec executables, expected 3"
 tar -tvzf "$(ART)" | grep -v '^-rw-r--r--' | grep -v '^-rwxr-xr-x' | grep -q . && bad "the artifact ships a file with an unexpected mode" || ok "every packaged file ships 0644 or 0755"
 
+# ---------------------------------------------------------------- Stage 3.2: the verifier
+# The verifier must fail closed on a hostile artifact, and must not run the artifact's code while doing it.
+fresh; build
+PRISTINE="$T/pristine.tar.gz"; cp "$(ART)" "$PRISTINE"; cp "$(ART).sha256" "$T/pristine.sha256"
+restore() { cp "$PRISTINE" "$(ART)"; cp "$T/pristine.sha256" "$(ART).sha256"; }
+hostile() { restore; python3 "$R/release/test-fixtures.py" add-member "$(ART)" "$@"; }
+patch_artifact() { restore; python3 "$R/release/test-fixtures.py" patch-file "$(ART)" "$1"; }
+# the release manifest as it sits inside the artifact
+rm_body() { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | grep -v '^#'; }
+
+hostile symlink "engine/tools/evil" "/etc/passwd"
+must_fail "an archive with a symlink entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile hardlink "engine/tools/evil" "engine/VERSION"
+must_fail "an archive with a hardlink entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile fifo "engine/tools/evil"
+must_fail "an archive with a fifo entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile chr "engine/tools/evil"
+must_fail "an archive with a device entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile dir "engine/tools/evil"
+must_fail "an archive with a directory entry is refused" "non-regular tar entry" "$R/release/verify.sh" "$(ART)"
+hostile file "/etc/passwd"
+must_fail "an absolute path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "../evil.txt"
+must_fail "a traversal path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/../../evil.txt"
+must_fail "a nested traversal path in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/./evil.txt"
+must_fail "a dot component in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine//evil.txt"
+must_fail "an empty component in the archive is refused" "unsafe path in tar" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/evil\\name.txt"
+must_fail "a backslash in a member name is refused" "backslash" "$R/release/verify.sh" "$(ART)"
+hostile dup "engine/tools/dup.txt"
+must_fail "a duplicate archive member is refused" "duplicate archive member" "$R/release/verify.sh" "$(ART)"
+restore; python3 "$R/release/test-fixtures.py" truncate "$(ART)"
+must_fail "a truncated archive is refused" "not a readable gzip tar" "$R/release/verify.sh" "$(ART)"
+restore; rm -f "$(ART).sha256"
+must_fail "a missing checksum sidecar is refused" "missing" "$R/release/verify.sh" "$(ART)"
+restore; printf '%s  other-file.tar.gz\n' "$(sha256sum "$(ART)" | cut -d' ' -f1)" > "$(ART).sha256"
+must_fail "a sidecar that describes another file is refused" "describes" "$R/release/verify.sh" "$(ART)"
+restore; printf 'x' >> "$(ART)"
+must_fail "a tampered artifact fails its checksum" "checksum mismatch" "$R/release/verify.sh" "$(ART)"
+
+# the release manifest inside the artifact must describe exactly the files that are in it
+restore; { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | grep -v '^#' | tail -1; } \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a duplicate entry is refused" "twice" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^[0-9a-f]\{64\}/not-a-hash/' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a malformed hash is refused" "malformed hash" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^\([0-9a-f]\{64\}\) managed /\1 sideways /' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with a bad mode is refused" "bad mode" "$R/release/verify.sh" "$(ART)"
+restore; tar -xzOf "$(ART)" engine/RELEASE-MANIFEST | sed 's/^\([0-9a-f]\{64\} managed .*\)$/\1 unexpected/' \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest with an unexpected field is refused" "unexpected field" "$R/release/verify.sh" "$(ART)"
+restore; { tar -xzOf "$(ART)" engine/RELEASE-MANIFEST; echo "0000000000000000000000000000000000000000000000000000000000000000 managed engine/ghost.txt"; } \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest listing a missing file is refused" "not in the artifact" "$R/release/verify.sh" "$(ART)"
+restore; grep -v '^# build-engine release manifest' <(tar -xzOf "$(ART)" engine/RELEASE-MANIFEST) \
+  | python3 "$R/release/test-fixtures.py" patch-file "$(ART)" engine/RELEASE-MANIFEST
+must_fail "a release manifest without a header is refused" "no header" "$R/release/verify.sh" "$(ART)"
+
+# the policy file (the allowlist) is an input too: it may not contradict itself
+fresh; build; printf 'managed engine/VERSION\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist that declares a path twice is refused" "declares engine/VERSION twice" "$R/release/verify.sh" "$(ART)"
+fresh; build; printf 'managed engine/Version\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist with a case-folded duplicate is refused" "equal under case folding" "$R/release/verify.sh" "$(ART)"
+fresh; build; printf 'managed engine/../engine/tools\n' >> "$R/release/manifest.txt"
+must_fail "an allowlist with an unsafe path is refused" "unsafe path" "$R/release/verify.sh" "$(ART)"
+
+# the verifier must not run the artifact's code
+fresh; cat > "$R/template/engine/tools/test_marker.py" <<'PY'
+import os, unittest
+class T(unittest.TestCase):
+    def test_marker(self):
+        p = os.environ.get("BE_MARKER")
+        if p: open(p, "w").write("executed")
+PY
+plant; build
+rm -f "$T/marker"
+BE_MARKER="$T/marker" "$R/release/verify.sh" "$(ART)" >/dev/null 2>&1
+[[ -f "$T/marker" ]] && bad "verification executed the payload" || ok "verification does not execute the payload"
+rm -f "$T/marker"
+BE_MARKER="$T/marker" "$R/release/verify.sh" "$(ART)" --test-payload >/dev/null 2>&1
+[[ -f "$T/marker" ]] && ok "the payload tests run when they are asked for" || bad "the payload tests did not run with --test-payload"
+
+# a name that merely contains two dots is a safe name, in the packer and in the verifier (F0-016)
+fresh; echo "notes" > "$R/template/docs/notes..v2.md"; plant; build
+must_pass "a file whose name contains two dots is packaged" test -f "$R/dist/build-engine-v$(tr -d ' \n' < "$R/VERSION").tar.gz"
+must_pass "a file whose name contains two dots verifies" "$R/release/verify.sh" "$(ART)"
+
+# ---------------------------------------------------------------- Stage 3.2: what forbidden.txt has to catch
+# The rules are the second line of defence: a file that the allowlist permits can still be refused.
+fresh; printf 'class Gateway:\n    pass\n' > "$R/template/engine/tools/transport.py"; plant; build
+must_fail "an indented copy of the gateway code is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf 'def make_server(gateway):\n    pass\n' > "$R/template/engine/tools/serve.py"; plant; build
+must_fail "a copy of the gateway entry point is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+fresh; printf '{"vectors_version": 1, "vectors": []}\n' > "$R/template/docs/vectors.json"; plant; build
+must_fail "a renamed copy of the conformance vectors is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+# a credential hidden in a binary file: the content rules are matched against binary files too
+fresh; { printf 'token: ghp_%s' "$(printf 'A%.0s' $(seq 36))"; printf '\000\001\002\003'; } > "$R/template/docs/blob.bin"; plant; build
+must_fail "a credential in a binary file is caught" "forbidden content rule" "$R/release/verify.sh" "$(ART)"
+# the path rules are checked on a crafted artifact: the packager would refuse some of these files first,
+# but the verifier must catch them however they got in
+fresh; build
+hostile file "docs/.build-engine.lock"
+must_fail "a local state file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/.env"
+must_fail "an .env file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "docs/server.pem"
+must_fail "a key file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/.dev.vars"
+must_fail "a Worker secrets file is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "engine/tools/wrangler.toml"
+must_fail "a Worker config is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "docs/node_modules/x/package.json"
+must_fail "a node_modules tree is caught" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "variants/object-storage/README.md"
+must_fail "a variants tree is caught" "not allowlisted" "$R/release/verify.sh" "$(ART)"
+hostile file "conformance/signing-vectors.json"
+must_fail "a conformance tree is caught" "not allowlisted" "$R/release/verify.sh" "$(ART)"
+# the forbidden rules are a second, independent layer: even with the allowlist widened they still refuse
+fresh; build; printf 'managed variants\nmanaged conformance\n' >> "$R/release/manifest.txt"
+hostile file "variants/object-storage/README.md"
+must_fail "a variants tree is caught even when the allowlist allows it" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+hostile file "conformance/signing-vectors.json"
+must_fail "a conformance tree is caught even when the allowlist allows it" "forbidden path rule" "$R/release/verify.sh" "$(ART)"
+
 # ---------------------------------------------------------------- the release gate
 fresh; python3 - "$R" <<'PY'
 import json, sys
@@ -154,7 +283,7 @@ fresh; echo "this is not python (" > "$R/template/engine/tools/broken.py"; plant
 must_fail "a payload module that does not compile is caught" "does not compile" "$R/release/verify.sh" "$(ART)"
 
 fresh; printf 'import unittest\nclass T(unittest.TestCase):\n    def test_x(self): self.fail("boom")\n' > "$R/template/engine/tools/test_broken.py"; plant; build
-must_fail "a payload that fails its own tests is caught" "payload tests fail" "$R/release/verify.sh" "$(ART)"
+must_fail "a payload that fails its own tests is caught" "payload tests fail" "$R/release/verify.sh" "$(ART)" --test-payload
 
 fresh; python3 - "$R" <<'PY'
 import json, sys
