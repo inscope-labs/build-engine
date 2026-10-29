@@ -4,7 +4,7 @@
 
 This repository is the single source of the build-engine: the plan/implementation system comprising plans, work orders, operator tooling, prompts, and related infrastructure. Private `<project>-dev` repositories (for example, `inscope-labs/PROJECT-dev`) consume verified **release artifacts**. Consumers never clone or copy from this repository by hand; they install or update via `engine/bin/update.sh`.
 
-Current version: **0.5.0** (unreleased).
+Current version: **0.5.0** (unreleased) — **Basic, Class A-only** (operator redesignation 2026-10-29).
 
 ---
 
@@ -18,7 +18,7 @@ The engine enables an operator to:
 4. Receive deliverables, publish them upstream, and reconcile state.
 5. Audit fetches and revoke access when work completes.
 
-Class A agents (authenticated git or curl) may bypass the gateway and read private raw URLs directly. Class B agents are limited to plain HTTPS GET and therefore rely on the signed-link gateway.
+Class A agents (authenticated git or curl) may bypass the gateway and read private raw URLs directly; this is the supported path in 0.5.0 Basic. Class B agents are limited to plain HTTPS GET and therefore rely on the signed-link gateway; **Class B is not supported in 0.5.0** and is planned for 0.6.0 Standard.
 
 The design prioritises:
 
@@ -34,7 +34,7 @@ The design prioritises:
 | Path | Role | Included in release? |
 |------|------|----------------------|
 | `template/` | The product. Maps 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | Yes (allowlist only) |
-| `gateway/` | Context gateways: `read/` (reference implementation; production port not started) and `write/` (Cloudflare Worker, scaffold only). Both are required for 0.5.0 and are being built; neither ships in the artifact. | **Never** |
+| `gateway/` | Context gateways: `read/` (reference implementation; production work on branches) and `write/` (implementation on branches). **Not included in 0.5.0 Basic**; planned for 0.6.0 Standard. Neither ships in the artifact. | **Never** |
 | `conformance/` | Language-neutral acceptance suite for the link scheme and any read gateway (signing vectors, behaviours B1–B11). | No |
 | `variants/` | Retired. Holds only a note that the object-storage variant was rejected (Stage 1.3). | No |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | No |
@@ -69,12 +69,12 @@ The design prioritises:
 | Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Implemented |
 | Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Implemented |
 | Serve context | Read gateway (reference) | `gateway/read/reference/` | Reference only; not deployed |
-| Serve context | Read gateway (production) | `gateway/read/production/` | Not started. Hosting decided (Cloudflare); required for 0.5.0 |
+| Serve context | Read gateway (production) | `gateway/read/production/` | **Not included in 0.5.0**; planned for 0.6.0 Standard |
 | Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Behaviours written; vectors empty, harness not started |
 | Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Implemented |
-| Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold only (Worker answers 501); required for 0.5.0 |
+| Submit deliverables (agent) | Write gateway | `gateway/write/` | **Not included in 0.5.0**; planned for 0.6.0 Standard |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Implemented |
-| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Reference only; a remote channel is required for 0.5.0 |
+| Revoke and audit | `ctxgate.py revoke`, `audit` | `gateway/read/reference/` only | Reference only; remote channel **not included in 0.5.0**; planned for 0.6.0 |
 | Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Implemented (hardening in progress) |
 | Pilot | One real task end-to-end | `docs/pilot/` | Not started |
 

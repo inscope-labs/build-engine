@@ -1,136 +1,79 @@
-# Status of build-engine 0.5.0 (unreleased)
+# Status of build-engine 0.5.0 (unreleased) — Basic, Class A-only
 
-Audited commit: `main` at `5a8d06c` (after PR #24), plus PR #25 (`phase-1.2/conformance-fixes`), 2026-10-28. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
+Audited commit: `main` at `28b04aa` (Stage 3.2 verifier hardening merged via PR #26), 2026-10-29. Evidence and the full defect list: `docs/release/DEFECT-REGISTER.md`.
 
 **Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
-**Conclusion.** The consumer artifact (template, packaging, verification, install/update) is implemented, tested and passing in CI, with hardening items open in Phases 2 and 3. The first release additionally requires the Class B read and write gateways, which are not complete, so **0.5.0 cannot be released yet**. Blockers, in order:
+**Conclusion.** 0.5.0 is redesignated **Basic, Class A-only** by operator decision D1 (2026-10-29). The consumer artifact (template, packaging, independent static verification, install/update) and the Class A workflow are the release scope. Deployed Class B read and write gateways are **unsupported in 0.5.0** and planned for **0.6.0 Standard**. Class B implementation work exists on unmerged branches (`phase-4/*`, `phase-5/*`); it is to be landed, not discarded. Only deployment, the pilot, and the submissions-transfer path are deferred.
 
-1. Production read gateway: not started (Phase 4). Conformance vectors are empty and the harness is not built (Phase 4.1).
-2. Write gateway: scaffold only; 46 of 48 source files and all 32 test files are stubs and the Worker answers 501 (Phase 5).
-3. Submissions-to-consumer transfer path and pre-creation of the submissions branch and task folder: not designed and not in the plan (register R0-011).
-4. End-to-end staging pilot: not started (Phase 6).
-5. Repository protection (branch and tag rules, required checks) is not configured (register R0-004; Stage 3.3.7).
-6. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (Stage 2.1.2, 7.1).
+**Basic blockers remaining (in order):**
 
-Resolved: the compatibility field is `protocol` = `build-engine/0.5` in `template/engine/release.json`, enforced by `verify.sh --release` (form, version match, `COMPATIBILITY.md` row) and kept in step by `set-version.sh`; the retired `implements_abstract` key is rejected; CI on `main` was red at `5a8d06c` (`install.sh` mode) and is fixed in PR #25, with CI green on that PR (Stage 1.2 complete); version sources agree (`VERSION`, `template/engine/VERSION`, `release.json` all `0.5.0`); read-gateway decisions 0001 to 0005 and write-gateway decisions are recorded (Stages 1.3 and 1.4). **Stage 1.1 product contract is APPROVED (2026-10-27)** with clarified Class A credential exception, managed/seed metadata names (`engine/engine.json` / `engine/release.json`), Supervisor-Agent transfer design (1.1.5), and environment acceptance matrix. Physical rename of template metadata files and code readers remains a Phase 2 task.
+1. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (F0-002).
+2. Release workflow does not yet enforce all gates it relies on (F0-023): CI dependency, tip-of-main tag check, narrowed permissions, SHA-pinned actions.
+3. Repository protection (branch and tag rules, required checks) is not configured (R0-004).
+4. R0-011 (submissions-to-consumer transfer path) must be resolved for Class A or explicitly deferred with rationale.
+5. Maintainer-facing documentation alignment (this file, README, END-TO-END, product contract) — in progress under the redesignation.
 
-No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact, with the verification gaps listed in the register (F0-010 to F0-012, F0-016, F0-023).
+**Closed for Basic:** F0-010 and F0-016 (Stage 3.2 / PR #26); protocol field migration and set-version sync (Stage 1.2); allowlist packaging hardening (Stage 3.1); install/update transactional behaviour (Stage 2.4).
 
----
+**Not Basic blockers (remain open for 0.6.0 Standard):** R0-005 (GET-mutation semantics), R0-007 (ephemeral staging / ambiguous retry), credential scope, audit leakage, gateway deployment, live conformance, Class B pilot.
 
-## Categorised, file-based overview
+Stage 1.1 product contract is **APPROVED with Basic redesignation (2026-10-29)**. See `docs/release/PHASE-1.1-PRODUCT-CONTRACT.md`.
 
-### 1. Root metadata and version control
-
-| Path | Role |
-|------|------|
-| `VERSION` | Single source of truth: `0.5.0` |
-| `CHANGELOG.md` | History; currently unreleased |
-| `COMPATIBILITY.md` | Protocol compatibility table (`build-engine/0.5` for 0.5.0) |
-| `README.md` | Maintainer-facing overview |
-| `.gitignore` | Standard exclusions |
-| `.github/workflows/ci.yml` | Push/PR: unit tests, shell syntax, release self-test, update-flow test, dry-run package+verify, write-gateway typecheck/bundle |
-| `.github/workflows/release.yml` | Tag-triggered: version/tag checks, tests, package, `--release` verify, publish assets |
-
-### 2. Release machinery (`release/` — never shipped)
-
-| Path | Role |
-|------|------|
-| `manifest.txt` | Allowlist (`managed` / `seed`) relative to `template/` |
-| `forbidden.txt` | Path and content deny rules (gateway, credentials, Worker artefacts, etc.) |
-| `package.sh` | Expand allowlist → stage → deterministic tarball + SHA-256 |
-| `verify.sh` | Independent inspection of finished artefact (checksum, safety, allowlist, forbidden, version agreement, retired-key check, payload tests); `--release` gate (dated changelog, protocol form and version match, `COMPATIBILITY.md` row) |
-| `set-version.sh` | Synchronise `VERSION`, `template/engine/VERSION`, `release.json` (`engine_version`, `protocol`), the `COMPATIBILITY.md` row and the `CHANGELOG.md` heading |
-| `test-release.sh` | Self-test proving clean packaging succeeds and each failure mode is detected |
-
-### 3. Shipped product (`template/` — maps 1:1 onto consumer root)
-
-#### 3.1 Engine core (`template/engine/`)
-
-| Path | Role |
-|------|------|
-| `release.json` | Machine metadata (`engine_version`, `protocol`) — managed (renamed from `ENGINE.json`) |
-| `VERSION` | Stamped version — managed |
-| `engine.json` | Consumer configuration (placeholders) — **seed** (installed once, never overwritten) |
-| `AGENTS.md` | Agent guidance |
-| `bin/update.sh` | Install / update from release artefact (checksum, lock file, conflict handling) |
-| `prompts/AGENT-SUPERVISOR-PROMPT.md` | Supervisor prompt |
-| `prompts/AGENT-WORKER-PROMPT.md` | Worker prompt |
-| `schemas/*.schema.json` | JSON Schema for plan, stages, task, order, submission, decisions, coverage_exempt |
-| `templates/plan/` | Scaffold files (`plan.json`, `stages.json`, `decisions.json`, `coverage_exempt.json`, `AGENTS.md`, `tasks/.gitkeep`) |
-| `tools/plan_tool.py` | Sole writer of plan state (plans, order, links, check, render, set, decide, verify, coverage, \ldots) |
-| `tools/ctxlink.py` | Signed context-link minting (client side only) |
-| `tools/unpack_blocks.py` | Utility |
-| `tools/test_plan_tool.py` | Unit tests for plan tooling |
-| `tools/test_ctxlink.py` | Unit tests / signing vectors for link scheme |
-
-#### 3.2 Operator bridge (`template/operator/`)
-
-| Path | Role |
-|------|------|
-| `cbridge` | Bash operator bridge (init, bootstrap, doctor, sync, upload, publish, reconcile, halt/resume) |
-| `cbridge.config.example` | Configuration template |
-| `install.sh` | Operator-side installer |
-| `README.md` | Operator documentation |
-
-#### 3.3 Documentation shipped to consumers (`template/docs/`)
-
-| Path | Role |
-|------|------|
-| `CONTEXT-EXPORT.md` | Signed-link design, threat model, integration |
-| `OVERVIEW.md`, `SETUP.md`, `OPERATOR-GUIDE.md`, `SECURITY.md`, `TASK-FORMAT.md`, `TEMPLATE.md`, `LOOP.md`, `GATES.md`, `DECISIONS.md` | Operational and process documentation |
-
-#### 3.4 Plans entry point
-
-| Path | Role |
-|------|------|
-| `plans/README.md` | Consumer plan directory contract (managed); actual plan data is consumer-owned |
-
-### 4. Gateway (source-only — never packaged)
-
-#### 4.1 Read gateway
-
-| Path | Role / status |
-|------|---------------|
-| `gateway/README.md`, `gateway/read/README.md` | Orientation |
-| `gateway/read/reference/ctxgate.py` | Reference implementation (serve, revoke, audit) — reference only: tested, not deployed |
-| `gateway/read/reference/test_ctxgate.py` | Reference tests |
-| `gateway/read/production/` (README + `ops/`, `rules/`, `source-adapter/` READMEs only) | Production port — not started; decisions 0001–0005 recorded; required for 0.5.0 |
-
-#### 4.2 Write gateway (Cloudflare Worker scaffold)
-
-Scaffold only. TypeScript tree under `gateway/write/` (src, tests, docs/adr, ci stubs, `wrangler.toml`, scripts, package files): 46 of 48 source files, all 32 test files, the 4 scripts and the 6 `ci/*.yml` files are stubs, and the Worker answers 501. Typecheck and bundle dry run pass in CI but prove nothing about behaviour. Design decisions are recorded (Stage 1.4); required for 0.5.0 (Phase 5).
-
-### 5. Conformance and variants (source-only)
-
-| Path | Role / status |
-|------|---------------|
-| `conformance/README.md`, `behaviours.md` | Acceptance behaviours B1–B11 |
-| `conformance/signing-vectors.json` | Empty vector set (stub); to be completed in Stage 4.1 |
-| `conformance/harness/README.md` | Harness not yet implemented |
-
-### 6. Maintainer documentation (`docs/` — never shipped)
-
-| Path | Role |
-|------|------|
-| `END-TO-END.md` | Stage status matrix |
-| `ARCHITECTURE.md` | Two-repository model and isolation layers |
-| `RELEASING.md` | Release procedure |
-| `decisions/0001`–`0005` + README | Decided read-gateway decisions (hosting, proxy, lifetimes, prefixes, Class A access) |
-| `pilot/README.md` | Pilot acceptance (not started; Phase 6) |
-| `proposals/context-export.md` | Historical proposal |
-
-### 7. Consumer-flow tests (`tests/`)
-
-| Path | Role |
-|------|------|
-| `tests/test_update.sh` | End-to-end install/update on a throwaway repository |
+No allowlisted path under `template/` is missing. The three release-isolation layers (structure, allowlist, content inspection) are intact. Independent verification is static-by-default (`--test-payload` opt-in).
 
 ---
 
-## Gaps that currently prevent a release
+## Scope classification
 
-See the conclusion at the top of this file and `docs/release/DEFECT-REGISTER.md` (section F maps every finding to the plan stage that closes it).
+| Capability | 0.5.0 Basic | 0.6.0 Standard |
+|---|---|---|
+| Shipped template, plan/order tooling, `cbridge` | **Required** | Required |
+| Allow-list packaging, deterministic tarball, checksum | **Required** | Required |
+| Independent verification (static, non-executing) | **Required** | Required |
+| Install / update without data loss, transactional | **Required** | Required |
+| Class A workflow end-to-end | **Required** | Required |
+| Operator-side `cbridge upload` delivery | **Required** if R0-011 resolved | Required |
+| Deployed read gateway | **Unsupported** | Required |
+| Deployed write gateway (agent-side submission) | **Unsupported** | Required |
+| Remote revocation / audit | **Unsupported** | Required |
+| Conformance harness against a live deployment | **Unsupported** | Required |
+| End-to-end Class B pilot | **Unsupported** | Required |
 
-**Structural completeness of the shippable payload:** none missing. Every path in `release/manifest.txt` exists under `template/`; `package.sh` succeeds on a clean tree and ordinary `verify.sh` passes. `verify.sh --release` fails only on the dated changelog entry, by design, until release-candidate time (a scratch run on a copy confirms this).
+---
+
+## Categorised overview (summary)
+
+### Release machinery (`release/` — never shipped)
+
+Allowlist packaging, forbidden-content rules, deterministic tarball, independent static verification (Stage 3.2), `set-version.sh`, self-tests. Implemented and passing.
+
+### Shipped product (`template/`)
+
+Engine core, operator bridge (`cbridge`), consumer docs. Implemented. Shipped docs already state that no production gateway is deployed in this version.
+
+### Gateways and conformance (source-only; not in artifact)
+
+- Read gateway (reference): reference only, not deployed.
+- Read gateway (production) and write gateway: implementation exists on unmerged branches; **not deployed**; **unsupported in 0.5.0**; planned for 0.6.0.
+- Conformance harness: exists on branches; live deployment conformance deferred to 0.6.0.
+
+### Maintainer documentation
+
+Product contract, STATUS, END-TO-END, README aligned to Basic redesignation. Defect register and requirement traceability to be updated to match.
+
+### Consumer-flow tests
+
+`tests/test_update.sh` and release self-tests implemented and passing on `main` after Stage 3.2.
+
+---
+
+## Gaps that currently prevent a Basic release
+
+1. F0-002 — dated changelog entry (RC time only).
+2. F0-023 — release workflow hardening.
+3. R0-004 — repository branch/tag protection (operator/admin action).
+4. R0-011 — Class A delivery route decision.
+5. Final operator authorization of the artifact and release notes (G-12).
+
+Class B deployment and pilot are **not** Basic release blockers.

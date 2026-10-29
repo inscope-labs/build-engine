@@ -1,14 +1,18 @@
-# Build Engine — Phase 1.1 First-Release Product Contract (APPROVED)
+# Build Engine — Phase 1.1 First-Release Product Contract (APPROVED; Basic redesignation 2026-10-29)
 
 - Repository: https://github.com/inscope-labs/build-engine
-- Revises: the Stage 1.1 draft merged in PR #2 (baseline `8ca5769`)
-- Audited against: `main` @ `99a5a7318cff755b1c34ba68b7e57494e0328066`
+- Revises: the Stage 1.1 draft merged in PR #2 (baseline `8ca5769`); this document as approved 2026-10-27
+- Audited against: `main` @ `28b04aa19fe385767d8cd6870d5d8199719debba` (post Stage 3.2 merge)
 - Version under consideration: 0.5.0
-- Date: 2026-10-26
-- Status: **APPROVED**
-- Approval: Approved by developer on 2026-10-27 with the amendments listed in the Stage 1.1 compliance closure. Status updated from “REVISED DRAFT — pending operator approval” to “APPROVED”.
+- Original date: 2026-10-26
+- Status: **APPROVED (Basic redesignation)**
+- Approval history:
+  - Approved by developer on 2026-10-27 with the amendments listed in the Stage 1.1 compliance closure.
+  - **Redesignated 2026-10-29 by operator decision (D1):** 0.5.0 is published as **Basic, Class A-only**. Deployed Class B read and write gateways are **not required** for 0.5.0 and are deferred to **0.6.0 Standard**. Decisions 0001–0005 (read) and 0001–0004 (write) remain the basis for Standard; they are not reopened.
 
-This revision replaces the earlier draft, which classified the Class B read gateway and the write gateway as out of scope. Stage 1.3 and Stage 1.4 record the operator's decision that both are **in scope and mandatory** for the first release. This document aligns the contract with that decision. Where a decision is already recorded elsewhere it is referenced, not restated, so there is one authoritative definition (plan rule G-11): read-gateway decisions in `docs/decisions/0001`–`0005` and `PHASE-1.3-READ-GATEWAY-DECISIONS.md`; write-gateway decisions in `gateway/write/docs/adr/0001`–`0004` and `PHASE-1.4-WRITE-GATEWAY-DECISIONS.md`; compatibility in `PHASE-1.2-COMPATIBILITY.md`.
+This document defines the product contract for the first release. The 2026-10-26/27 decision that both gateways were mandatory for 0.5.0 is **reversed** by the redesignation recorded in §1.1.3 below. Class B implementation work continues on unmerged branches and is targeted at 0.6.0; it is not discarded.
+
+Where a decision is already recorded elsewhere it is referenced, not restated, so there is one authoritative definition (plan rule G-11): read-gateway decisions in `docs/decisions/0001`–`0005` and `PHASE-1.3-READ-GATEWAY-DECISIONS.md`; write-gateway decisions in `gateway/write/docs/adr/0001`–`0004` and `PHASE-1.4-WRITE-GATEWAY-DECISIONS.md`; compatibility in `PHASE-1.2-COMPATIBILITY.md`.
 
 ## 1.1.1 Users, Class A / Class B behaviour, consumer repository, environments, limitations
 
@@ -18,13 +22,13 @@ This revision replaces the earlier draft, which classified the Class B read gate
 |------|-------------|------------------|
 | Operator | Human who owns the plan, mints work orders and context links, reviews deliverables, publishes, reconciles, and controls revocation and audit. | Operator-held repository credentials. Only the operator publishes. |
 | Class A agent | Authenticated agent that can read private raw URLs or clone the private repository with its own credentials. Includes the Supervisor Agent (operator-initiated). | Agent-held credential scoped to the private consumer repository or the sealed task folder in the submissions repository (task-scoped). The operator supplies a short-lived token secret during the work-order / transfer request process; the token must cover the task scope exactly. Decision 0005 keeps this as a separate trust path; it does not use the gateways and must not weaken Class B controls. Standard audit practices apply. |
-| Class B agent | Unprivileged agent that must not hold any repository credential and can only issue HTTPS GET. | None. Reads context only through short-lived, signed, path-scoped links served by the read gateway, and submits deliverables only through the task-scoped write gateway. |
+| Class B agent | Unprivileged agent that must not hold any repository credential and can only issue HTTPS GET. | None. Reads context only through short-lived, signed, path-scoped links served by the read gateway, and submits deliverables only through the task-scoped write gateway. **Not supported in 0.5.0 Basic.** |
 
-### Class A / Class B behaviour (first-release contract)
+### Class A / Class B behaviour (0.5.0 Basic contract)
 
-- **Class A:** the operator embeds raw URLs pinned to a commit in the work order; the agent fetches them with its own credential. No gateway mediation. The Supervisor Agent is an operator-initiated Class A agent whose authority is limited to the sealed task folder in the submissions repository and the corresponding destination paths in the consumer repository; it may not publish, revoke, or alter any other work order.
-- **Class B read:** a work order carries signed, expiring, path-scoped links (minted by `plan_tool.py links` / `ctxlink.py`). The production read gateway returns exactly the one authorized file at the pinned reference and nothing else (no directory listing, branch switching or repository proxying). Expiry, key rotation, revocation and audit are as decided in 0001–0004.
-- **Class B write:** the agent submits through the task-scoped write gateway using a root capability bound to one work order and one task folder. Transport, quotas, single-writer rule, commit and seal semantics, audit hygiene and the GitHub credential boundary are as decided in Stage 1.4. The transport is a constrained compatibility transport for GET-only agents; the contract does not claim that GET is safe for mutation, and the residual risks accepted in Stage 1.4.1 are listed under limitations.
+- **Class A (supported in 0.5.0):** the operator embeds raw URLs pinned to a commit in the work order; the agent fetches them with its own credential. No gateway mediation. The Supervisor Agent is an operator-initiated Class A agent whose authority is limited to the sealed task folder in the submissions repository and the corresponding destination paths in the consumer repository; it may not publish, revoke, or alter any other work order. Operator-side `cbridge upload` is the documented delivery route for Class A (subject to R0-011 resolution).
+- **Class B read (unsupported in 0.5.0; planned for 0.6.0 Standard):** a work order carries signed, expiring, path-scoped links (minted by `plan_tool.py links` / `ctxlink.py`). The production read gateway returns exactly the one authorized file at the pinned reference and nothing else. Decisions 0001–0004 stand; implementation and deployment are deferred.
+- **Class B write (unsupported in 0.5.0; planned for 0.6.0 Standard):** the agent submits through the task-scoped write gateway. Decisions 0001–0004 (write) stand; implementation landing, deployment, pilot and residual risks (R0-005, R0-007) remain open for Standard.
 
 ### Supported consumer repository shape
 
@@ -46,118 +50,125 @@ Exact metadata pair (authoritative):
 
 - **Linux and Termux/Android:** supported. The operator bridge is a Termux-oriented script and the maintainer builds and operates from Termux.
 - **macOS:** not claimed as supported. The shipped scripts need bash 4.4 or newer, `sha256sum` and (for packaging) GNU `tar`, which stock macOS does not provide (it ships bash 3.2 and BSD tools). Support can be added later either by documenting Homebrew `bash`, `coreutils` and `gnu-tar` as requirements or by porting the scripts (register F0-014).
-- Required tools (minimum versions for both Linux and Termux/Android): bash ≥ 4.4 (raised from 4.0 in Stage 2.4: older bash 4.x treats empty arrays as unset under `set -u`), python3 ≥ 3.10, git ≥ 2.30, GNU tar, sha256sum (coreutils), mktemp, gh (GitHub CLI).
-- The write gateway runs on Cloudflare Workers with a Durable Object (Stage 1.4); the read gateway runs on Cloudflare, operator-owned and single-tenant (decision 0001). Operators need accounts for those platforms; the consumer artifact has no runtime dependency on them beyond the links and the work-order contents.
+- Required tools (minimum versions for both Linux and Termux/Android): bash ≥ 4.4, python3 ≥ 3.10, git ≥ 2.30, GNU tar, sha256sum (coreutils), mktemp, gh (GitHub CLI).
+- The write and read gateways (when deployed for 0.6.0) run on Cloudflare; the consumer artifact has no runtime dependency on them beyond links and work-order contents.
 - Network access is needed only for operations the operator chooses to perform; offline plan authoring and local verification remain possible.
 
-**Acceptance matrix (supported environments):**
-- Automated in CI: all artifact packaging/verification checks, plan_tool and ctxlink unit tests, update-flow tests, and any gateway conformance vectors that can run without live credentials.
-- Manual operator verification required on both Linux and Termux/Android: end-to-end install/update of a consumer repository, Supervisor-Agent transfer of a sealed submission, and revocation/audit inspection.
+**Acceptance matrix (supported environments for Basic):**
+- Automated in CI: all artifact packaging/verification checks, plan_tool and ctxlink unit tests, update-flow tests.
+- Manual operator verification required on both Linux and Termux/Android: end-to-end install/update of a consumer repository and Class A workflow (plan → order with raw pinned URLs → operator review and publication → consumer update).
 
-### Explicit limitations of the first release
+### Explicit limitations of the 0.5.0 Basic release
 
-1. Task file contents in the write gateway are ephemeral by design (Stage 1.4.2); an isolate loss before commit loses staged, uncommitted files. Control-plane state (lease, seal/revocation, idempotency, quota metadata) is durable.
-2. The write transport carries payloads in a GET query string. Caching, prefetch and intermediary or platform logging risks are accepted subject to the Stage 1.4 mitigations and are not eliminated.
-3. The write gateway's GitHub credential is repository-scoped, not folder-scoped. Stage 1.4.6 (amended 2026-10-26) confines it to a dedicated submissions repository and branch, with the task folder created beforehand by the operator; the gateway never creates branches or folders. A leaked token could alter any task's submissions in that repository but not the private consumer repository. The documentation must not describe the credential as path-scoped.
-4. A checksum sidecar proves integrity, not authenticity: it ships beside the artifact (register F0-017). Provenance is added in Stage 3.3.8; no cryptographic attestation is claimed unless generated and verified.
-5. The object-storage export variant was rejected in Stage 1.3 and is not included.
-6. The consumer artifact does not contain and must not instruct operators to use any endpoint that is not deployed. Documentation describes only capabilities that have passed acceptance (plan Stage 2.1.4/2.1.5).
-7. Repository branch/tag protection, required checks and Actions hardening are not in place today (R0-004); they must be configured and evidenced before any tag (Stage 3.3.7).
+1. **No deployed read gateway.** Class B agents cannot obtain context through signed links in this release. Shipped consumer documentation already states this.
+2. **No deployed write gateway.** Agent-side submission through the write path is unsupported. Operator-side `cbridge upload` is the Class A delivery route.
+3. **No remote revocation / audit channel** for gateway-served links (none are served).
+4. **No end-to-end Class B pilot.** The Phase 6 pilot is deferred to 0.6.0.
+5. Submissions-to-consumer transfer path (R0-011) remains a design gap for any path that depends on it; for pure Class A operator-side upload it may be deferred.
+6. macOS is not a supported target (F0-014).
+7. Checksum proves integrity, not authenticity (F0-017); document and accept for Basic.
 
-## 1.1.2 Minimum successful workflow
+Class B residual risks (R0-005 GET-mutation semantics, R0-007 ephemeral staging / ambiguous retry, credential scope, audit leakage) remain **open blockers for 0.6.0 Standard**. They are not closed by this redesignation.
 
-The first release must support, and acceptance tests and the Phase 6 pilot must cover, this workflow end to end:
+## 1.1.2 Minimum successful Class A workflow (0.5.0 Basic)
 
-1. **Plan creation:** the operator creates or updates a plan under `plans/<plan_id>/` using the shipped schemas and `plan_tool.py`.
-2. **Work order:** `plan_tool.py` produces a work order that binds exact file paths and immutable commit references.
-3. **Context access:** a Class A agent fetches pinned private raw URLs with its own credential; a Class B agent fetches only the intended pinned files through the read gateway using signed links.
-4. **Submission:** before issuing the work order the operator ensures the submissions branch and the task folder exist. A Class B agent submits deliverables through the write gateway into that folder (stage, replace/append, read back, commit, seal); a Class A agent or the operator may place deliverables directly in the task folder of the submissions branch. Quotas, single-writer and path rules apply as decided. Absolutely no submission is allowed outside of a valid submission branch / folder.
-5. **Supervisor review and transfer:** the operator initiates a Supervisor Agent to inspect the committed deliverables in the submissions repository, runs local verification, transfers accepted files into the consumer repository, and records decisions via `plan_tool.py`. The transfer tooling is not yet designed (register R0-011); the high-level design is recorded in Stage 1.1.5.
-6. **Publication / reconciliation:** the operator runs `cbridge publish` and `reconcile`. Publication is always an explicit operator action; neither the bridge nor either gateway publishes or merges.
-7. **Revocation and audit:** the operator can revoke or close a work order, after which further reads and writes are denied, and can inspect redacted audit records that contain no capability secrets, signatures or payloads.
-8. **Failure and recovery:** a lost response after a successful commit, an evicted staging session, an expired link and a revoked order each end in the documented outcome (Phase 6.3), never a silent duplicate or silent loss.
-9. **Consumer update:** a later artifact installs or updates through `engine/bin/update.sh` without loss of consumer-owned plan data or seed configuration, and conflicts on locally modified managed files are reported without partial update.
+The minimum successful workflow that 0.5.0 must support end-to-end:
+
+1. **Plan creation** — operator creates a plan with stages and tasks via `plan_tool.py`.
+2. **Work order** — operator issues a work order with raw URLs pinned to a commit (Class A).
+3. **Agent execution** — Class A agent fetches context with its own short-lived task-scoped credential and produces deliverables.
+4. **Operator review and delivery** — operator receives deliverables (via `cbridge upload` or equivalent documented Class A path), reviews, and publishes upstream.
+5. **Consumer update** — a later artifact installs or updates through `engine/bin/update.sh` without loss of consumer-owned plan data or seed configuration; conflicts on locally modified managed files are reported without partial update.
 
 ## 1.1.3 Decision on deployed Class B read and write gateways
 
-**Decision (operator, 2026-10-26; recorded in Stages 1.3 and 1.4):** the first release **requires** both the deployed Class B read gateway and the deployed write gateway, together with the shared conformance suite and a passing end-to-end staging pilot.
+**Original decision (operator, 2026-10-26; recorded in Stages 1.3 and 1.4):** the first release required both the deployed Class B read gateway and the deployed write gateway, together with the shared conformance suite and a passing end-to-end staging pilot.
+
+**Redesignation (operator, 2026-10-29 — Decision D1):**
+
+> 0.5.0 is published as **Basic, Class A-only**. Deployed Class B read and write gateways are **not required** for 0.5.0. They are deferred to **0.6.0 Standard**. The Stage 1.3 and 1.4 decisions themselves stand as the basis for Standard; they are not reopened. Implementation work that exists on unmerged branches is to be landed, not discarded; only deployment, the pilot, and the submissions-transfer path are deferred.
 
 Consequences:
 
-- The release target is **Acceptance Level B** (end-to-end system complete). Level A (artifact complete) is necessary but not sufficient.
-- Version 0.5.0 stays unreleased until Phases 3–6 have passed their exit gates and Phase 7 authorization is given. Nothing is tagged or published earlier, and no document may describe the gateways as available before then.
-- Nothing in the repository today satisfies this: the production read gateway is not implemented, the write gateway is a scaffold, conformance and the pilot are incomplete (register F0-003 to F0-006, F0-009). Those are closed by Phases 4, 5 and 6 respectively.
+- The release target for 0.5.0 is **Acceptance Level A** (artifact complete + Class A workflow). Level B (end-to-end Class B system complete) is the target for 0.6.0 Standard.
+- Version 0.5.0 may be tagged and published once Basic exit gates pass (packaging, independent static verification, install/update, Class A workflow, documentation alignment, governance). Gateway deployment and the Class B pilot are not gates for 0.5.0.
+- Shipped consumer documentation already disclaims the gateway. Maintainer-facing docs (`README.md`, `docs/STATUS.md`, `docs/END-TO-END.md`) and this contract must agree that gateways are unsupported in 0.5.0 and planned for 0.6.0.
+- Class B code on branches (`phase-4/*`, `phase-5/*`) is not discarded. Landing it into `main` may proceed in parallel with 0.5.0 publication; deployment remains an operator decision for 0.6.0.
 
-## 1.1.4 Finite meaning of "100 % working"
+## 1.1.4 Finite meaning of "100 % working" (Basic)
 
-"100 % working" for 0.5.0 means every item below has an executed acceptance test whose output was inspected and recorded, every release-critical defect in the register is closed with evidence (or explicitly accepted by the operator with a stated residual risk), and the documentation describes only what passes. The phrase must not be used in release notes or the README unless this checklist is satisfied and recorded.
+"100 % working" for 0.5.0 Basic means every item below has an executed acceptance test whose output was inspected and recorded, every Basic release-critical defect in the register is closed with evidence (or explicitly accepted by the operator with a stated residual risk), and the documentation describes only what passes. The phrase must not be used in release notes or the README unless this checklist is satisfied and recorded.
 
-**Artifact and consumer path**
+**Artifact and consumer path (required for Basic)**
 
-1. The artifact contains exactly the paths in `release/manifest.txt` taken from tracked files; the build is byte-identical across rebuilds and environments; ordinary and `--release` verification pass (F0-010 to F0-012, F0-016).
+1. The artifact contains exactly the paths in `release/manifest.txt` taken from tracked files; the build is byte-identical across rebuilds and environments; ordinary and `--release` verification pass (F0-010, F0-016 closed by Stage 3.2).
 2. First install into an empty consumer repository yields a usable layout.
-3. Update preserves consumer-owned files, never overwrites seed files, reports conflicts on modified managed files, and is all-or-nothing or recoverable (F0-013, F0-015).
+3. Update preserves consumer-owned files, never overwrites seed files, reports conflicts on modified managed files, and is all-or-nothing or recoverable.
 4. `plan_tool.py` creates, orders, links, sets status, decides and verifies a plan; invalid input yields actionable errors; `plan_tool.py` and `ctxlink.py` agree on signing.
 5. `cbridge` operator commands work against a private test repository without silent data loss.
 6. No gateway, Worker, credential or forbidden path is in the artifact.
 
-**Read gateway**
+**Class A workflow (required for Basic)**
 
-7. Only the single authorized file at the pinned reference can be fetched with plain HTTPS GET; adjacent files, traversal and encoding bypasses are refused.
-8. The production gateway passes the same conformance vectors and tests as the Python signer and reference gateway.
-9. Expiry, key rotation and revocation behave as decided (0003), within the documented bound; audit contains no secrets.
+7. Plan → work order with raw pinned URLs → Class A agent fetch → operator review → publication → consumer update completes without data loss.
+8. Operator-side delivery route is documented (R0-011 resolved for Class A or explicitly deferred with rationale).
 
-**Write gateway**
+**Release controls (required for Basic)**
 
-10. No 501 handler and no placeholder source, test, script or CI stub remains (register F0-009; Phase 5 exit gate).
-11. Quotas (20 files, 245760 total bytes, 12288 bytes per file, 30 requests per 60 s, one writer) and path/type policy are enforced as published; cross-task reads and writes are denied.
-12. Append and commit are idempotent; the same key with different content conflicts; ambiguous outcomes return reconcile-required; seal, work-order closure and revocation are distinct and irreversible as specified.
-13. No root URL, signature, payload, token or raw query appears in logs, errors, metrics or traces (sentinel-secret tests); responses carry no-store headers.
+9. Branch and tag protection and required checks are configured and evidenced; the release workflow publishes only a verified artifact from a tag on the tip of an approved `main` commit (F0-023, R0-004).
+10. Release notes state **"Basic — Class A only"**, supported environments, installation/update instructions, and known limitations plainly. The operator gives explicit publication authorization (G-12).
 
-**Release controls**
+**Explicitly not required for Basic (required for 0.6.0 Standard)**
 
-14. The Phase 6 staging pilot completes the workflow in 1.1.2 on a disposable repository and the record is preserved.
-15. Branch and tag protection and required checks are configured and evidenced; the release workflow publishes only a verified artifact from a tag on an approved `main` commit (F0-008, F0-023, R0-004).
-16. Release notes state known limitations plainly (1.1.1), and the operator gives explicit publication authorization.
+- Deployed production read gateway and conformance against a live deployment.
+- Deployed write gateway, agent-side submission, remote revocation/audit.
+- End-to-end Class B pilot.
+- Resolution of R0-005, R0-007 and remaining Standard blockers.
 
 ## 1.1.5 Submissions-to-consumer transfer path (design)
 
-High-level design decisions (implementation later assigned to Phase 2 or Phase 6 as appropriate):
+High-level design decisions (implementation later assigned as appropriate; for Basic, operator-side `cbridge upload` is the documented route unless R0-011 is resolved otherwise):
 
 - **Actor:** Supervisor Agent (operator-initiated Class A agent). The operator initiates the agent; the agent performs the transfer.
 - **Pre-conditions:** submissions branch and task folder must already exist and contain a committed placeholder; work order must be sealed; expected tip SHA of the task folder must be supplied and must match before any transfer begins.
 - **Conflict handling:** transfer fails closed if the expected SHA does not match the current tip; operator (via Supervisor Agent) must re-inspect and re-issue with the new SHA.
-- **Validation:** only paths inside the sealed task folder are eligible; content must be valid UTF-8 text of allowed types; total size and file count must respect the published write-gateway quotas; each file must carry a matching SHA-256 recorded at seal time.
-- **Failure recovery and audit:** on any validation or SHA mismatch the transfer aborts with no partial writes; a structured audit record (task-id, expected-SHA, actual-SHA, outcome, timestamp, operator identity) is written and retained under operator control.
+- **Validation:** only paths inside the sealed task folder are eligible; content must be valid UTF-8 text of allowed types; total size and file count must respect published quotas where applicable; each file must carry a matching SHA-256 recorded at seal time.
+- **Failure recovery and audit:** on any validation or SHA mismatch the transfer aborts with no partial writes; a structured audit record is written and retained under operator control.
 - **Authority boundary:** limited to the sealed task folder in the submissions repository and the corresponding destination paths in the consumer repository; may not publish, revoke, or alter any other work order.
 
-## Traceability to Phase 0
+## Traceability to Phase 0 / scope classification
 
-| Capability | Classification in this contract |
-|------------|---------------------------------|
-| Consumer package, checksum, artifact verification, install/update | REQUIRED |
-| Operator-controlled plan/order/context-link tooling and `cbridge` workflow | REQUIRED |
-| Production Class B read gateway | **REQUIRED** (Phase 4) |
-| Agent-side write gateway | **REQUIRED** (Phase 5) |
-| Shared conformance harness | **REQUIRED** (Phase 4.1) |
-| Real end-to-end pilot | **REQUIRED** (Phase 6) |
-| Remote revocation / audit | **REQUIRED** (Phases 4–5, verified in 6) |
-| Object-storage variant | NOT INCLUDED (rejected in Stage 1.3) |
-| Submissions-to-consumer transfer path | REQUIRED (design in 1.1.5; implementation later) |
+| Capability | 0.5.0 Basic | 0.6.0 Standard |
+|------------|-------------|----------------|
+| Consumer package, checksum, artifact verification, install/update | **REQUIRED** | Required |
+| Operator-controlled plan/order tooling and `cbridge` workflow | **REQUIRED** | Required |
+| Independent verification (static, non-executing) | **REQUIRED** | Required |
+| Class A workflow end-to-end | **REQUIRED** | Required |
+| Operator-side `cbridge upload` delivery | **REQUIRED** if R0-011 resolved for Class A | Required |
+| Production Class B read gateway (deployed) | **UNSUPPORTED** | Required |
+| Agent-side write gateway (deployed) | **UNSUPPORTED** | Required |
+| Shared conformance harness against a live deployment | **UNSUPPORTED** | Required |
+| Real end-to-end Class B pilot | **UNSUPPORTED** | Required |
+| Remote revocation / audit | **UNSUPPORTED** | Required |
+| Submissions-to-consumer transfer path (R0-011) | Deferred unless Class A depends on it | Required |
+| GET-mutation semantics (R0-005), ephemeral staging (R0-007) | n/a | **Open blockers** |
+| Object-storage variant | NOT INCLUDED (rejected in Stage 1.3) | NOT INCLUDED |
 
-## Next steps after approval
+## Operator decisions recorded
 
-1. With Phase 1 closed, Phase 2 starts at Stage 2.1 (metadata and documentation, register F0-019), then 2.2–2.4.
-2. Phases 4 and 5 may run on separate branches; integration and the pilot (Phase 6) are sequentially gated, as in the plan.
-3. Implement the transfer path defined in 1.1.5 in the assigned later stage.
+| Item | Date | Recorded answer | Effect |
+|---|---|---|---|
+| Class A credential exception | 2026-10-26/27 | Class A (including Supervisor Agent) is an intentional exception; operator supplies short-lived task-scoped token | Global rule clarified; Class B remains credential-free |
+| Managed / seed metadata | 2026-10-27 (corrected 2026-10-28) | managed `engine/release.json`; seed `engine/engine.json` | Naming collision resolved |
+| Transfer actor | 2026-10-26/27 | Supervisor Agent (operator-initiated Class A) | Workflow design |
+| Contract status (original) | 2026-10-27 | APPROVED with listed amendments | Stage 1.1 exit criteria satisfied for design |
+| **Basic redesignation (D1)** | **2026-10-29** | **0.5.0 is Basic, Class A-only; deployed gateways not required; deferred to 0.6.0 Standard** | **Reverses the 2026-10-26 mandatory-gateway requirement for 0.5.0; Stage 1.3/1.4 decisions stand for Standard** |
 
-## Operator decisions recorded (2026-10-26 / 2026-10-27)
+## Next steps after redesignation
 
-| Item | Recorded answer | Effect |
-|---|---|---|
-| Class A credential exception | Class A (including Supervisor Agent) is an intentional exception; operator supplies short-lived task-scoped token | Global rule clarified; Class B remains credential-free |
-| Managed / seed metadata | managed `engine/release.json`; seed `engine/engine.json` (corrected 2026-10-28: the first merge of this row had the two roles transposed) | Naming collision resolved; `ENGINE.json` renamed to `release.json` |
-| Transfer actor | Supervisor Agent (operator-initiated Class A) | Workflow step 5 updated |
-| Contract status | APPROVED 2026-10-27 with listed amendments | Stage 1.1 exit criteria satisfied for design |
+1. Close remaining Basic defects (F0-002 dated changelog at RC time, F0-023 release workflow, R0-004 repository protection, documentation alignment, R0-011 for Class A).
+2. Publish 0.5.0 Basic when Basic exit gates pass and the operator authorises the tag (G-12).
+3. Land Class B branches into `main` in parallel (do not discard the work); deploy, rehearse and pilot under the 0.6.0 Standard contract.
+4. Keep R0-005, R0-007 and related Class B risks open as Standard blockers.
 
-End of Stage 1.1 approved contract.
+End of Stage 1.1 product contract (Basic redesignation 2026-10-29).
