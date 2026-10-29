@@ -16,4 +16,4 @@ file `engine/engine.json`.
 
 | Engine | Protocol | Notes |
 |---|---|---|
-| 0.5.0 (unreleased) | build-engine/0.5 | First product-neutral release; migrated from the former `implements_abstract` field. |
+| 0.5.0 | build-engine/0.5 | First product-neutral release; migrated from the former `implements_abstract` field. |

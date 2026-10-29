@@ -1,27 +1,56 @@
 name: release
 # Publishes a release when a vX.Y.Z tag is pushed. The artifact is built from template/ by allowlist, verified as a
 # finished file, and only then published. The gateway (gateway/) is never part of it.
+# F0-023: depends on CI having succeeded for this commit; tip-of-main tag check; SHA-pinned actions.
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
 permissions:
   contents: write
+  actions: read
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Pin third-party actions to immutable commit SHAs (F0-023).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - name: Tag matches VERSION and points at a commit on main
+      - name: Tag matches VERSION and points at the tip of main
         run: |
           set -euo pipefail
           [ "$GITHUB_REF_NAME" = "v$(tr -d ' \n' < VERSION)" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION"; exit 1; }
           git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag must point at a commit on main"; exit 1; }
+          tip="$(git rev-parse origin/main)"
+          if [ "$GITHUB_SHA" != "$tip" ]; then
+            echo "tag must point at the current tip of main"
+            echo "  tag SHA:  $GITHUB_SHA"
+            echo "  main tip: $tip"
+            exit 1
+          fi
+      - name: Require CI workflow success for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Find the latest completed ci workflow run for this SHA on main.
+          # Fail closed if none is found or if the conclusion is not success.
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=5" --jq '.workflow_runs')"
+          count="$(echo "$runs" | jq 'length')"
+          if [ "$count" -eq 0 ]; then
+            echo "No completed ci workflow run found for $GITHUB_SHA"
+            echo "Push the commit to main and wait for ci to succeed before tagging."
+            exit 1
+          fi
+          # Prefer a run whose event is push (main) if present; else take the first completed.
+          conclusion="$(echo "$runs" | jq -r '
+            (map(select(.event == "push")) | .[0].conclusion) // .[0].conclusion // empty
+          ')"
+          echo "CI conclusion for $GITHUB_SHA: ${conclusion:-<none>}"
+          [ "$conclusion" = "success" ] || { echo "CI did not succeed for this commit; refusing to publish"; exit 1; }
       - name: Tests
         run: |
           python3 -m unittest discover -s template/engine/tools
@@ -43,6 +72,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Fail closed: only create the release after all prior steps succeeded.
+          # gh release create will not run if any previous step failed.
           gh release create "$GITHUB_REF_NAME" \
             "dist/build-engine-${GITHUB_REF_NAME}.tar.gz" "dist/build-engine-${GITHUB_REF_NAME}.tar.gz.sha256" \
             --title "build-engine ${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag

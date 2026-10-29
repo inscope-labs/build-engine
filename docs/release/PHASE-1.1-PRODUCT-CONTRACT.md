@@ -26,7 +26,7 @@ Where a decision is already recorded elsewhere it is referenced, not restated, s
 
 ### Class A / Class B behaviour (0.5.0 Basic contract)
 
-- **Class A (supported in 0.5.0):** the operator embeds raw URLs pinned to a commit in the work order; the agent fetches them with its own credential. No gateway mediation. The Supervisor Agent is an operator-initiated Class A agent whose authority is limited to the sealed task folder in the submissions repository and the corresponding destination paths in the consumer repository; it may not publish, revoke, or alter any other work order. Operator-side `cbridge upload` is the documented delivery route for Class A (subject to R0-011 resolution).
+- **Class A (supported in 0.5.0):** the operator embeds raw URLs pinned to a commit in the work order; the agent fetches them with its own credential. No gateway mediation. The Supervisor Agent is an operator-initiated Class A agent whose authority is limited to the sealed task folder in the submissions repository and the corresponding destination paths in the consumer repository; it may not publish, revoke, or alter any other work order. Operator-side `cbridge upload` is the sole documented delivery route for Class A (R0-011 resolved 2026-10-29: transfer path deferred to 0.6.0).
 - **Class B read (unsupported in 0.5.0; planned for 0.6.0 Standard):** a work order carries signed, expiring, path-scoped links (minted by `plan_tool.py links` / `ctxlink.py`). The production read gateway returns exactly the one authorized file at the pinned reference and nothing else. Decisions 0001–0004 stand; implementation and deployment are deferred.
 - **Class B write (unsupported in 0.5.0; planned for 0.6.0 Standard):** the agent submits through the task-scoped write gateway. Decisions 0001–0004 (write) stand; implementation landing, deployment, pilot and residual risks (R0-005, R0-007) remain open for Standard.
 
@@ -64,7 +64,7 @@ Exact metadata pair (authoritative):
 2. **No deployed write gateway.** Agent-side submission through the write path is unsupported. Operator-side `cbridge upload` is the Class A delivery route.
 3. **No remote revocation / audit channel** for gateway-served links (none are served).
 4. **No end-to-end Class B pilot.** The Phase 6 pilot is deferred to 0.6.0.
-5. Submissions-to-consumer transfer path (R0-011) remains a design gap for any path that depends on it; for pure Class A operator-side upload it may be deferred.
+5. Submissions-to-consumer transfer path (R0-011): deferred to 0.6.0 by operator decision 2026-10-29; does not block Basic.
 6. macOS is not a supported target (F0-014).
 7. Checksum proves integrity, not authenticity (F0-017); document and accept for Basic.
 
@@ -111,7 +111,7 @@ Consequences:
 **Class A workflow (required for Basic)**
 
 7. Plan → work order with raw pinned URLs → Class A agent fetch → operator review → publication → consumer update completes without data loss.
-8. Operator-side delivery route is documented (R0-011 resolved for Class A or explicitly deferred with rationale).
+8. Operator-side delivery route is documented: `cbridge upload` (R0-011 resolved 2026-10-29).
 
 **Release controls (required for Basic)**
 
@@ -144,13 +144,13 @@ High-level design decisions (implementation later assigned as appropriate; for B
 | Operator-controlled plan/order tooling and `cbridge` workflow | **REQUIRED** | Required |
 | Independent verification (static, non-executing) | **REQUIRED** | Required |
 | Class A workflow end-to-end | **REQUIRED** | Required |
-| Operator-side `cbridge upload` delivery | **REQUIRED** if R0-011 resolved for Class A | Required |
+| Operator-side `cbridge upload` delivery | **REQUIRED** (R0-011 resolved) | Required |
 | Production Class B read gateway (deployed) | **UNSUPPORTED** | Required |
 | Agent-side write gateway (deployed) | **UNSUPPORTED** | Required |
 | Shared conformance harness against a live deployment | **UNSUPPORTED** | Required |
 | Real end-to-end Class B pilot | **UNSUPPORTED** | Required |
 | Remote revocation / audit | **UNSUPPORTED** | Required |
-| Submissions-to-consumer transfer path (R0-011) | Deferred unless Class A depends on it | Required |
+| Submissions-to-consumer transfer path (R0-011) | Deferred to 0.6.0 | Required |
 | GET-mutation semantics (R0-005), ephemeral staging (R0-007) | n/a | **Open blockers** |
 | Object-storage variant | NOT INCLUDED (rejected in Stage 1.3) | NOT INCLUDED |
 
@@ -163,6 +163,7 @@ High-level design decisions (implementation later assigned as appropriate; for B
 | Transfer actor | 2026-10-26/27 | Supervisor Agent (operator-initiated Class A) | Workflow design |
 | Contract status (original) | 2026-10-27 | APPROVED with listed amendments | Stage 1.1 exit criteria satisfied for design |
 | **Basic redesignation (D1)** | **2026-10-29** | **0.5.0 is Basic, Class A-only; deployed gateways not required; deferred to 0.6.0 Standard** | **Reverses the 2026-10-26 mandatory-gateway requirement for 0.5.0; Stage 1.3/1.4 decisions stand for Standard** |
+| **Class A delivery route (D2 / R0-011)** | **2026-10-29** | **`cbridge upload` sole Class A route; transfer path deferred to 0.6.0** | **Closes R0-011 for Basic** |
 
 ## Next steps after redesignation
 
