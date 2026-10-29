@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.5.0 - unreleased
+## 0.5.0 - 2026-10-29
+- **Basic — Class A only.** Supported environments: Linux and Termux/Android. No production gateway is deployed. Class B (read/write gateways, remote revocation/audit, pilot) is planned for 0.6.0 Standard.
+- Operator-side `cbridge upload` is the documented delivery route for Class A deliverables. Agent-side submission through the write gateway is unsupported in this release. The submissions-to-consumer transfer path is deferred to 0.6.0 (R0-011).
 - Repository created as a product-agnostic engine extracted from an earlier scaffold. Nothing has been released from it yet.
 - The context gateway (`ctxgate.py`) is split out of the engine and lives under `gateway/`, which is never packaged. What
   the engine needs (the link scheme and `mint`) ships as `engine/tools/ctxlink.py`. `plan_tool.py` imports it.

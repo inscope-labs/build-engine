@@ -8,11 +8,14 @@ Audited commit: `main` at `28b04aa` (Stage 3.2 verifier hardening merged via PR 
 
 **Basic blockers remaining (in order):**
 
-1. `CHANGELOG.md` still says `0.5.0 - unreleased`; the dated entry is written only at release-candidate time (F0-002).
-2. Release workflow does not yet enforce all gates it relies on (F0-023): CI dependency, tip-of-main tag check, narrowed permissions, SHA-pinned actions.
-3. Repository protection (branch and tag rules, required checks) is not configured (R0-004).
-4. R0-011 (submissions-to-consumer transfer path) must be resolved for Class A or explicitly deferred with rationale.
-5. Maintainer-facing documentation alignment (this file, README, END-TO-END, product contract) — in progress under the redesignation.
+1. Repository protection (branch and tag rules, required checks) is not configured (R0-004). Operator policy recorded 2026-10-29: require PR + `ci` on `main`, no force-push, deletions allowed; no `v*` tag restriction; apply **after** the `v0.5.0` tag is created.
+2. Final operator authorization of the artifact and release notes at tag time (G-12) — pre-authorised 2026-10-29 pending gate pass.
+
+**Closed for Basic (2026-10-29 decisions):**
+- F0-002 — changelog dated `## 0.5.0 - 2026-10-29` with Basic scope statement.
+- F0-023 — release workflow: CI success required for the tagged commit, tip-of-main tag check, SHA-pinned actions. (Permissions left as job-level `contents: write` per operator decision.)
+- R0-011 — operator-side `cbridge upload` is the sole documented Class A delivery route; submissions-to-consumer transfer path deferred to 0.6.0; agent-side write gateway unsupported in 0.5.0.
+- F0-020 — product contract redesignation (PR #27).
 
 **Closed for Basic:** F0-010 and F0-016 (Stage 3.2 / PR #26); protocol field migration and set-version sync (Stage 1.2); allowlist packaging hardening (Stage 3.1); install/update transactional behaviour (Stage 2.4).
 

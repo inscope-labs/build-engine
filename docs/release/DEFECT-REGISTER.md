@@ -666,3 +666,44 @@ Run and passing at the audited commit after this PR's fix: shipped tool tests (7
 Not audited line by line (covered only by their existing tests and static analysis): `template/engine/tools/plan_tool.py` (1236 lines), `template/operator/cbridge` (309 lines), `template/engine/tools/ctxlink.py`, `gateway/read/reference/ctxgate.py`. Stages 2.2.1 and 2.3.1 are the dedicated audits for these; anything they find is appended as F0-0xx.
 
 Not verifiable from this environment: macOS behaviour (F0-014), environment approvals and the default workflow token permission (R0-004).
+
+
+---
+
+## Addendum A7 — Operator decisions for Basic closeout (2026-10-29)
+
+Recorded answers to the decision questionnaire; authority for closing remaining Basic items.
+
+### F0-002 — Changelog dated
+- Status: **CLOSED** for RC preparation.
+- Heading set to `## 0.5.0 - 2026-10-29`. Entry lists only Basic functionality and states Class B is deferred to 0.6.0.
+
+### F0-023 — Release workflow gates
+- Status: **CLOSED** (implementation in `release.yml` / `ci.yml`).
+- Operator answers: depend on CI success for the tagged commit (yes); pin Actions to immutable SHAs (yes); tip-of-main tag check (yes); do **not** narrow `permissions: contents: write` to the publish step only (no); failed gate publishes nothing (yes).
+- Implementation: SHA-pinned `actions/checkout`, `setup-python`, `setup-node`; tip equality check against `origin/main`; `gh api` check that `ci.yml` completed with `success` for `GITHUB_SHA` before package/verify/publish.
+
+### R0-011 — Class A delivery route
+- Status: **RESOLVED for Basic**.
+- Operator decision D2: operator-side `cbridge upload` is the sole documented delivery route for Class A deliverables in 0.5.0. The submissions-to-consumer transfer path (automated Supervisor Agent transfer) is explicitly deferred to 0.6.0 and does not block 0.5.0. Agent-side submission through the write gateway is unsupported in 0.5.0 and must be stated plainly in shipped and maintainer documentation.
+
+### R0-004 — Repository protection policy (operator/admin action)
+- Status: **POLICY RECORDED; settings not yet applied**.
+- Operator decision D7 (2026-10-29):
+  - `main`: require pull requests before merge; require the `ci` status check; disallow force-pushes; allow deletions.
+  - Tags matching `v*`: no creation restriction.
+  - Actions: no selected-actions allow-list; no repository-level SHA-pinning mandate (workflow-level pinning still applied per F0-023).
+  - Timing: create the `v0.5.0` tag **first**; apply branch protection afterward.
+- These settings cannot be applied from repository code. An admin must configure them in GitHub repository settings after the tag exists. Evidence of configuration should be recorded here when done.
+
+### Class B landing (D3) and deployment (D4)
+- Do **not** merge Class B branches (`phase-4/*`, `phase-5/*`) until after 0.5.0 is released.
+- First real gateway deployment is deferred and pre-authorised for 0.6.0 Standard only.
+
+### Publication (D5 / G-12)
+- Annotated tag `v0.5.0` authorised on the approved `main` commit once Basic exit gates pass; publish only via `release.yml` (no bypass).
+- Release notes framing: “Basic — Class A only. Supported environments: Linux and Termux/Android. No production gateway is deployed. Class B (read/write gateways, remote revocation/audit, pilot) is planned for 0.6.0 Standard.”
+- Published artifact and tag are immutable.
+
+### Protocol identifier for 0.6.0 (D6)
+- Conventional `build-engine/0.6`.
