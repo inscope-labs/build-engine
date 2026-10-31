@@ -3,13 +3,19 @@
 **Status: design, not normative.** This document describes the *shape* of the write gateway: the components,
 the request flow, the Durable Object coordination model, and which source module owns which rule.
 
+**Stage 5.2 implemented the core.** The components, the request flow and the coordination model below are what
+the code does. The GitHub delivery is Stage 5.3 and is not implemented; the `commit` route answers the
+documented `501 not-implemented`.
+
 **The normative contract is `ctxwrite-v1`**, in [`protocol.md`](protocol.md). The error semantics are in
 [`error-catalog.md`](error-catalog.md); the limits are in `src/config/quotas.json` and
 `src/config/type-policy.json`. Where this document and the contract disagree, the contract wins and this
 document is a defect. This document deliberately does not restate the rules.
 
-**None of this is implemented.** The Worker answers `501` to every request. Stage 5.1 wrote the design and the
-contract; Stage 5.2 writes the core, 5.3 the commit path, 5.4 the audit and operations, 5.5 the tests.
+**The core is implemented (Stage 5.2).** The Worker answers `501` to nothing except the `commit` route, whose
+delivery is Stage 5.3. 171 tests pass against the real Worker and the real Durable Object. Stage 5.1 wrote the
+contract, Stage 5.2 the core, Stage 5.3 the commit path, Stage 5.4 the audit and operations, Stage 5.5 the
+remaining test suite and the CI wiring.
 
 ---
 
@@ -25,6 +31,13 @@ contract; Stage 5.2 writes the core, 5.3 the commit path, 5.4 the audit and oper
 There is **one Durable Object class**, `TaskSession`, and **one instance per task**. The instance id is derived
 deterministically from the task id, so a revoked task's instance is reachable again for the revocation check
 even after it has been torn down.
+
+**The handlers are serialised explicitly.** A Durable Object is single-threaded, but a handler that awaits
+something that is not a storage operation — a digest, a text decoder — yields, and the next request's handler
+starts in the meantime. Two concurrent appends would then both read the same `last_seq` and both apply the
+chunk. `TaskSession` therefore holds a request queue, and every internal route runs through it. That is what
+makes the session's state transitions atomic, which is what the contract's sequence, quota and lease rules
+assume. It was found by the concurrency test, and it is register entry F0-033.
 
 The Worker holds the GitHub credential. The Durable Object does not need to: the Worker performs the commit
 using the credential and passes the result back. The split keeps the credential out of the state store, which
@@ -146,9 +159,11 @@ contract, so that Stage 5.2 and 5.3 have an assignment rather than a blank page.
 | `src/policy/rate-limit.ts` | the rate window | 7.1 |
 | `src/session/*` | the Durable Object control plane | 5.2, 6 |
 | `src/staging/*` | the data plane | 5.3, 6 |
-| `src/commit/*` | the GitHub client, the selection, the idempotency | 8 |
+| `src/commit/commit-idempotency.ts` | the commit's idempotency digest | 6.3 |
+| `src/commit/*` (the rest) | the GitHub client, the selection, the retry policy — **Stage 5.3** | 8 |
 | `src/seal/seal.ts` | the seal transition | 8.4 |
 | `src/audit/logger.ts`, `src/audit/metrics.ts`, `src/audit/redaction.ts` | the audit record | 11 |
+| `src/http/contract.ts` | the contract documents, served as text | 4.5 |
 | `src/config/env.ts`, `src/config/constants.ts` | the configuration and the commit message | 8.3, 12.2 |
 
 ## 5. The configuration boundary
@@ -168,7 +183,7 @@ A misconfiguration fails closed: the gateway serves nothing and answers `503 gat
 setting it could not read and never a secret. That is the read gateway's behaviour, and the write gateway
 inherits it.
 
-## 6. What this stage did not decide
+## 6. What is still not decided, and not implemented
 
 - The **lease duration** and the **per-type JSON Schemas** are open (the contract's section 15).
 - The **submissions-to-consumer transfer path** and the **pre-creation tooling** are register entry R0-011 and

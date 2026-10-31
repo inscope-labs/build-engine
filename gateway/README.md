@@ -18,8 +18,8 @@ gateway/
 | Program | Direction | Status |
 |---|---|---|
 | `read/reference/` | read: verifies signed, expiring links and serves one file per link | reference only, tested locally, not deployed |
-| `read/production/` | read: the real deployment of the same rules | not started; decisions 0001 to 0005 recorded; required for 0.5.0 (Phase 4) |
-| `write/` | write: stage and commit task deliverables through one secret root URL | scaffold only (46 of 48 source files are stubs; Worker answers 501); required for 0.5.0 (Phase 5); see `write/README.md` |
+| `read/production/` | read: the real deployment of the same rules | implemented (Cloudflare Worker) and proven against `conformance/`; **not deployed**; unsupported in 0.5.0, planned for 0.6.0 |
+| `write/` | write: stage and commit task deliverables through one secret root URL | core request and session lifecycle implemented (Stage 5.2); GitHub delivery not yet; **not deployed**; unsupported in 0.5.0, planned for 0.6.0; see `write/README.md` |
 
 Both gateways use the link scheme in `template/engine/tools/ctxlink.py` (the shipped client side), and any read-gateway
 implementation must pass `conformance/`. The write gateway is also called `ctxgate` in its proposal (name still open, see

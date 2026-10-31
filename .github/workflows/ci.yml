@@ -78,7 +78,7 @@ jobs:
       - name: Isolation proof (no writes to the source repository, no copy of what was served)
         run: npm run test:isolation
   write-gateway:
-    name: write gateway (typecheck + bundle)
+    name: write gateway (typecheck, tests + bundle)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,5 +94,7 @@ jobs:
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - name: Unit, integration and load tests (the real Worker and the real Durable Object)
+        run: npm test
       - name: Bundle dry run (validates wrangler.toml, no deploy, no credentials)
         run: npm run check:bundle

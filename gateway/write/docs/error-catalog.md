@@ -57,6 +57,7 @@ non-retryable without a change, and none of them reveal anything about the task'
 | <a id="empty-not-allowed"></a>`empty-not-allowed` | 400 | no | the type policy forbids an empty file for this type | write content, or use a type that allows it |
 | <a id="destination-not-selectable"></a>`destination-not-selectable` | 400 | no | the request tried to name a repository, a branch or a task folder | the destination comes from the capability; remove the parameter |
 | <a id="malformed-path"></a>`malformed-path` | 400 | no | the path fails the path rules | fix the path; the help link lists every rule |
+| <a id="invalid-parameter"></a>`invalid-parameter` | 400 | no | a required parameter is missing, or a value does not have the required form | send the parameter; the message says which one and what it must look like |
 
 ### 401 — no valid capability
 

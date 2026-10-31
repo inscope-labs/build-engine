@@ -40,6 +40,44 @@ the section of the contract that states the rule, and the contract is where the 
 | 29 | The gateway never echoes a provider's error body | 10.3 |
 | 30 | The gateway's own health and admin routes are not reachable by the agent | 10.4 |
 
+## What Stage 5.2 implemented
+
+Of the thirty requirements above, the ones that belong to the core request and session lifecycle are
+implemented and tested. The rest are Stage 5.3, 5.4 or 5.5.
+
+| # | Requirement | Stage 5.2 |
+|---|---|---|
+| 1 | the root URL is a bearer capability | implemented and documented |
+| 2 | the capability authenticates in the path | implemented |
+| 3 | the signature is domain-separated and constant-time compared | implemented, and the read side's separator cannot be replayed against it |
+| 4 | every capability field is bound into the signature | implemented |
+| 5 | the signature is verified before expiry, lifetime and revocation | implemented, in that order |
+| 6 | all pre-signature failures return the same status and body | implemented and tested |
+| 7 | the expiry is inclusive and the maximum TTL is enforced | implemented and tested |
+| 8 | the task folder is derived, never supplied | implemented; a request that tries is refused with `destination-not-selectable` |
+| 9 | paths are validated without normalisation | implemented and tested, including the `..`-as-a-substring case |
+| 10 | `..` as a substring is a legal file name | implemented and tested |
+| 11 | one writer per task, enforced by a durable lease | implemented and tested |
+| 12 | the agent never holds a repository credential | implemented: the credential is a Worker secret |
+| 13 | the credential is scoped to the submissions repository | configured; the scope itself is the operator's (Stage 5.3 checks it) |
+| 14 | the residual risk of a repository-scoped credential is stated plainly | documented |
+| 15 | the gateway never creates or merges anything | implemented for everything Stage 5.2 owns; the commit path is Stage 5.3 |
+| 16 | the commit parent is the expected head | specified and bound into the capability; the check is Stage 5.3 |
+| 17 | text only, UTF-8, allow-listed, size-capped at write time | implemented and tested |
+| 18 | staged content is never written to durable storage | implemented: the contents live in the instance's memory only |
+| 19 | every response is no-store, with no redirects | implemented and tested |
+| 20 | no response body contains the capability, the query or the payload | implemented: the envelope is built field by field, and the links are root-relative |
+| 21 | links are root-relative and never echo the capability | implemented and tested |
+| 22 | the audit record is built field by field from a fixed schema | implemented and tested with sentinels |
+| 23 | the audit is tested by sentinel injection | the redaction unit test is the sentinel injection; the full capture test is Stage 5.5.6 |
+| 24 | the operator channel has its own credential | implemented and tested |
+| 25 | the state channel fails closed | implemented: an unreadable session answers `503 state-unavailable` and serves nothing |
+| 26 | quotas count live state | implemented and tested |
+| 27 | the deployment defaults are pinned | `workers_dev = false` is set; the routes and the environments are Stage 5.4.6 |
+| 28 | deployment credentials are absent from pull-request jobs | Stage 5.5.8 |
+| 29 | the gateway never echoes a provider's error body | implemented for everything Stage 5.2 owns; the provider mapping is Stage 5.3 |
+| 30 | the health and admin routes are not reachable by the agent | implemented: they are a separate namespace with a separate credential |
+
 ## What is checked, and when
 
 | Check | Stage |

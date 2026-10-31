@@ -61,7 +61,7 @@ Engine core, operator bridge (`cbridge`), consumer docs. Implemented. Shipped do
 
 - Read gateway (reference): reference only, not deployed.
 - Read gateway (production): implemented (Stage 4.2), with its deployment surface, deploy gate, operational checks and runbook (Stage 4.3); passes the shared conformance suite on the local runtime; **not deployed** (no environment published); **unsupported in 0.5.0**; planned for 0.6.0.
-- Write gateway: the protocol contract is specified as `ctxwrite-v1` (Stage 5.1, `gateway/write/docs/protocol.md`); implementation exists on unmerged branches (`phase-5/*`); **not deployed**; **unsupported in 0.5.0**; planned for 0.6.0.
+- Write gateway: the protocol contract is specified as `ctxwrite-v1` (Stage 5.1, `gateway/write/docs/protocol.md`); the core request and session lifecycle is implemented (Stage 5.2) and the GitHub delivery, audit/operations and real-test stages are still on unmerged branches (`phase-5/*`); **not deployed**; **unsupported in 0.5.0**; planned for 0.6.0.
 - Conformance harness: implemented (Stage 4.1) and run against the reference and production gateways locally; live deployment conformance deferred to 0.6.0.
 
 ### Maintainer documentation

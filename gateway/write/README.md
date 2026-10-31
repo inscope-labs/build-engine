@@ -4,17 +4,22 @@ A Cloudflare Worker with one Durable Object class that lets a **Class B agent** 
 requests, no credentials) create, edit and deliver text files into a task-specific folder, using a single secret
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
-**Status: contract specified, implementation still a scaffold; unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is
-specified as `ctxwrite-v1` in [`docs/protocol.md`](docs/protocol.md) — the canonical, normative contract, and the
-single authoritative definition of the write protocol (plan rule G-11). 46 of 48 source files and all 32 test
-files are still stubs, and the Worker still answers `501` to every request. The structure is exactly the one
-proposed in `docs/proposal/project-structure.md` (112 files, generated from it). Real content now:
-`wrangler.toml`, `package.json`, `tsconfig.json`, `src/config/quotas.json` (units decided and note removed),
-`src/config/type-policy.json` (the type allow-list), `docs/protocol.md`, `docs/error-catalog.md`,
-`docs/quotas-and-type-policy.md`, `docs/architecture.md`, `docs/security-checklist.md`, `AGENTS.md` (the agent
-index and the stable section anchors), the agent-facing tool prompt `docs/proposal/agent-tool-prompt.md`, and a
-Worker entry that answers `501` with a `TaskSession` stub so the Durable Object binding resolves. Everything
-else in `src/` and `tests/` is a stub that says so in its first lines.
+**Status: the core request and session lifecycle is implemented; the GitHub delivery is Stage 5.3. Unsupported in
+0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in [`docs/protocol.md`](docs/protocol.md) — the
+canonical, normative contract and the single authoritative definition of the write protocol (plan rule G-11).
+
+**What works now (Stage 5.2).** The Worker routes and authenticates; the Durable Object holds the session. The
+capability is parsed and its signature verified before anything else happens; the session's writer lease,
+sequence numbers, chunk hashes, idempotent replay, quota ledger, file inventory, tombstones, the type policy,
+the path rules, the seal, the operator's revocation and closure, the hypermedia links, the redacted audit
+record and the fail-closed environment validation are all implemented and tested. **171 tests pass** against the
+real Worker and the real Durable Object.
+
+**What does not work yet.** The `commit` route answers the documented `501 not-implemented`: the GitHub client,
+the delivery, the retry policy and the selection validation are Stage 5.3, and the four `src/commit/*` modules
+say so in their first lines. The chaos suite and the CI wiring are Stage 5.5. The gateway is **not deployed** —
+the deployment is Stage 5.4.6. The Phase 5 exit gate is therefore not met, and nothing here may be read as a
+claim that a write gateway is operational.
 
 **This module never ships in a release.** It lives under `gateway/`, which `release/manifest.txt` does not list and
 `release/verify.sh` rejects. Extra deny rules for Worker files (`wrangler.toml`, `.dev.vars`, `cloudflare:workers`)
@@ -49,8 +54,13 @@ concurrency 1.
 
     cd gateway/write
     npm ci
-    npm run typecheck      # tsc --noEmit over src, tests, scripts
+    npm run typecheck      # tsc --noEmit over src, scripts, and the tests
+    npm test               # the Node test runner, over the unit, integration and load suites
     npm run check:bundle   # wrangler deploy --dry-run: validates wrangler.toml and bundles the Worker
+
+The test runner is Node 22's built-in one, with type stripping — the same runner the read gateway has used
+since Stage 4.2. The tests drive the **real** Worker and the **real** Durable Object class over an in-memory
+storage, so a test cannot pass against a re-implementation that has drifted from the shipped code.
 
 ## Decision status
 
@@ -66,4 +76,6 @@ The questions raised in the proposal are recorded in `docs/release/PHASE-1.4-WRI
 | Test framework | Open: none installed; pinning a runner is Stage 5.5.1. All tests are `export {}` stubs. |
 | Durable Object storage | Decided (ADR 0001, Stage 1.4.2): control-plane state durable, task file contents ephemeral. The recovery model that follows from it is in `docs/protocol.md` section 13. |
 | Protocol contract | **Closed by Stage 5.1**: `ctxwrite-v1` in `docs/protocol.md`, with the error catalogue, the published quota and type policy, and the stable agent-facing anchors. |
+| Core request and session lifecycle | **Closed by Stage 5.2**: routing, signature verification, the writer lease, sequencing and replay, quotas, the type policy, staging, the seal, revocation and closure, hypermedia, the audit record. |
+| GitHub commit and delivery | Stage 5.3. The `commit` route answers `501 not-implemented` until then. |
 | Submissions-to-consumer transfer | Undefined (register R0-011). The transfer path and the pre-creation tooling are not in the plan; the operator decision is open. |

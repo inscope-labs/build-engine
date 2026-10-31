@@ -1,17 +1,55 @@
-# ctxgate write gateway: Worker + one Durable Object class. SCAFFOLD: not deployable yet (no routes, no secrets).
+# ctxgate write gateway: the task-scoped write route (RELEASE-PLAN.md Phase 5, Stage 5.2).
+#
+# The protocol is specified in gateway/write/docs/protocol.md (`ctxwrite-v1`). This file is the
+# deployed configuration. It carries NO secrets: the signing keys, the GitHub credential and the
+# operator token are `wrangler secret put`, or .dev.vars locally.
 name = "ctxgate"
 main = "src/index.ts"
-# Pin deliberately and bump on purpose; do not float.
+
+# Pin deliberately and bump on purpose; do not float. The review of this date is Stage 5.4.6
+# (register R0-008): the contract requires a deliberate bump, and the value below is the one the
+# read gateway runs with, so the two gateways behave the same way.
 compatibility_date = "2025-09-01"
 
+# The gateway's state: one Durable Object per task, holding the writer lease, the session state,
+# the file inventory, the quota ledger, the idempotency store and the commit record. The staged
+# file contents are deliberately NOT here: they are ephemeral, and live in the instance's memory
+# only (ADR 0001, ADR 0002).
 [[durable_objects.bindings]]
 name = "TASK_SESSION"
 class_name = "TaskSession"
 
-# ASSUMPTION to confirm in docs/adr/0001-durable-object-coordination.md: SQLite-backed Durable Object.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TaskSession"]
 
-# Secrets (signing keys, GitHub token) are NEVER put here: `wrangler secret put`, or .dev.vars locally.
-# routes / workers_dev are intentionally unset until a deployment decision is made.
+# The contract documents are served by the gateway itself, so the markdown is bundled as text.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
+# ---------------------------------------------------------------------------
+# Non-secret configuration. Everything here is safe to read, and the values that describe the
+# policy are ALSO reported on /healthz, so that a verifier can test the gateway as it is
+# actually configured.
+# ---------------------------------------------------------------------------
+[vars]
+# The single repository this gateway may write to, and the single branch in it. The gateway
+# never creates a repository, a branch or a folder, and never pushes anywhere else
+# (protocol section 12).
+SUBMISSIONS_REPO = "OWNER/REPO"
+SUBMISSIONS_BRANCH = "build-engine"
+# Where a task's files go, relative to the repository root. The placeholders are filled from the
+# SIGNED capability, so no request can influence the destination.
+SUBMISSIONS_FOLDER_TEMPLATE = "plans/{plan}/submissions/{order}/{task}"
+# Longest lifetime a capability may have.
+MAX_TTL_SECONDS = "604800"
+# How long a writer's lease lasts before another writer may take it.
+LEASE_SECONDS = "300"
+
+# The deployment defaults the contract requires (protocol section 12.5): a first deploy must not
+# silently expose a public *.workers.dev URL. The operator's own routes are added in Stage
+# 5.4.6, when the deployment decision is made; until then the Worker has no public route at all,
+# which is the fail-closed posture.
+workers_dev = false
