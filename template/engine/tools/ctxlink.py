@@ -32,12 +32,14 @@ import time
 from urllib.parse import quote
 
 SCHEME = "ctxgate-v1"
-REF_RE = re.compile(r"^[0-9a-f]{40}$")
-ORDER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
-KID_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+REF_RE = re.compile(r"[0-9a-f]{40}")
+ORDER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
+KID_RE = re.compile(r"[A-Za-z0-9_]{1,16}")
+MAX_TTL = 259200  # 72 hours: the hard maximum link lifetime (decision 0003)
 
 
 def now():
+    # CTXGATE_NOW is a test hook (fixed clock for reproducible vectors); do not set it when minting real links.
     return int(os.environ.get("CTXGATE_NOW") or time.time())
 
 
@@ -54,16 +56,24 @@ def sign(secret, kid, exp, order, ref, path):
 
 
 def safe_path(path):
-    if not path or path.startswith("/") or "\\" in path or "\x00" in path:
+    """True when a path is already canonical. Nothing is normalised: the signer and the gateway
+    must agree on the exact bytes, so a path is either accepted as written or refused. See
+    conformance/SCHEME.md for the normative rules."""
+    if not path or path.startswith("/") or "\\" in path:
+        return False
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):   # control characters, including NUL
         return False
     return all(p not in ("", ".", "..") for p in path.split("/"))
 
 
 def mint(base, secret, kid, order, ref, paths, ttl=86400, at=None):
     """Return one signed URL per path. Pure function: no network, no state."""
-    if not KID_RE.match(kid) or not ORDER_RE.match(order) or not REF_RE.match(ref):
+    if not (KID_RE.fullmatch(kid) and ORDER_RE.fullmatch(order) and REF_RE.fullmatch(ref)):
         raise ValueError("bad kid, order or ref")
-    exp = (now() if at is None else at) + int(ttl)
+    ttl = int(ttl)
+    if not 1 <= ttl <= MAX_TTL:
+        raise ValueError("ttl must be between 1 and %d seconds" % MAX_TTL)
+    exp = (now() if at is None else at) + ttl
     urls = []
     for p in paths:
         if not safe_path(p):
@@ -83,7 +93,10 @@ def main(argv=None):
     secret = os.environ.get("CTXGATE_SECRET")
     if not secret:
         sys.exit("ERROR: set CTXGATE_SECRET")
-    print("\n".join(mint(a.base, secret.encode(), a.kid, a.order, a.ref, a.paths, a.ttl)))
+    try:
+        print("\n".join(mint(a.base, secret.encode(), a.kid, a.order, a.ref, a.paths, a.ttl)))
+    except ValueError as e:
+        sys.exit("ERROR: %s" % e)
     return 0
 
 

@@ -4,7 +4,7 @@ A Cloudflare Worker with one Durable Object class that lets a **Class B agent** 
 requests, no credentials) create, edit and deliver text files into a task-specific folder, using a single secret
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
-**Status: contract specified, implementation still a scaffold; required for 0.5.0 (Phase 5).** The protocol is
+**Status: contract specified, implementation still a scaffold; unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is
 specified as `ctxwrite-v1` in [`docs/protocol.md`](docs/protocol.md) — the canonical, normative contract, and the
 single authoritative definition of the write protocol (plan rule G-11). 46 of 48 source files and all 32 test
 files are still stubs, and the Worker still answers `501` to every request. The structure is exactly the one

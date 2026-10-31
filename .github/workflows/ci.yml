@@ -10,28 +10,73 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Shipped engine tests
         run: python3 -m unittest discover -s template/engine/tools -v
       - name: Gateway tests (never shipped)
         run: python3 -m unittest discover -s gateway/read/reference -p 'test_*.py' -v
+      - name: Conformance suite (scheme, signing vectors, behaviours B1-B11)
+        run: python3 -m unittest discover -s conformance -p 'test_*.py' -v
+      - name: Conformance harness end to end
+        run: python3 conformance/harness/run.py all --reference
       - name: Shell syntax
         run: |
           bash -n template/operator/cbridge
           sh -n template/operator/install.sh
           bash -n template/engine/bin/update.sh
-          for f in release/*.sh tests/*.sh; do bash -n "$f"; done
+          for f in release/*.sh tests/*.sh gateway/read/production/ops/*.sh; do bash -n "$f"; done
+      - name: Python syntax (the operator tooling and the gateway's checks)
+        run: |
+          for f in gateway/read/production/ops/*.py gateway/read/production/test/*.py; do
+            python3 -m py_compile "$f"
+          done
       - name: Release machinery self-test
         run: release/test-release.sh
       - name: Consumer install and update flow
         run: tests/test_update.sh
       - name: Package and verify (dry run, no publish)
+        # --test-payload runs the artifact's own test suite. The default verification never executes code
+        # from the artifact; this job built the artifact itself in this same job, so it may run it.
         run: |
           release/package.sh dist
-          release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz"
+          release/verify.sh "dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz" --test-payload
+  read-gateway:
+    name: read gateway (typecheck, unit, conformance)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/read/production
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/read/production/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Unit tests (the shared signing vectors, reproduced byte for byte)
+        run: npm test
+      - name: The configuration has not drifted from ops/environments.json
+        run: npm run ops:check
+      - name: Bundle dry run (validates wrangler.toml for every environment, no deploy, no credentials)
+        run: npm run check:bundle
+      - name: Conformance suite against the Worker on the local runtime
+        run: npm run test:conformance
+      - name: Abuse controls (the resource controls the conformance suite does not cover)
+        run: npm run test:abuse
+      - name: Operational checks (cold start, provider failures, expiry, revocation, key rotation)
+        run: npm run test:staging
+      - name: Isolation proof (no writes to the source repository, no copy of what was served)
+        run: npm run test:isolation
   write-gateway:
     name: write gateway (typecheck + bundle)
     runs-on: ubuntu-latest
@@ -41,8 +86,8 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
