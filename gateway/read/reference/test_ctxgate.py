@@ -63,6 +63,7 @@ class Fixture(unittest.TestCase):
 
 class TestGateway(Fixture):
     def test_valid_link_returns_content_and_hash(self):
+        # B1
         status, h, body = self.get(self.url("amk/spec.md"))
         self.assertEqual((status, body), (200, b"normative text\n"))
         self.assertEqual(h["X-Content-SHA256"], hashlib.sha256(b"normative text\n").hexdigest())
@@ -70,20 +71,24 @@ class TestGateway(Fixture):
         self.assertEqual(h["X-Ctx-Order"], ORDER)
 
     def test_head_has_headers_without_body(self):
+        # B2
         status, h, body = self.get(self.url("amk/spec.md"), method="HEAD")
         self.assertEqual((status, body), (200, b""))
         self.assertEqual(h["Content-Length"], str(len(b"normative text\n")))
 
     def test_only_get_and_head(self):
+        # B2
         for m in ("POST", "PUT", "DELETE", "PATCH"):
             self.assertEqual(self.get(self.url("amk/spec.md"), method=m)[0], 405)
 
     def test_expired_link(self):
+        # B3
         u = self.url("amk/spec.md", ttl=60, at=1000)
         self.assertEqual(self.get(u, at=1060)[0], 200)
         self.assertEqual(self.get(u, at=1061)[0], 403)
 
     def test_tampered_fields_are_refused(self):
+        # B4
         u = self.url("amk/spec.md")
         parts = u.split("/")  # ['', 'v1', kid, exp, order, sig, ref, 'amk', 'spec.md']
         for idx, val in ((3, "999999"), (4, "10008-S002"), (5, "A" * 43), (6, "b" * 40), (8, "big.md"), (2, "k2")):
@@ -92,9 +97,11 @@ class TestGateway(Fixture):
             self.assertEqual(self.get("/".join(p))[0], 403, "field %d" % idx)
 
     def test_cannot_mint_forever(self):
+        # B5
         self.assertEqual(self.get(self.url("amk/spec.md", ttl=7200))[0], 403)  # gateway max_ttl is 3600
 
     def test_revocation_by_order(self):
+        # B6
         u = self.url("amk/spec.md")
         self.assertEqual(self.get(u)[0], 200)
         self.revoked.write_text(json.dumps([ORDER]))
@@ -102,15 +109,18 @@ class TestGateway(Fixture):
         self.assertEqual(self.get(self.url("amk/spec.md", order="10008-S002"))[0], 200)  # other orders unaffected
 
     def test_path_policy_even_with_a_valid_signature(self):
+        # B7
         for p in ("docs/other.md", ".github/wf.yml", "amk/secrets.md"):
             self.assertEqual(self.get(self.url(p))[0], 403, p)
 
     def test_traversal_and_encoded_separators(self):
+        # B8
         good = self.url("amk/spec.md").split("/")
         for tail in (["amk", "..", "docs", "other.md"], ["amk%2Fspec.md"], ["amk", "spec.md%00"]):
             self.assertEqual(self.get("/".join(good[:7] + tail))[0], 403)
 
     def test_not_found_and_too_large_only_after_authentication(self):
+        # B9
         self.assertEqual(self.get(self.url("amk/missing.md"))[0], 404)
         self.assertEqual(self.get(self.url("amk/big.md"))[0], 413)
         self.assertEqual(self.get(self.url("amk/spec.md", ref="c" * 40))[0], 404)  # unknown commit
@@ -118,6 +128,7 @@ class TestGateway(Fixture):
         self.assertEqual(self.get(forged)[0], 403)  # unauthenticated callers learn nothing about existence
 
     def test_audit_trail_and_summary(self):
+        # B10
         self.get(self.url("amk/spec.md"))
         self.get(self.url("amk/spec.md"))
         self.get(self.url("docs/other.md"))
@@ -155,6 +166,7 @@ class TestOverHttp(Fixture):
             return e.code, e.read(), dict(e.headers)
 
     def test_plain_get_end_to_end(self):
+        # B1
         import time
         u = cg.mint("", SECRET, "k1", ORDER, self.ref, ["amk/spec.md"], ttl=600, at=int(time.time()))[0]
         status, body, headers = self.fetch(u)
@@ -162,6 +174,7 @@ class TestOverHttp(Fixture):
         self.assertEqual(headers["X-Content-SHA256"], hashlib.sha256(body).hexdigest())
 
     def test_http_refusals(self):
+        # B2
         import time
         at = int(time.time())
         ok = cg.mint("", SECRET, "k1", ORDER, self.ref, ["amk/spec.md"], ttl=600, at=at)[0]
@@ -186,6 +199,7 @@ class TestCli(Fixture):
         return rc, out.getvalue()
 
     def test_revoke_and_audit_commands(self):
+        # B6
         cfg = self.tmp / "gw.json"
         cfg.write_text(json.dumps({"keys": {"k1": "test-secret"}, "revoked_path": str(self.revoked)}))
         self.run_cli("revoke", "--config", str(cfg), ORDER)
@@ -195,6 +209,7 @@ class TestCli(Fixture):
         self.assertEqual(json.loads(out)["served"], {})  # the fetch above was refused: the order is revoked
 
     def test_links_minted_by_the_shipped_client_are_accepted(self):
+        # B11
         u = ctxlink.mint("https://gw.example", SECRET, "k1", ORDER, self.ref, ["amk/spec.md"], ttl=600, at=1000)[0]
         status, _, body = self.get(u[len("https://gw.example"):])
         self.assertEqual((status, body), (200, b"normative text\n"))

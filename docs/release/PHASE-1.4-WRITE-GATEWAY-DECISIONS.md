@@ -4,7 +4,7 @@
 - Branch: phase-1/write-gateway-decisions
 - Baseline: main @ 3e8a8ed874696f846687848ba11b8b876b9e1ae6
 - Date: 2026-10-26
-- Status: **Decisions recorded; submitted for review**
+- Status: **Decisions recorded and merged; scope updated by revised Stage 1.1 contract (APPROVED 2026-10-27)**
 
 ## Scope change
 
@@ -46,7 +46,7 @@ The write gateway is **in-scope and mandatory** for the 0.5.0 first release (sam
 - **Pre-created, never created by the gateway:** the submissions branch and the task submission folder (named by plan-id/task-id) must already exist before the work order is issued. The gateway never creates repositories, branches or folders. A request for a folder that does not exist fails with a defined error (specified in Phase 5.1). Git does not store empty folders, so "already exists" means the operator has committed a placeholder file in it; the gateway treats that placeholder as non-deliverable (exact handling specified in Phase 5.1).
 - **Write scope:** only that task folder on that branch; full file create/read/replace/delete within it. Path allow-listing in gateway code stays as defense in depth.
 - **Blast radius:** a leaked token could modify anything in the submissions repository, i.e. other tasks' submissions, but cannot reach the private consumer repository. The documentation must still not describe the credential itself as path-scoped.
-- **Consequence for the workflow:** deliverables now land in the submissions repository, not the private consumer repository. The operator's review and sync step must bring accepted files into the consumer repository (Stage 1.1.2 steps 4-6). That transfer path, and the operator tooling that creates the branch and task folder at work-order issue time, are **not yet designed and not yet in the plan** (register R0-011).
+- **Consequence for the workflow:** deliverables now land in the submissions repository, not the private consumer repository. The operator's review and sync step must bring accepted files into the consumer repository (Stage 1.1.2 steps 4-6). That transfer path is now designed at high level in Stage 1.1.5 of the approved product contract (actor = Supervisor Agent; expected-SHA concurrency control; fail-closed validation). Implementation remains outstanding (register R0-011) and is assigned to a later phase.
 - `gateway/write/.dev.vars.example` (`GITHUB_REPO=OWNER/PROJECT-dev`) and `wrangler.toml` placeholders are updated in Stage 5.2.2 / 5.4.6.
 
 ## 1.4.7 — Commit, seal, revoke, and post-close behaviour
@@ -90,7 +90,7 @@ Retained as proposed (binary KiB = 1024 bytes), published in `src/config/quotas.
 - [x] ADRs 0001–0004 decided and recorded.
 - [x] Transport, scope, quotas, commit/seal/revoke, and credential boundary decided.
 - [x] First-release scope (mandatory for 0.5.0) recorded.
-- [ ] Operator review and merge of this branch.
+- [x] Operator review and merge of this branch (reconciled 2026-10-27).
 - [ ] Phase 1 exit gate can then be considered once any residual documentation alignment is complete.
 
 ## Next
