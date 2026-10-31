@@ -11,6 +11,7 @@ import { scaffold } from "../../../src/staging/scaffold.ts";
 import { emptyQuota } from "../../../src/session/quota-accounting.ts";
 import { base64url, base64urlDecodeText } from "../../../src/util/base64.ts";
 import { sha256Hex, utf8 } from "../../../src/util/hash.ts";
+import { isKnownCode } from "../../../src/http/status-codes.ts";
 import type { StagingContext } from "../../../src/types/session.ts";
 
 /** A fresh staging context. */
@@ -143,13 +144,16 @@ test("a replace sets the content rather than growing it", async () => {
   assert.equal(ctx.quota.bytesAcceptedTotal, 10);
 });
 
-test("binary content is refused", async () => {
+test("binary content is refused, with a code the catalogue defines", async () => {
   const ctx = context();
   const bytes = new Uint8Array([0x00, 0x01, 0x02]);
   const outcome = await writeChunk(ctx, "intro.md", 1, await sha256Hex(bytes), base64url(bytes), "append");
   assert.equal(outcome.ok, false);
   if (outcome.ok) return;
-  assert.equal(outcome.code, "binary");
+  // The policy's own reason is "binary". The code the agent is given is "not-text", because
+  // "binary" is not a code the contract defines, and an undefined code is a 500 (F0-034).
+  assert.equal(outcome.code, "not-text");
+  assert.equal(isKnownCode(outcome.code), true);
 });
 
 test("reading back returns the content, the hash and the sequence number", async () => {

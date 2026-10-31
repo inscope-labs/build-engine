@@ -16,14 +16,20 @@
  * The Worker authenticates before it gets here. The order of the checks below is the contract's
  * verification order (section 14.3), and the Worker has already done the first six.
  */
-import { OPERATIONS, type Operation } from "../config/constants.ts";
+import {
+  OPERATIONS,
+  PROVIDER_BACKOFF_BASE_MS,
+  PROVIDER_BACKOFF_MAX_MS,
+  PROVIDER_MAX_ATTEMPTS,
+  type Operation,
+} from "../config/constants.ts";
 import { authorizeSession, isDestinationParameter } from "../auth/policy-authz.ts";
 import { decodeComponent, parseQuery } from "../auth/root-url.ts";
 import { errorSpec } from "../http/status-codes.ts";
 import { nextLinks } from "../hypermedia/links.ts";
 import { indexResult } from "../hypermedia/index.ts";
 import { countRequest } from "../policy/rate-limit.ts";
-import { checkTypeAllowed } from "../policy/type-policy.ts";
+import { checkTypeAllowed, typeFailureCode } from "../policy/type-policy.ts";
 import { checkFileCount } from "../policy/quotas.ts";
 import { sealSession } from "../seal/seal.ts";
 import { appendChunk } from "../staging/append.ts";
@@ -34,15 +40,27 @@ import { scaffold } from "../staging/scaffold.ts";
 import { quotaView, snapshot } from "../staging/status.ts";
 import { claimLease } from "./writer-claim.ts";
 import { emptyQuota, reconcile } from "./quota-accounting.ts";
+import { commitDigest } from "../commit/commit-idempotency.ts";
+import { createCommitObject, deliverCommit, type CommitInput } from "../commit/commit.ts";
+import { GitHubClient } from "../commit/github-client.ts";
+import { realSleep } from "../commit/retry.ts";
+import { validateSelection } from "../commit/selection.ts";
+import { resolveFolder } from "../hypermedia/index.ts";
+import { lookupIdempotency, recordIdempotency, resolveIdempotencyKey } from "./idempotency.ts";
+import { sha256HexOfText } from "../util/hash.ts";
+import { loadConfig, type Config } from "../config/env.ts";
+import type { Env } from "../config/env.ts";
 import type { Capability } from "../types/requests.ts";
 import type { Link } from "../types/responses.ts";
 import type {
   ChunkIdentity,
+  CommitInflight,
   CommitRecord,
   FileEntry,
   IdempotencyEntry,
   QuotaState,
   RateWindow,
+  SealRecord,
   SessionState,
   WriterLease,
 } from "../types/session.ts";
@@ -59,6 +77,10 @@ export interface StoredSession {
   idempotency: Record<string, IdempotencyEntry>;
   commit: CommitRecord | null;
   rate: RateWindow | null;
+  /** The commits that were started and whose outcome was never recorded. */
+  inflight: Record<string, CommitInflight>;
+  /** The seal, once the task has been sealed. */
+  seal: SealRecord | null;
 }
 
 /** The request the Worker sends to the Durable Object. */
@@ -85,6 +107,13 @@ export interface InternalResponse {
   result: unknown;
   next: Link[];
   error: { code: string; message: string; retryable: boolean } | null;
+  /**
+   * The extra fields the audit record carries.
+   *
+   * They are named here, and not taken from the result, so that the audit record stays a fixed
+   * schema: the session says what may be written, and the router writes exactly those fields.
+   */
+  audit?: { commit?: string; files?: number; selection?: string };
 }
 
 /** A fresh session. */
@@ -98,14 +127,26 @@ function freshSession(): StoredSession {
     idempotency: {},
     commit: null,
     rate: null,
+    inflight: {},
+    seal: null,
   };
 }
 
 export class TaskSession {
   /** The Durable Object state. */
   private readonly state: DurableObjectState;
+  /**
+   * The environment.
+   *
+   * The Durable Object reads the same environment the Worker does, so that there is one authority
+   * for the configuration — the repository, the branch, the credential — and not two that can
+   * disagree. The runtime passes it as the second constructor argument.
+   */
+  private readonly env: Env;
   /** The durable state, loaded on first use. */
   private session: StoredSession | null = null;
+  /** The configuration, read once per instance. */
+  private config: Config | null = null;
   /** The ephemeral content. In memory, and nowhere else. */
   private readonly contents = new Map<string, string>();
   /**
@@ -124,8 +165,9 @@ export class TaskSession {
 
   // The field is declared rather than written as a parameter property: Node's type stripping
   // only erases types, and a parameter property is a constructor assignment, not a type.
-  constructor(state: DurableObjectState) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state;
+    this.env = env;
   }
 
   /**
@@ -195,6 +237,11 @@ export class TaskSession {
 
     const stored = await this.state.storage.get<StoredSession>(SESSION_KEY);
     const session = stored ?? freshSession();
+    // A session stored before these fields existed still loads. The gateway has to be able to
+    // read the sessions it wrote before a deployment, and a missing field is not a reason to
+    // refuse a request.
+    session.inflight ??= {};
+    session.seal ??= null;
 
     let liveFiles = 0;
     let liveBytes = 0;
@@ -289,6 +336,7 @@ export class TaskSession {
       result: outcome.result,
       next,
       error: null,
+      ...(outcome.audit !== undefined ? { audit: outcome.audit } : {}),
     };
   }
 
@@ -304,7 +352,7 @@ export class TaskSession {
     op: Operation,
     params: Record<string, string | string[] | number | undefined>,
     request: InternalRequest,
-  ): Promise<{ ok: true; result: Record<string, unknown> } | { ok: false; code: string; message: string }> {
+  ): Promise<PerformOutcome> {
     switch (op) {
       case "index":
         return {
@@ -334,7 +382,7 @@ export class TaskSession {
         const path = params.path as string;
         const typeCheck = checkTypeAllowed(path);
         if (!typeCheck.ok) {
-          return { ok: false, code: typeCheck.reason, message: "that file type is not allowed" };
+          return { ok: false, code: typeFailureCode(typeCheck.reason), message: "that file type is not allowed" };
         }
         // The file count is a quota, and a quota is checked before the thing it limits. A file
         // that already exists is not a new file, so the check comes after the scaffold decision.
@@ -394,21 +442,231 @@ export class TaskSession {
       }
 
       case "commit":
-        // Stage 5.3 implements the GitHub delivery. Until then the route exists, the session
-        // answers, and the refusal says exactly that.
-        return {
-          ok: false,
-          code: "not-implemented",
-          message: "the commit route is not implemented yet; this build of the gateway cannot deliver",
-        };
+        return this.runCommit(session, ctx, params, request);
 
       case "seal": {
-        const decision = sealSession(session.commit, request.now);
+        const idem = typeof params.idem === "string" ? params.idem : undefined;
+        const commit = session.commit;
+
+        // A repeated seal is not an error. It returns the recorded outcome, so that a seal whose
+        // response was lost can be retried safely (protocol section 8.4).
+        if (session.seal !== null) {
+          const result = {
+            sealed: true,
+            at: session.seal.at,
+            commit: session.seal.commit,
+            files: session.seal.files,
+          };
+          const digest = await sha256HexOfText(session.seal.commit);
+          session.idempotency = recordIdempotency(
+            session.idempotency,
+            resolveIdempotencyKey(idem, digest),
+            digest,
+            result,
+            request.now,
+          );
+          return { ok: true, result: { ...result, replayed: true } };
+        }
+
+        const decision = sealSession(commit, request.now);
         if (!decision.ok) return { ok: false, code: decision.code, message: decision.message };
         session.state = decision.state;
-        return { ok: true, result: decision.result };
+        session.seal = { at: request.now, commit: commit!.sha, files: commit!.paths.length };
+        const digest = await sha256HexOfText(commit!.sha);
+        session.idempotency = recordIdempotency(
+          session.idempotency,
+          resolveIdempotencyKey(idem, digest),
+          digest,
+          decision.result,
+          request.now,
+        );
+        return { ok: true, result: { ...decision.result, replayed: false } };
       }
     }
+  }
+
+  /**
+   * The commit (protocol section 8.1, plan task 5.3).
+   *
+   * The order of the steps is the contract's order of preconditions, with one deliberate
+   * exception, and the exception is the one that makes a retry work:
+   *
+   * **The idempotency lookup comes first.** A replay is not a new commit, and none of a new
+   * commit's preconditions apply to it: the branch has moved (that is what the first commit did),
+   * and the selection may have been tombstoned since. If the lookup came last, the "committed,
+   * response lost" case of section 13.3 would answer `409 expected-sha-conflict` instead of
+   * returning the success, and the agent would have no way to find out that its commit had
+   * landed.
+   *
+   * The digest is computed from the selection and the content hashes the inventory holds, so a
+   * replay with the same payload matches, and a reuse of the key with a different payload is a
+   * conflict.
+   */
+  private async runCommit(
+    session: StoredSession,
+    ctx: {
+      files: Record<string, FileEntry>;
+      chunks: Record<string, ChunkIdentity[]>;
+      contents: Map<string, string>;
+      quota: QuotaState;
+    },
+    params: Record<string, string | string[] | number | undefined>,
+    request: InternalRequest,
+  ): Promise<PerformOutcome> {
+    const requested = (params.files as string[]).map((path) => String(path));
+    const idem = typeof params.idem === "string" ? params.idem : undefined;
+
+    const hashes: Record<string, string> = {};
+    for (const path of requested) {
+      hashes[path] = ctx.files[path]?.hash ?? "";
+    }
+    const digest = await commitDigest({ files: requested, hashes });
+    const key = resolveIdempotencyKey(idem, digest);
+
+    const lookup = lookupIdempotency(session.idempotency, key, digest);
+    if (lookup.kind === "conflict") {
+      return {
+        ok: false,
+        code: "idempotency-conflict",
+        message: "that idempotency key was already used with a different selection",
+      };
+    }
+    if (lookup.kind === "replay") {
+      const recorded = lookup.outcome as Record<string, unknown>;
+      const paths = Array.isArray(recorded.files) ? (recorded.files as string[]) : [];
+      return {
+        ok: true,
+        result: { ...recorded, replayed: true },
+        audit: { commit: recorded.commit as string, files: paths.length, selection: digest },
+      };
+    }
+
+    // The selection, checked against the session.
+    const folder = resolveFolder(
+      request.config.folderTemplate,
+      request.capability.plan,
+      request.capability.order,
+      request.capability.task,
+    );
+    const selection = validateSelection(requested, ctx.files, ctx.contents, folder);
+    if (!selection.ok) return { ok: false, code: selection.code, message: selection.message };
+
+    // The destination. It comes from the configuration and from nowhere else.
+    let config: Config;
+    try {
+      config = this.effectiveConfig();
+    } catch {
+      return {
+        ok: false,
+        code: "gateway-misconfigured",
+        message: "the gateway's destination configuration is not usable; this is an operator fault",
+      };
+    }
+    const token = this.env.GITHUB_TOKEN;
+    if (typeof token !== "string" || token === "") {
+      return {
+        ok: false,
+        code: "gateway-misconfigured",
+        message: "the gateway has no provider credential; this is an operator fault",
+      };
+    }
+
+    const client = new GitHubClient({
+      repo: config.submissionsRepo,
+      branch: config.submissionsBranch,
+      token,
+      apiBase: config.githubApiBase,
+      timeoutMs: config.githubTimeoutMs,
+      userAgent: "build-engine-write-gateway",
+    });
+
+    // The attempt that may already have been started.
+    const inflightKey = `${request.capability.head}:${digest}`;
+    const existing = session.inflight[inflightKey];
+    const startedAt = existing?.startedAt ?? request.now;
+
+    const input: CommitInput = {
+      client,
+      folder,
+      task: request.capability.task,
+      order: request.capability.order,
+      expectedHead: request.capability.head,
+      startedAt,
+      files: selection.files,
+      policy: {
+        maxAttempts: PROVIDER_MAX_ATTEMPTS,
+        baseDelayMs: PROVIDER_BACKOFF_BASE_MS,
+        maxDelayMs: PROVIDER_BACKOFF_MAX_MS,
+      },
+      sleep: realSleep,
+      authorName: config.commitAuthorName,
+      authorEmail: config.commitAuthorEmail,
+    };
+
+    // The commit object, unless a previous attempt already made it. Its sha is recorded before
+    // the branch is moved, so that a crash in between leaves a trace the next attempt follows.
+    let sha = existing?.sha ?? null;
+    if (sha === null) {
+      const created = await createCommitObject(input);
+      if (!created.ok) return { ok: false, code: created.code, message: created.message };
+      sha = created.sha;
+      session.inflight[inflightKey] = {
+        digest,
+        expectedHead: request.capability.head,
+        sha,
+        startedAt,
+        paths: selection.files.map((file) => file.path),
+        hashes: selection.hashes,
+      };
+      await this.save(session);
+    }
+
+    // The delivery. This is the step that can leave the outcome unknown.
+    const delivered = await deliverCommit({ ...input, sha });
+    if (!delivered.ok) {
+      // The in-flight entry stays. The next attempt has to resolve it, not start again.
+      await this.save(session);
+      return { ok: false, code: delivered.code, message: delivered.message };
+    }
+
+    // The record.
+    const record: CommitRecord = {
+      sha,
+      paths: selection.files.map((file) => file.path),
+      hashes: selection.hashes,
+      actor: request.capability.writer,
+      task: request.capability.task,
+      order: request.capability.order,
+      at: request.now,
+    };
+    const result = {
+      commit: sha,
+      files: record.paths,
+      count: record.paths.length,
+      at: record.at,
+      replayed: false,
+    };
+    session.commit = record;
+    session.idempotency = recordIdempotency(session.idempotency, key, digest, result, request.now);
+    delete session.inflight[inflightKey];
+    await this.save(session);
+
+    return {
+      ok: true,
+      result,
+      audit: { commit: sha, files: record.paths.length, selection: digest },
+    };
+  }
+
+  /**
+   * The configuration, read once per instance.
+   *
+   * The Durable Object reads the same environment the Worker does, so that there is one authority
+   * for the configuration and not two that can disagree.
+   */
+  private effectiveConfig(): Config {
+    if (this.config === null) this.config = loadConfig(this.env);
+    return this.config;
   }
 
   /** The operator's revocation. */
@@ -448,6 +706,11 @@ export class TaskSession {
     return { commit };
   }
 }
+
+/** What an operation returns. */
+export type PerformOutcome =
+  | { ok: true; result: Record<string, unknown>; audit?: { commit?: string; files?: number; selection?: string } }
+  | { ok: false; code: string; message: string };
 
 /** Whether the operation is one the contract defines. */
 function isKnownOperation(op: string): op is Operation {

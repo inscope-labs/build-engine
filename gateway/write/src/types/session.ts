@@ -77,8 +77,48 @@ export interface CommitRecord {
   hashes: Record<string, string>;
   /** The writer that caused the commit. */
   actor: string;
+  /** The task the commit belongs to. */
+  task: string;
+  /** The work order the commit belongs to. */
+  order: string;
   /** When the commit happened, in unix seconds. */
   at: number;
+}
+
+/**
+ * A commit that was started and whose outcome was not recorded.
+ *
+ * The entry is written **before** the branch is moved and removed once the commit is recorded. If
+ * it is still there, the last attempt did not finish, and the next attempt has to resolve it
+ * rather than start again: the commit object may exist, and the branch may or may not point at
+ * it.
+ *
+ * It is keyed by the expected head and the payload's digest, so that it describes one specific
+ * commit attempt and not "a commit for this task".
+ */
+export interface CommitInflight {
+  /** The digest of the commit's logical payload. */
+  digest: string;
+  /** The head the commit's parent is. */
+  expectedHead: string;
+  /** The commit sha, once the commit object exists. Null before that. */
+  sha: string | null;
+  /** The commit's timestamp, in unix seconds. Fixed, so that a repeated attempt is the same commit. */
+  startedAt: number;
+  /** The selected paths, relative to the task folder. */
+  paths: string[];
+  /** The content hash of each selected path. */
+  hashes: Record<string, string>;
+}
+
+/** A recorded seal. */
+export interface SealRecord {
+  /** When the seal happened, in unix seconds. */
+  at: number;
+  /** The commit that was sealed. */
+  commit: string;
+  /** The number of files in the sealed commit. */
+  files: number;
 }
 
 /** A recorded idempotent outcome. */

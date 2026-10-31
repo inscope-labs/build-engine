@@ -5,12 +5,13 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033 (closed)**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033 and Stage 5.3 added F0-034 (closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
 - Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
 - Stage 4.3 addendum: 2026-10-27; F0-030 to F0-032, found by the operational checks of Stage 4.3 and closed in it
 - Stage 5.2 addendum: 2026-10-27; F0-033, found by the concurrency test of Stage 5.2 and closed in it
+- Stage 5.3 addendum: 2026-10-27; F0-034, found while the commit was being implemented and closed in it
 
 ## Status and evidence rules
 
@@ -57,7 +58,7 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 
 ### F0-004 — Write gateway is scaffold-only
 - Severity: S1 for agent-side submission capability.
-- Status: CONFIRMED. **The core request and session lifecycle is implemented in Stage 5.2** (2026-10-27); the GitHub delivery is Stage 5.3 and the full test suite and CI wiring are Stage 5.5.
+- Status: CONFIRMED. **The core request and session lifecycle is implemented in Stage 5.2 and the GitHub delivery in Stage 5.3** (2026-10-27); the remaining chaos tests, the audit stream and the CI wiring are Stage 5.5 and Stage 5.4.
 - Evidence: `gateway/write/src/index.ts` returned HTTP 501; `gateway/write/README.md` identified implementation/tests as scaffold or stubs.
 - Consequence: agent-side gateway submission is not operational.
 - Required resolution: implement authorization/task binding, routing, quotas, staging, idempotent commit, sealing/closure, revocation and audit semantics; add real adversarial and integration tests.
@@ -120,6 +121,7 @@ Added after the operator asked for a register that omits no known defect. Method
 - Consequence: no write-gateway behaviour exists or is tested; passing typecheck/bundle says nothing about function. Ownership is Phase 5 (below), not Phase 2/3.
 - Owner: implementation team. Planned phase: Phase 5 - 5.1 (contract), 5.2 (core/session), 5.3 (GitHub commit), 5.4 (audit/ops, scripts), 5.5 (all test stubs, runner, CI wiring); deploy-gate wiring also 5.4.6.
 - Closure evidence: Phase 5 exit gate: "No 501 handler or placeholder source/test stubs remain in any feature claimed as supported", plus passing suites.
+- Update (Stage 5.3): `gateway/write/src` is 52 files and **none of them is a stub any more**: the four Stage 5.3 modules (`commit/commit.ts`, `commit/github-client.ts`, `commit/retry.ts`, `commit/selection.ts`) are implemented, and the `commit` route no longer answers `501 not-implemented` — it delivers to the provider, and the seal precondition (`409 seal-requires-commit`) is now reachable through the agent route. `gateway/write/tests` has 37 files and 221 tests pass, including a mock provider that is a **real HTTP server on loopback**, so the shipped client is exercised end to end rather than against a re-implementation. The remaining test stubs are the two Stage 5.5 chaos ones (`tests/chaos/do-eviction.test.ts`, `tests/chaos/isolate-eviction.test.ts`). The `ci/*.yml` files are still stubs and still sit outside `.github/workflows/`; the CI wiring is Stage 5.5.8. The gateway is **not deployed**; there is no provider credential in any environment the gateway has been run with.
 - Update (Stage 5.2): the file-level count has changed and the remaining stubs are named. `gateway/write/src` is 52 files: 48 are implemented and 4 remain Stage 5.3 stubs (`commit/commit.ts`, `commit/github-client.ts`, `commit/retry.ts`, `commit/selection.ts`), each of which says so in its first lines and states what Stage 5.3 will implement. `gateway/write/tests` has 30 test files, 20 of them real and 171 tests passing; the 10 that remain stubs are the Stage 5.3 (commit, retries, GitHub mock) and Stage 5.5 (chaos, GitHub helpers) ones. `package.json` now has a `test` script that runs the Node test runner with type stripping — the same runner the read gateway uses since Stage 4.2 — and `tsconfig.test.json` typechecks the tests. `src/config/type-policy.json` is authored, `src/config/quotas.json` no longer carries the "KB undefined" note, and `.dev.vars.example` and `wrangler.toml` name the settings the code actually reads. The `ci/*.yml` files are still stubs and still sit outside `.github/workflows/`; the CI wiring is Stage 5.5.8.
 
 ### F0-033 — The Durable Object's handlers interleaved, so a concurrent write was applied more than once
@@ -130,6 +132,15 @@ Added after the operator asked for a register that omits no known defect. Method
 - Resolution (Stage 5.2): the `TaskSession` class now holds a request queue, and every internal route runs through it. The concurrency test asserts that exactly one writer is admitted, that a chunk applied concurrently is applied once, and that the accepted bytes are counted once.
 - Owner: implementation. Planned phase: Stage 5.2 (done).
 - Closure evidence: `tests/load/concurrent-writers.test.ts` — 3 tests; and the full suite of 171 tests passes with the queue in place.
+
+### F0-034 — The type policy's reasons were passed through as error codes, and three of them were not codes
+- Severity: S2. Status: **CONFIRMED and CLOSED in Stage 5.3** (2026-10-27).
+- Evidence: `src/policy/type-policy.ts` produced three failure reasons that are not in the error catalogue: `denied-name`, `denied-extension` and `binary`. The callers passed the reason straight through as `error.code` — `src/staging/append.ts` (`code: typeCheck.reason`) and `src/session/task-session.ts` (`code: typeCheck.reason`). An undefined code is treated as a server fault by `errorSpec`, so a request that the policy refused was answered **500**. An agent that appended to a file whose name the policy denies, or sent a NUL byte, was told that the *gateway* had failed, when the *request* was what the policy refused. The status-codes test did not catch it, because it checks that the catalogue and the code table agree — and both of them were right; the leak was between the policy and the catalogue.
+- Consequence: three client-side refusals were reported as server faults, which is the one thing a monitoring dashboard and a retry policy both read incorrectly. A retry policy that retries 500s would have retried a request that could never succeed.
+- Required resolution: map the policy's reasons onto catalogue codes in one place, inside the policy that produces them, and never pass a reason through as a code.
+- Resolution (Stage 5.3): `typeFailureCode()` in `src/policy/type-policy.ts` maps every reason onto a catalogue code (`denied-name` and `denied-extension` → `type-not-allowed`, `binary` → `not-text`), and the two callers use it. A test asserts that the binary refusal's code is `not-text` **and** that it is a code the gateway knows.
+- Owner: implementation. Planned phase: Stage 5.3 (done).
+- Closure evidence: `tests/unit/staging/append.test.ts` — the binary case; and the full suite of 221 tests passes.
 
 ### F0-010 — `verify.sh` executes code from the artifact it is verifying
 - Severity: S2. Status: CONFIRMED (executed).

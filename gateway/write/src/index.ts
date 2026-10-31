@@ -6,8 +6,9 @@
  * Durable Object, which is where the session's state lives.
  *
  * The Worker answers `501` to nothing any more: every route in the contract either works or
- * answers with a documented error. The one exception is the `commit` route, whose delivery is
- * Stage 5.3's work; it answers `501 not-implemented`, which is a documented code.
+ * answers with a documented error. The `commit` route delivers to the provider; the delivery
+ * happens inside the Durable Object, because the session's state and the commit's outcome have to
+ * change together.
  */
 import { loadConfig, ConfigError, type Env } from "./config/env.ts";
 import { handleRequest } from "./router.ts";

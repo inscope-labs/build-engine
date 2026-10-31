@@ -51,10 +51,65 @@ export const MUTATING_OPERATIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The placeholder file.
+ *
+ * Git does not store empty folders, so the operator commits a placeholder into the task folder
+ * before the work order is issued. The gateway never stages it, never commits it, never returns
+ * it and never lists it: it is the operator's file and it is invisible to the agent
+ * (protocol section 12.3).
+ */
+export const PLACEHOLDER_FILE = ".keep";
+
+/**
  * The commit message the gateway generates. It is a constant: no request may influence it, because
  * a commit message is a piece of the operator's review surface.
  */
 export const COMMIT_MESSAGE_SUBJECT = "ctxwrite-v1";
+
+/**
+ * The commit's author and committer identity.
+ *
+ * The gateway signs the commit as itself and as nobody else. A commit that carried the agent's
+ * identity would be indistinguishable from a commit a person made by hand, and the operator's
+ * review surface is exactly where that distinction matters.
+ */
+export const COMMIT_AUTHOR_NAME = "build-engine write gateway";
+export const COMMIT_AUTHOR_EMAIL = "ctxwrite@users.noreply.github.com";
+
+/**
+ * The provider's retry policy.
+ *
+ * Three attempts, with the delay doubling between them and capped. The bound matters: a commit
+ * that is going to fail should fail while the agent is still waiting, not after a minute of
+ * silence. The commit route's own timeout is the outer bound, and these are the inner steps.
+ */
+export const PROVIDER_MAX_ATTEMPTS = 3;
+export const PROVIDER_BACKOFF_BASE_MS = 250;
+export const PROVIDER_BACKOFF_MAX_MS = 4000;
+
+/**
+ * The default per-call timeout for a provider call, in milliseconds.
+ *
+ * A provider that has not answered in ten seconds is not going to answer this commit, and the
+ * agent is better served by a definite failure than by an open-ended wait.
+ */
+export const PROVIDER_TIMEOUT_MS = 10000;
+
+/** The bounds on the configurable provider timeout. */
+export const PROVIDER_TIMEOUT_MIN_MS = 1000;
+export const PROVIDER_TIMEOUT_MAX_MS = 60000;
+
+/**
+ * The commit message.
+ *
+ * The format is fixed by the contract (section 8.3): the subject, a blank line, and the selected
+ * paths, one per line, as paths relative to the task folder. The paths are the only part that
+ * comes from the request, and they are the part the contract says they are.
+ */
+export function commitMessage(task: string, order: string, paths: readonly string[]): string {
+  const body = paths.map((path) => path).join("\n");
+  return `${COMMIT_MESSAGE_SUBJECT}: ${task} (${order})\n\n${body}\n`;
+}
 
 /** The header names the gateway sets or reads. */
 export const HEADER_REQUEST_ID = "X-Request-Id";

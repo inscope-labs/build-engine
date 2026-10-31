@@ -78,8 +78,15 @@ export const ERROR_SPECS: Readonly<Record<string, ErrorSpec>> = Object.freeze({
   "file-too-large": { status: 413, retryable: false },
   "total-bytes-exceeded": { status: 413, retryable: false },
 
-  // 429 — a rate quota.
+  // 429 — a rate quota. `rate-limited` is the gateway's own limit on the agent; the provider's
+  // limit on the gateway is a different thing with a different remedy.
   "rate-limited": { status: 429, retryable: true },
+  "provider-rate-limited": { status: 429, retryable: true },
+
+  // 502 — the provider refused or could not be reached. The gateway is fine; the far side is
+  // not, and the distinction from the gateway's own failures is the operator's first question.
+  "provider-rejected": { status: 502, retryable: false },
+  "provider-credential-invalid": { status: 502, retryable: false },
 
   // 501 — a route that is specified but not yet implemented.
   "not-implemented": { status: 501, retryable: false },
@@ -87,6 +94,7 @@ export const ERROR_SPECS: Readonly<Record<string, ErrorSpec>> = Object.freeze({
   // 503 — the gateway cannot serve the request.
   "gateway-misconfigured": { status: 503, retryable: false },
   "state-unavailable": { status: 503, retryable: true },
+  "provider-unavailable": { status: 503, retryable: true },
 });
 
 /** The spec of a code. An unknown code is treated as a 500 rather than being thrown away. */

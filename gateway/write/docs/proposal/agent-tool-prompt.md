@@ -32,6 +32,9 @@ If the URL above still shows `{{`, use the one from a response, or ask the opera
 5. **Soft delete** — `…/delete?path=<p>` (tombstone; reversible only by re-scaffold).
 6. **Commit** — `…/commit?files=a.md,b.md` → pushes only listed files. Idempotent
    for one file list. Requires a successful commit before `seal`.
+   In `files`, each path is percent-encoded on its own and the separator is a
+   **literal** comma — `a.md,b.md`, not `a.md%2Cb.md`. A file name may contain
+   a comma, so the gateway splits the raw value first.
 7. **Seal** — `…/seal` → freezes the folder, marks delivery. Further writes `410`.
    Revocation is operator-only and **not** available via this API.
 

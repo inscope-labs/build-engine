@@ -795,13 +795,30 @@ Preconditions, checked in this order, each with its own code:
 
 | # | Check | Failure |
 |---|---|---|
+| 0 | the idempotency key is **new**, or is being replayed with the same payload | `409 idempotency-conflict` |
 | 1 | the session is `open` | `410 task-sealed` / `410 task-revoked` / `410 order-closed` |
 | 2 | the selection is not empty | `400 empty-selection` |
 | 3 | every selected path is a live staged file | `409 file-not-staged` |
 | 4 | every selected file passes the type policy and the size limits | `400 type-not-allowed` / `413 file-too-large` |
 | 5 | the selection does not contain a tombstoned path | `409 file-not-staged` |
 | 6 | the submissions branch head still equals the capability's `head` | `409 expected-sha-conflict` |
-| 7 | the idempotency key is new, or is being replayed with the same payload | `409 idempotency-conflict` |
+
+**Check 0 comes first, and that is a correction.** The table used to put the idempotency check
+last, and the order it gave was wrong: a commit that succeeded has, by definition, moved the
+branch, so a replay would have failed check 6 with `409 expected-sha-conflict` and the agent
+would have had no way to find out that its commit had landed. A **replay is not a new commit**,
+and none of a new commit's preconditions apply to it — not the branch head, and not the state of
+the selection. So the key is looked up first: a key that is not in use continues to the other
+checks, a key that is being replayed with the same payload returns the recorded outcome with
+`result.replayed = true`, and a key that is being reused with a *different* payload is
+`409 idempotency-conflict`. Only then are the other six checked.
+
+**One capability, one commit.** Check 6 pins the commit's parent to the head the capability was
+minted against, so a capability authorises exactly one commit: the first commit moves the branch,
+and a second commit under the same capability finds a head that no longer matches. A task that
+needs two commits needs two capabilities, each minted against the head the other one produced.
+This is a consequence of the precondition, not a separate rule, and it is the reason the
+idempotent replay has to be checked first.
 
 On success the gateway:
 
@@ -817,6 +834,36 @@ The gateway MUST NOT, under any circumstance: create a repository, create a bran
 open a pull request, push to a second branch, push to the consumer repository, delete anything, or force-push.
 A commit is one commit to one branch, on top of one expected parent.
 
+The commit is made in two steps, and the split is what makes the failure modes answerable:
+
+1. the **objects** — a blob per file, a tree, and a commit whose parent is the expected head. None
+   of them is referenced by anything, so a failure here leaves nothing on the branch and the whole
+   step may be repeated safely;
+2. the **delivery** — the branch is moved to that commit, in one call, which is never repeated
+   blindly. If that call fails in a way that leaves the outcome unknown, the gateway **looks at
+   the branch** and decides from what it finds: the branch is at the commit, so it landed; the
+   branch is still at the expected head, so it did not, and the call is repeated; the branch is
+   somewhere else, so the gateway **cannot tell**, and the answer is `409 reconcile-required` and
+   a human. The gateway never guesses, and never issues a second commit to find out (section
+   13.3).
+
+**What the agent sees when the provider fails.** The provider's own status and body are never
+passed through; they become the gateway's codes.
+
+| The provider did | The agent gets | Retryable |
+|---|---|---|
+| refuse the credential (401, 403) | `502 provider-credential-invalid` | no — an operator has to fix it |
+| refuse the request otherwise (400, 404) | `502 provider-rejected` | no |
+| rate limit the gateway (429) | `429 provider-rate-limited` | yes, with backoff |
+| fail or time out (5xx, a timeout, a network failure) | `503 provider-unavailable` | yes, with backoff |
+| refuse the reference update (409, 422) | `409 expected-sha-conflict` | no |
+| leave the outcome unknown | `409 reconcile-required` | no — stop and ask the operator |
+
+`provider-rate-limited` is the **provider's** limit on the gateway, and it is a different code
+from `rate-limited`, which is the gateway's own limit on the agent. An agent that sees the
+latter is being throttled for asking too often; an agent that sees the former is being throttled
+for the gateway's account, and only the operator can fix that.
+
 ### 8.2 Selection rules
 
 - The selection names files **relative to the task folder**; the folder prefix is added by the gateway.
@@ -827,6 +874,9 @@ A commit is one commit to one branch, on top of one expected parent.
   `status`.
 - The **placeholder file** (section 12.3) is never committable and never appears in a selection.
 - The selection is a set, not a list: a repeated path is refused with `400 repeated-parameter`.
+- The **separator** between paths is a literal comma, and each path is percent-encoded on its
+  own. A caller that percent-encodes the separator as well sends one path with a comma in it; the
+  refusal names that mistake, because the file-not-staged code on its own would not.
 
 ### 8.3 Commit message
 
@@ -838,6 +888,12 @@ ctxwrite-v1: <task> (<order>)
 
 followed by a blank line and a body listing the selected paths, one per line, as relative paths. The message
 format is a constant in `src/config/constants.ts` and MUST NOT be influenced by a request.
+
+The commit's **author and committer** are the gateway itself, and not the agent: a commit that
+carried the agent's identity could not be told apart from a commit a person made by hand, and
+telling them apart is the whole point of the operator's review surface. The identity is
+configuration (`GITHUB_COMMIT_AUTHOR`), never a request parameter, and its default names the
+gateway.
 
 ### 8.4 Seal
 
@@ -1164,6 +1220,9 @@ recorded in the audit as an operator action.
 | committed, response lost | the retry with the same idempotency key returns the **same success**, `result.replayed = true` | nothing |
 | same key, different content | `409 idempotency-conflict` | **stop**; ask the operator |
 | outcome indeterminate | `409 reconcile-required` | **stop**; ask the operator |
+| the provider is slow or down | `503 provider-unavailable`, `429 provider-rate-limited` | retry, with backoff |
+| the provider refused the gateway's credential | `502 provider-credential-invalid` | **stop**; ask the operator |
+| the branch moved | `409 expected-sha-conflict` | **stop**; the capability is stale, ask for a new one |
 | sealed | `410 task-sealed` | stop |
 | revoked | `410 task-revoked` | stop |
 

@@ -70,14 +70,14 @@ export interface TestSession {
  * `blockConcurrencyWhile` is a no-op here: the real runtime serialises the requests that touch
  * one object, and the tests drive them one at a time.
  */
-export function testSession(): TestSession {
+export function testSession(env: Record<string, unknown> = {}): TestSession {
   const storage = new MemoryStorage();
   const state = {
     storage,
     blockConcurrencyWhile: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
     id: { toString: () => "test-session" },
   } as unknown as DurableObjectState;
-  const instance = new TaskSession(state);
+  const instance = new TaskSession(state, env as never);
   return {
     storage,
     instance,
@@ -94,6 +94,19 @@ export function testSession(): TestSession {
  */
 export class MemoryNamespace {
   private readonly sessions = new Map<string, TestSession>();
+  /**
+   * The environment the sessions are created with.
+   *
+   * The Durable Object reads the environment the way the runtime supplies it, so the namespace
+   * has to hold it: the environment is what tells the session where the submissions repository
+   * is, and a session created without one cannot commit.
+   */
+  private env: Record<string, unknown> = {};
+
+  /** Set the environment the sessions are created with. */
+  setEnv(env: Record<string, unknown>): void {
+    this.env = env;
+  }
 
   idFromName(name: string): { toString: () => string } {
     return { toString: () => name };
@@ -103,7 +116,7 @@ export class MemoryNamespace {
     const name = id.toString();
     let session = this.sessions.get(name);
     if (session === undefined) {
-      session = testSession();
+      session = testSession(this.env);
       this.sessions.set(name, session);
     }
     return { fetch: session.fetch };
@@ -113,7 +126,7 @@ export class MemoryNamespace {
   session(name: string): TestSession {
     let session = this.sessions.get(name);
     if (session === undefined) {
-      session = testSession();
+      session = testSession(this.env);
       this.sessions.set(name, session);
     }
     return session;
@@ -127,7 +140,7 @@ export class MemoryNamespace {
 
 /** The environment a test drives the Worker with. */
 export function testEnv(namespace: MemoryNamespace, overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const env: Record<string, unknown> = {
     SIGNING_KEYS: JSON.stringify({ [TEST_KID]: TEST_SECRET }),
     SUBMISSIONS_REPO: "owner/repo",
     SUBMISSIONS_BRANCH: "build-engine",
@@ -140,4 +153,7 @@ export function testEnv(namespace: MemoryNamespace, overrides: Record<string, un
     TASK_SESSION: namespace,
     ...overrides,
   };
+  // The sessions the namespace hands out are created with this environment.
+  namespace.setEnv(env);
+  return env;
 }
