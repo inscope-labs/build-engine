@@ -48,7 +48,8 @@ Task id: `PLAN-PHASE-TASK-SUB`, for example `10008-5-102-00`.
 A work order carries only URLs as context, pinned to commits. They point at files in the private `PROJECT-dev`
 repository (PROJECT content as mirrored in `PROJECT-dev` `main`, and plan files on `build-engine`). Agents never
 use the public repository. Authenticated agents read them with git or curl; limited agents use signed gateway links
-(plain HTTPS GET, expiring, read-only; see `docs/CONTEXT-EXPORT.md`).
+(plain HTTPS GET, expiring, read-only; see `docs/CONTEXT-EXPORT.md`) when the order lists them. No gateway is deployed in
+this version.
 
 ## Handover vocabulary (closed)
 

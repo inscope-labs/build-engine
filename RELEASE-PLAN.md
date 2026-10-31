@@ -32,7 +32,7 @@ Release boundary:
 - Shipped consumer artifact is built only from template/ through release/manifest.txt.
 - gateway/, conformance/, variants/, tests/, release tooling, and maintainer docs remain source-only unless a separately approved architecture change says otherwise.
 - A deployed gateway is infrastructure required for some end-to-end workflows, not content that should be copied into the consumer artifact.
-- No agent receives a GitHub repository credential. Preserve task-scoped authority, auditability, minimal data exposure, and operator-controlled publication/revocation.
+- Class B agents receive no GitHub repository credential. Class A agents (including the Supervisor Agent) may receive a short-lived, task-scoped credential supplied by the operator; the token must cover the exact task scope. Preserve task-scoped authority, auditability, minimal data exposure, and operator-controlled publication/revocation.
 - Keep one main production-capable branch, with short-lived feature/fix/release branches. Staging and explicit release approval are mandatory; no direct development-to-released shortcut.
 - Avoid broad refactors. Resolve verified defects first, retain working behaviour, and make each task independently reviewable.
 
@@ -106,6 +106,7 @@ Stage 1.1 — Define the first-release product contract
   1.1.2 Define the minimum successful workflow from plan creation through work order, context access, submission, operator review, publication/reconciliation, revocation/audit, and consumer update.
   1.1.3 Decide whether first release requires the deployed Class B read and write gateways. Given the stated end-to-end purpose, default to requiring them for a claim of complete end-to-end functionality; otherwise explicitly label them as not included/not operational in the first release.
   1.1.4 Define what “100% working” means as finite acceptance criteria; do not use it as an untestable general claim.
+  1.1.5 Define the submissions-to-consumer transfer path (actor = Supervisor Agent; pre-conditions, expected-SHA concurrency control, validation, failure recovery and audit evidence). Implementation may be deferred to Phase 2 or Phase 6; the design must be recorded before Stage 1.1 closure.
 
 Stage 1.2 — Resolve version and abstract-framework compatibility
   1.2.1 Determine the exact abstract framework/specification and version implemented by engine 0.5.0.

@@ -22,7 +22,7 @@ open PRs in the public repo. Rotate it on a schedule.
 
 Published commits expose authorship, timestamps and diffs. Use a noreply email for task commits.
 
-## Context gateway (proof of concept)
+## Context gateway (reference only; not deployed in this version)
 
 Limited agents read context through signed, expiring, read-only links served by a gateway (`docs/CONTEXT-EXPORT.md`).
 The signing secret exists only on the operator machine (`CTXGATE_SECRET`) and in the gateway's secret store; the

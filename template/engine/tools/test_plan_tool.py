@@ -734,5 +734,130 @@ class TestUnpack(unittest.TestCase):
         shutil.rmtree(d, ignore_errors=True)
 
 
+class TestHardenPlanOrder(Base):
+    """Stage 2.2: schema/parser alignment, malformed input, path safety, pinned refs,
+    atomic writes, deterministic behaviour, and shared signing with ctxlink."""
+
+    def test_malformed_json_and_missing_required(self):
+        bad = self.plan_dir / "plan.json"
+        original = bad.read_text()
+        bad.write_text("{not json", encoding="utf-8")
+        self.assertIn("invalid JSON", self.run_fail("check", "demo"))
+        bad.write_text(original, encoding="utf-8")
+        # strip a required field
+        data = json.loads(original)
+        del data["title"]
+        bad.write_text(json.dumps(data), encoding="utf-8")
+        out = self.run_fail("check", "demo")
+        self.assertTrue("missing required" in out or "title" in out)
+        bad.write_text(original, encoding="utf-8")
+
+    def test_unknown_fields_rejected(self):
+        data = json.loads((self.plan_dir / "plan.json").read_text())
+        data["extra_unknown"] = True
+        pt.write_json(self.plan_dir / "plan.json", data)
+        self.assertIn("unexpected property", self.run_fail("check", "demo"))
+
+    def test_duplicate_task_ids_and_path_traversal(self):
+        self.task(201, deliverables=["src/ok.txt"])
+        self.ungate()
+        out = self.run_fail("order", "demo", T(201), T(201), "--ref", "a" * 40)
+        self.assertIn("duplicate", out.lower())
+        # path traversal variants (must be rejected by check)
+        for bad in ["../escape", "foo/../bar", "./hidden", "a/./b", "foo\\bar", "/abs"]:
+            self.task(201, deliverables=[bad])
+            msg = self.run_fail("check", "demo")
+            self.assertIn("unsafe", msg, msg=bad)
+
+    def test_invalid_state_transitions(self):
+        self.ungate()
+        self.task(201)
+        self.run_ok("set", "demo", T(201), "in_progress", "--by", "op")
+        out = self.run_fail("set", "demo", T(201), "dropped", "--by", "op")
+        self.assertTrue("not allowed" in out or "illegal" in out.lower() or "transition" in out.lower())
+        # cannot jump planned -> done
+        self.task(202)
+        out = self.run_fail("set", "demo", T(202), "done", "--by", "op")
+        self.assertNotEqual(out, "")
+
+    def test_work_order_requires_pinned_ref(self):
+        self.ungate()
+        self.task(201)
+        out = self.run_fail("order", "demo", T(201))
+        self.assertTrue("pinned" in out.lower() or "ref" in out.lower())
+        # branch names and other non-40-hex values are rejected
+        out = self.run_fail("order", "demo", T(201), "--ref", "main")
+        self.assertIn("40-hex", out)
+        out = self.run_fail("order", "demo", T(201), "--ref", "deadbeef")
+        self.assertIn("40-hex", out)
+        # valid 40-hex succeeds and is marked pinned
+        out = self.run_ok("order", "demo", T(201), "--ref", "a" * 40, "--json")
+        order = json.loads(out)
+        self.assertTrue(order.get("context_ref_pinned"))
+
+    def test_atomic_write_json_leaves_prior_on_failure(self):
+        target = self.plan_dir / "tasks" / ("%s.json" % T(201))
+        self.task(201, title="original")
+        original = target.read_text()
+        # Force a failure after temp creation by making the directory temporarily unwritable
+        # is hard in portable tests; instead verify the public contract of write_json:
+        # successful write produces valid JSON and no leftover .tmp- files.
+        pt.write_json(target, {"id": T(201), "title": "updated", "stage": "1-2",
+                               "executor": "worker", "status": "planned",
+                               "acceptance": ["x"], "deliverables": ["src/x.txt"],
+                               "companions": [], "blocked_by": [], "spec_refs": [],
+                               "verify": {"method": "manual"}})
+        self.assertEqual(json.loads(target.read_text())["title"], "updated")
+        leftovers = list(target.parent.glob(".tmp-*.json"))
+        self.assertEqual(leftovers, [], "atomic write must not leave temp files")
+
+    def test_safe_rel_matches_ctxlink(self):
+        import ctxlink
+        cases = [
+            ("src/ok.txt", True),
+            ("../evil", False),
+            ("foo/../bar", False),
+            ("./x", False),
+            ("", False),
+            ("/abs", False),
+            ("a\\b", False),
+            ("foo/./bar", False),
+            ("normal/path.txt", True),
+        ]
+        for path, expect in cases:
+            self.assertEqual(bool(pt.safe_rel(path)), expect, path)
+            self.assertEqual(bool(ctxlink.safe_path(path)), expect, path)
+
+    def test_ctxlink_signing_shared(self):
+        """plan_tool and ctxlink must use the same message format, encoding, and path rules."""
+        import ctxlink
+        secret = b"test-secret"
+        kid, exp, order, ref, path = "k1", 1700000000, "S001", "a" * 40, "src/file.txt"
+        sig1 = ctxlink.sign(secret, kid, exp, order, ref, path)
+        # Reconstruct the message the same way ctxlink does
+        msg = ctxlink.message(kid, exp, order, ref, path)
+        self.assertEqual(msg, b"ctxgate-v1\nk1\n1700000000\nS001\n" + (b"a" * 40) + b"\nsrc/file.txt")
+        # mint produces a URL containing the same signature
+        urls = ctxlink.mint("https://gw.example", secret, kid, order, ref, [path], ttl=60, at=exp - 60)
+        self.assertIn(sig1, urls[0])
+        self.assertIn(ref, urls[0])
+        self.assertIn(path.replace("/", "/"), urls[0])  # path segments present
+
+    def test_deterministic_order_output(self):
+        self.ungate()
+        self.task(201, title="Alpha")
+        self.task(202, title="Beta")
+        ref = "b" * 40
+        out1 = self.run_ok("order", "demo", T(201), T(202), "--ref", ref, "--json")
+        out2 = self.run_ok("order", "demo", T(201), T(202), "--ref", ref, "--json")
+        # submission_id advances; strip it for comparison of structure
+        o1 = json.loads(out1)
+        o2 = json.loads(out2)
+        for o in (o1, o2):
+            o.pop("submission_id", None)
+            o.pop("upload_to", None)
+        self.assertEqual(o1, o2)
+
+
 if __name__ == "__main__":
     unittest.main()

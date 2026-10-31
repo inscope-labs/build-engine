@@ -7,7 +7,7 @@ Done when: the task is submitted, and the audit shows only the reads the order e
 
 ## Preconditions
 
-- `docs/decisions/0001` to `0004` decided.
+- `docs/decisions/0001` to `0004` decided (done, 2026-10-26).
 - Production path steps 2 to 4 done: source adapter, ported rules, rate limiting and alerting
   (`gateway/read/production/`), and `conformance/` passing for the deployed gateway.
 - A scratch private repository passed conformance first; the pilot uses a real task on the real repository.
@@ -26,3 +26,5 @@ Done when: the task is submitted, and the audit shows only the reads the order e
 ## Record
 
 Write the outcome and any deviation here after the run (date, task id, agent, audit summary, issues).
+
+Scope note: for 0.5.0 the pilot also covers agent submission through the write gateway, revoke/close and the recovery cases, and the transfer of accepted files into the consumer repository (plan Phase 6; Stage 1.1 contract section 1.1.2).
