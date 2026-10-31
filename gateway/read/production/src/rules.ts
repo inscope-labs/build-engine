@@ -9,21 +9,15 @@
  * The resource controls (the rate limit and the abuse cooldown) sit around those checks rather
  * than inside them: they bound the work the gateway does, and they are not part of the scheme.
  */
-import type { AuditReason, AuditRecord, LinkFacts } from "./audit.ts";
+import type { AuditReason, LinkFacts } from "./audit.ts";
 import { auditRecord } from "./audit.ts";
 import type { Policy } from "./policy.ts";
 import { isPathAllowed, prefixToRegExp } from "./policy.ts";
 import { parseLink, verifySignature, type ParsedLink } from "./scheme.ts";
+import { STATE_UNAVAILABLE, type StateClient } from "./state-client.ts";
 import { NotFound, TooLarge, UpstreamError, UpstreamRateLimited, UpstreamTimeout, UpstreamUnauthorized, type Source } from "./source.ts";
 
-export interface StateClient {
-  /** The early abuse gate: per-IP and global budgets. */
-  gate(ip: string, now: number): Promise<{ action: string; reason: string }>;
-  /** The late gate: revocation, the order's request budget and its abuse cooldown. */
-  apply(order: string, now: number): Promise<{ action: string; reason: string }>;
-  /** Write the final audit record. */
-  audit(record: AuditRecord): Promise<void>;
-}
+export type { StateClient } from "./state-client.ts";
 
 export interface RequestFacts {
   method: string;
@@ -80,6 +74,13 @@ export async function evaluate(
 
   // 2. the resource controls. They run first so that a flood is bounded before any work.
   const gate = await state.gate(req.ip, req.now);
+  if (gate.action === STATE_UNAVAILABLE) {
+    // The state store could not be read, so the budgets are unknown. An unknown budget is not
+    // an exhausted one, but it is also not an unlimited one: the gateway refuses.
+    const outcome = finish(503, "state-unavailable", { "Retry-After": "5" }, "gateway state unavailable\n");
+    await state.audit(auditRecord(req.now, outcome.status, outcome.reason, requestId, facts));
+    return outcome;
+  }
   if (gate.action !== "allow") {
     const outcome = finish(429, gate.reason as AuditReason, { "Retry-After": "60" }, "too many requests\n");
     await state.audit(auditRecord(req.now, outcome.status, outcome.reason, requestId, facts));
@@ -130,6 +131,13 @@ export async function evaluate(
 
   // 8. the order is not revoked, and the order is within its request budget
   const applied = await state.apply(link.order, req.now);
+  if (applied.action === STATE_UNAVAILABLE) {
+    // The revocation list could not be read. A revoked order must stop working at once, and
+    // the only way to guarantee that is to serve nothing while the list is unknown.
+    const outcome = finish(503, "state-unavailable", { "Retry-After": "5" }, "gateway state unavailable\n");
+    await state.audit(auditRecord(req.now, outcome.status, outcome.reason, requestId, facts));
+    return outcome;
+  }
   if (applied.action === "revoked") {
     const outcome = finish(403, "revoked");
     await state.audit(auditRecord(req.now, outcome.status, outcome.reason, requestId, facts));

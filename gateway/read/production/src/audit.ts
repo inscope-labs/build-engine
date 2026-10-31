@@ -26,6 +26,7 @@ export const AUDIT_REASONS = [
   "upstream-timeout",
   "upstream-unauthorized",
   "upstream-rate-limited",
+  "state-unavailable",
   "internal-error",
 ] as const;
 
@@ -41,6 +42,9 @@ export type AuditReason = (typeof AUDIT_REASONS)[number];
  * order, and the order in a forged link is nothing but a string the forger chose.
  *
  * "cooldown" is not counted either: a request refused by the cooldown must not extend it.
+ *
+ * "state-unavailable" is not counted either. It says nothing about the order: it says the
+ * gateway could not read its own state, and it happens before the order is even known.
  */
 const AUTHENTICATED_REFUSALS: ReadonlySet<string> = new Set([
   "expired",

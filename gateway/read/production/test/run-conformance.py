@@ -19,7 +19,6 @@ Not shipped in releases: it is a test driver.
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -29,6 +28,8 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import procs  # noqa: E402
 PRODUCTION = HERE.parent
 REPO = PRODUCTION.parents[2]
 CONFORMANCE = REPO / "conformance"
@@ -222,12 +223,7 @@ def main():
         return 0
     finally:
         for process in (wrangler, stub):
-            if process is not None:
-                try:
-                    process.send_signal(signal.SIGTERM)
-                    process.wait(timeout=15)
-                except Exception:  # noqa: BLE001
-                    process.kill()
+            procs.stop(process)
         shutil.rmtree(work, ignore_errors=True)
 
 

@@ -216,12 +216,12 @@ approach, which remains rejected.
 | 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo | **Done** — `gateway/read/production/src/source.ts` |
 | 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B | **Done** — `gateway/read/production`, a Cloudflare Worker that passes the shared conformance suite |
 | 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test | **Done** — `gateway/read/production/ops/limits.md`, tested by `test/run-abuse-controls.py` |
-| 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads | Not done — Stage 6 |
-| 6 | — | Same order integration, delete-based revocation proven | Not done — the object-storage variant was rejected |
+| 5 | Deploy it, and prove it behaves as a deployed service | Three separated environments, a deploy gate, an operator runbook | **Done** — `gateway/read/production/ops/`. **Not deployed**: no environment has been published |
+| 6 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads | Not done — Stage 6 |
+| 7 | — | Same order integration, delete-based revocation proven | Not done — the object-storage variant was rejected |
 
-Steps 1 to 4 are done in the build-engine source repository and are **not** shipped. Nothing in the
-steps above says that a gateway is deployed: it is not. Deployment, environment separation and the
-operator runbook are the next stage, and the real pilot comes after that.
+Steps 1 to 5 are done in the build-engine source repository and are **not** shipped. Nothing in the
+steps above says that a gateway is deployed: it is not. The pilot comes after that.
 
 ## 12. Decisions (recorded 2026-10-26)
 
@@ -237,8 +237,8 @@ operator runbook are the next stage, and the real pilot comes after that.
 5. **Class A agents:** the private raw `url` fields are enough, with the agent's own credentials. Class A and Class B remain
    separate trust paths.
 
-These decisions are recorded in `docs/decisions/0001` to `0004`. The production gateway that implements them is
-`gateway/read/production` in the build-engine source repository (not shipped); it is not deployed.
+These decisions describe what the production gateway must do. The production gateway exists and passes the shared
+conformance suite; it has not been deployed, and the pilot has not run.
 
 
 ## Appendix B: gateway behaviours a production port must pass

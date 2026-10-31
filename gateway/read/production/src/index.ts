@@ -8,10 +8,11 @@
  *
  * The scheme is `conformance/SCHEME.md`. The rules are `src/rules.ts`.
  */
-import { newRequestId, type AuditRecord } from "./audit.ts";
+import { newRequestId } from "./audit.ts";
 import { healthPayload, loadPolicy, ConfigError, type Policy } from "./policy.ts";
-import { evaluate, type StateClient } from "./rules.ts";
+import { evaluate } from "./rules.ts";
 import { GitHubContentsSource, type Source } from "./source.ts";
+import { buildStateClient, callStateAdmin } from "./state-client.ts";
 import { GatewayState } from "./state.ts";
 
 export interface Env {
@@ -81,13 +82,41 @@ async function handleLink(request: Request, env: Env, url: URL, policy: Policy):
   const source = buildSource(env, policy);
   const state = buildStateClient(env, policy);
 
-  const outcome = await evaluate(
-    { method: request.method, rawPath: url.pathname, ip: clientIp(request), now },
-    policy,
-    source,
-    state,
-    requestId,
-  );
+  let outcome;
+  try {
+    outcome = await evaluate(
+      { method: request.method, rawPath: url.pathname, ip: clientIp(request), now },
+      policy,
+      source,
+      state,
+      requestId,
+    );
+  } catch (e) {
+    // An unexpected failure must not become a stack trace in the caller's face, and it must not
+    // go unrecorded. The reason is "internal-error": the gateway does not know why it failed,
+    // and it does not serve anything.
+    console.error("ctxgate-read: unhandled failure", e);
+    const record = {
+      ts: now,
+      status: 500,
+      reason: "internal-error",
+      kid: "-",
+      order: "-",
+      ref: "-",
+      path: "-",
+      bytes: 0,
+      request_id: requestId,
+    };
+    await state.audit(record);
+    return new Response("internal error\n", {
+      status: 500,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Request-Id": requestId,
+      },
+    });
+  }
 
   const headers = new Headers(outcome.headers);
   return new Response(outcome.body as BodyInit, { status: outcome.status, headers });
@@ -105,7 +134,6 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
       headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
     });
   }
-  const stub = env.STATE.get(env.STATE.idFromName("state"));
 
   if (url.pathname === "/admin/revoke" && request.method === "POST") {
     let order = "";
@@ -116,17 +144,29 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
       return new Response("bad request\n", { status: 400 });
     }
     if (!order) return new Response("bad request\n", { status: 400 });
-    await stub.fetch("https://state.internal/revoke", {
-      method: "POST",
-      body: JSON.stringify({ order }),
-    });
+    // The revocation is reported as done only when the state store says it stored it. An
+    // operator who is told "revoked" stops watching that order, so a revoke that silently
+    // failed would leave a live capability behind a closed door.
+    const result = await callStateAdmin(env, "/revoke", "POST", { order });
+    if (!result.ok) {
+      return new Response(`${result.message}\n`, {
+        status: result.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
     return Response.json({ revoked: order });
   }
 
   if (url.pathname === "/admin/audit") {
     const order = url.searchParams.get("order");
-    const response = await stub.fetch("https://state.internal/audit");
-    const text = await response.text();
+    const result = await callStateAdmin(env, "/audit", "GET");
+    if (!result.ok) {
+      return new Response(`${result.message}\n`, {
+        status: result.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    const text = await result.response.text();
     if (!order) {
       return new Response(text, {
         headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" },
@@ -149,8 +189,14 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   }
 
   if (url.pathname === "/admin/metrics") {
-    const response = await stub.fetch("https://state.internal/metrics");
-    return new Response(await response.text(), {
+    const result = await callStateAdmin(env, "/metrics", "GET");
+    if (!result.ok) {
+      return new Response(`${result.message}\n`, {
+        status: result.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(await result.response.text(), {
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
@@ -177,52 +223,6 @@ function buildSource(env: Env, policy: Policy): Source {
     maxBytes: policy.maxBytes,
     timeoutMs: policy.sourceTimeoutMs,
   });
-}
-
-function buildStateClient(env: Env, policy: Policy): StateClient {
-  const stub = env.STATE.get(env.STATE.idFromName("state"));
-  const call = async (path: string, body: unknown): Promise<{ action: string; reason: string }> => {
-    const response = await stub.fetch("https://state.internal" + path, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) return { action: "allow", reason: "ok" };  // fail open on the abuse controls only
-    return (await response.json()) as { action: string; reason: string };
-  };
-  return {
-    async gate(ip, now) {
-      return call("/gate", {
-        ip,
-        now,
-        windowSeconds: 60,
-        limits: {
-          perIp: policy.rateLimitPerIp,
-          global: policy.rateLimitGlobal,
-        },
-      });
-    },
-    async apply(order, now) {
-      return call("/apply", {
-        order,
-        now,
-        windowSeconds: 60,
-        perOrderLimit: policy.rateLimitPerOrder,
-      });
-    },
-    async audit(record: AuditRecord) {
-      await stub.fetch("https://state.internal/audit", {
-        method: "POST",
-        body: JSON.stringify({
-          record,
-          retention: policy.auditRetention,
-          limits: {
-            burst: policy.refusalBurst,
-            cooldownSeconds: policy.refusalCooldownSeconds,
-          },
-        }),
-      });
-    },
-  };
 }
 
 /**

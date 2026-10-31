@@ -27,7 +27,12 @@ jobs:
           bash -n template/operator/cbridge
           sh -n template/operator/install.sh
           bash -n template/engine/bin/update.sh
-          for f in release/*.sh tests/*.sh; do bash -n "$f"; done
+          for f in release/*.sh tests/*.sh gateway/read/production/ops/*.sh; do bash -n "$f"; done
+      - name: Python syntax (the operator tooling and the gateway's checks)
+        run: |
+          for f in gateway/read/production/ops/*.py gateway/read/production/test/*.py; do
+            python3 -m py_compile "$f"
+          done
       - name: Release machinery self-test
         run: release/test-release.sh
       - name: Consumer install and update flow
@@ -60,12 +65,18 @@ jobs:
       - run: npm run typecheck
       - name: Unit tests (the shared signing vectors, reproduced byte for byte)
         run: npm test
-      - name: Bundle dry run (validates wrangler.toml, no deploy, no credentials)
+      - name: The configuration has not drifted from ops/environments.json
+        run: npm run ops:check
+      - name: Bundle dry run (validates wrangler.toml for every environment, no deploy, no credentials)
         run: npm run check:bundle
       - name: Conformance suite against the Worker on the local runtime
         run: npm run test:conformance
       - name: Abuse controls (the resource controls the conformance suite does not cover)
         run: npm run test:abuse
+      - name: Operational checks (cold start, provider failures, expiry, revocation, key rotation)
+        run: npm run test:staging
+      - name: Isolation proof (no writes to the source repository, no copy of what was served)
+        run: npm run test:isolation
   write-gateway:
     name: write gateway (typecheck + bundle)
     runs-on: ubuntu-latest

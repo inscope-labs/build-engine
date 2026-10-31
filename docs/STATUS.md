@@ -4,9 +4,9 @@ Audited commit: `main` at `28b04aa` (Stage 3.2 verifier hardening merged via PR 
 
 **Status words** (used the same way everywhere): **implemented** (built, tested, ships in the artifact); **reference only** (working proof of concept in this source repository; never shipped, not deployed); **scaffold** (structure and stubs, no working behaviour); **not started**; **not deployed** (code exists, no running service); **unsupported** (not part of this release).
 
-**Conclusion.** 0.5.0 is redesignated **Basic, Class A-only** by operator decision D1 (2026-10-29). The consumer artifact (template, packaging, independent static verification, install/update) and the Class A workflow are the release scope. Deployed Class B read and write gateways are **unsupported in 0.5.0** and planned for **0.6.0 Standard**. Class B implementation work exists on unmerged branches (`phase-4/deployment-and-operations`, `phase-5/*`); it is to be landed, not discarded. Only deployment, the pilot, and the submissions-transfer path are deferred.
+**Conclusion.** 0.5.0 is redesignated **Basic, Class A-only** by operator decision D1 (2026-10-29). The consumer artifact (template, packaging, independent static verification, install/update) and the Class A workflow are the release scope. Deployed Class B read and write gateways are **unsupported in 0.5.0** and planned for **0.6.0 Standard**. Class B implementation work exists on unmerged branches (`phase-5/*`); it is to be landed, not discarded. Only deployment, the pilot, and the submissions-transfer path are deferred.
 
-**Class B read gateway (conformance suite and production port, Stages 4.1 and 4.2).** The conformance suite and the production read gateway are in the source repository and the gateway passes the shared suite on the local runtime. It is **not deployed** and remains **unsupported in 0.5.0**; the write gateway and the pilot remain outstanding.
+**Class B read gateway (Stages 4.1 to 4.3).** The conformance suite, the production read gateway and its deployment surface (three separated environments with a generated configuration, a deploy gate, the operational checks and the operator runbook) are in the source repository, and the gateway passes the shared suite on the local runtime. It is **not deployed**: no environment has been published, and the operator's Cloudflare account, repository and host are still to be supplied. It remains **unsupported in 0.5.0**; the write gateway and the pilot remain outstanding.
 
 **Basic blockers remaining (in order):**
 
@@ -60,7 +60,7 @@ Engine core, operator bridge (`cbridge`), consumer docs. Implemented. Shipped do
 ### Gateways and conformance (source-only; not in artifact)
 
 - Read gateway (reference): reference only, not deployed.
-- Read gateway (production): implemented (Stage 4.2) and passes the shared conformance suite on the local runtime; **not deployed**; **unsupported in 0.5.0**; planned for 0.6.0.
+- Read gateway (production): implemented (Stage 4.2), with its deployment surface, deploy gate, operational checks and runbook (Stage 4.3); passes the shared conformance suite on the local runtime; **not deployed** (no environment published); **unsupported in 0.5.0**; planned for 0.6.0.
 - Write gateway: implementation exists on unmerged branches (`phase-5/*`); **not deployed**; **unsupported in 0.5.0**; planned for 0.6.0.
 - Conformance harness: implemented (Stage 4.1) and run against the reference and production gateways locally; live deployment conformance deferred to 0.6.0.
 

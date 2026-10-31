@@ -8,7 +8,7 @@ checks, threat analysis: `template/docs/CONTEXT-EXPORT.md` (a shipped document).
 | Directory | What it is | Status |
 |---|---|---|
 | `reference/` | Python proof of concept: signing, rules, a local-git file source, an HTTP server, `serve`, `revoke`, `audit`, with tests | reference only: tested locally, not deployed |
-| `production/` | The deployable gateway: a Cloudflare Worker (TypeScript) that verifies a signed link and serves one file at one pinned commit | implemented and proven against `conformance/`; **not deployed**; unsupported in 0.5.0, planned for 0.6.0 |
+| `production/` | The deployable gateway (Cloudflare, decision 0001): a Worker that verifies a signed link and serves one file at one pinned commit | implemented: proven against `conformance/`, with the deployment surface, the deploy gate and the operator runbook (Stage 4.3). **Not deployed** - no environment has been published; unsupported in 0.5.0, planned for 0.6.0 |
 
 The client half (minting links) is not here: it ships as `template/engine/tools/ctxlink.py` and is used by
 `plan_tool.py order` and `plan_tool.py links`. Acceptance for any implementation is `conformance/`.

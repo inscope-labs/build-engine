@@ -5,10 +5,11 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 (closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
 - Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
+- Stage 4.3 addendum: 2026-10-27; F0-030 to F0-032, found by the operational checks of Stage 4.3 and closed in it
 
 ## Status and evidence rules
 
@@ -48,8 +49,9 @@ Severity: **S1** blocks the relevant release or advertised capability; **S2** is
 - Consequence: the production Class B context retrieval path cannot be claimed operational.
 - Required resolution: resolve the relevant architecture decisions, implement and deploy the production path, and pass staging acceptance tests.
 - Update (Stage 4.2): the decisions are closed (0001 hosting, 0003 link lifetimes) and the implementation exists — `gateway/read/production` is a Cloudflare Worker that passes the shared conformance suite over real HTTP (58 cases, 0 failed) and whose resource controls are tested separately. It has **not** been deployed: no route, no environment separation, no deploy gate, no operator runbook. Those are Stage 4.3, and the real pilot is Stage 6.
+- Update (Stage 4.3): the deployment surface exists — three separated environments with a generated configuration (`ops/environments.json` → `wrangler.toml`), a deploy gate that publishes nothing until every check has passed, the operational checks (cold start, provider failures, expiry, revocation, key rotation), the isolation proof and the operator runbook. The gateway has **still** not been deployed: no environment has been published, because the Cloudflare-side steps need the operator's account and the configuration still carries the operator's placeholders (the repository and the production host). The real pilot is Stage 6.
 - Owner: implementation team and operator for decisions/hosting approvals.
-- Planned phase: Stage 4.2 (done) and Stage 4.3 (deployment).
+- Planned phase: Stage 4.2 (done), Stage 4.3 (done — the deployment surface; the publication itself needs the operator), Stage 6 (the pilot).
 - Closure evidence: conformance tests and a staging test proving only the authorized file at the pinned reference is returned; deployment and revocation/audit behaviour evidenced.
 
 ### F0-004 — Write gateway is scaffold-only
@@ -310,6 +312,30 @@ Added after the operator asked for a register that omits no known defect. Method
 - Resolution (Stage 4.2): the policy became a declared part of the scheme. `conformance/SCHEME.md` now specifies the skew tolerance (decision 0003, at most 120 s), the maximum lifetime (at most 259200 s, 72 h) and the `/healthz` contract; the reference gateway reports its effective policy on `/healthz`; the harness reads the policy from `/healthz` and asserts the ceilings independently of what the gateway claims. The production Worker does the same, so the two are directly comparable.
 - Owner: implementation. Planned phase: Stage 4.2 (done, amending Stage 4.1's spec).
 - Closure evidence: `python3 conformance/harness/run.py all --reference` runs 94 checks, 0 failed, and the harness fails if a gateway declares a tolerance above the ceiling.
+
+### F0-030 — The gateway failed open when the state store could not be read, and served revoked orders
+- Severity: **S1** (a revoked capability kept working). Status: CONFIRMED (source, found by the Stage 4.3 operational checks); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `gateway/read/production/src/index.ts` built the state client with `if (!response.ok) return { action: "allow", reason: "ok" }` — a comment claimed this failed open "on the abuse controls only", but the same call path carried the **revocation** check. The Durable Object's own handler answers `500 state error: ...` when its storage throws (`src/state.ts`), and the client's `!response.ok` branch turned that into "allow". The order was therefore served with no revocation check at all. The same branch also made the per-IP and global budgets advisory. A gateway that cannot read its own revocation list was reading it as an empty one, and an empty revocation list is indistinguishable from a live one.
+- Consequence: a revoked work order kept serving files whenever the state store was unhealthy — a storage error, a deployment in flight, a Durable Object restart. The exit gate of Phase 4 ("revocation takes effect within the documented bound") could not be claimed, and G-07 (fail closed on stale authorization and on unverifiable state) was not met.
+- Resolution (Stage 4.3): the state channel was extracted to `src/state-client.ts` and **fails closed**. An unreadable state store, a state store that answers with an error, and a state store that answers with something that is not a decision all produce the action `state-unavailable`, and the rules layer refuses the request with `503` and the reason `state-unavailable`. There is no path from a state-store failure to "allow". The audit record for such a refusal is written to the platform log, because the ring is unreachable too, so that a refusal during an outage is not lost. The Worker also no longer lets an unexpected exception escape as a stack trace: it is answered with `500 internal-error` and audited.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: `test/unit/state-client.test.ts` asserts that an erroring, an unreachable and a malformed state store all produce `state-unavailable` and never `allow`; `python3 test/run-staging-checks.py` exercises the deployed behaviour, and the operational checks are part of the deploy gate and of CI.
+
+### F0-031 — The operator channel reported a revocation that had not been stored
+- Severity: S2 (an operator believes a capability is dead when it is alive). Status: CONFIRMED (source); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `POST /admin/revoke` called the Durable Object and **ignored the answer**, then returned `{"revoked": "<order>"}` with status 200. If the state store refused or could not be reached, the operator was told the order was revoked when nothing had been stored. `/admin/audit` and `/admin/metrics` had the same shape: the error text of a failed state call was returned with status 200 as if it were the trail.
+- Consequence: the operator's single most important action — killing a leaked capability — could report success while doing nothing. An operator who sees "revoked" stops watching that order, and the capability stays alive.
+- Resolution (Stage 4.3): the operator channel goes through `callStateAdmin()`, which reports what the state store actually confirmed. A revoke that was not stored is a failure with `503`, and the runbook says so in three places: a failed revoke means **the order is still live**, and it must be revoked again.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: `test/unit/state-client.test.ts` asserts that a revoke the store refused is reported as a failure and a revoke it accepted is reported as done.
+
+### F0-032 — The test harness left the Cloudflare runtime running after every run
+- Severity: S3 (a resource leak, with a sting in it). Status: CONFIRMED (executed: the process table after a run); **closed in Stage 4.3** (2026-10-27).
+- Evidence: `test/localenv.py` stopped the `npx wrangler` process it had started and nothing else. `wrangler` starts the Cloudflare runtime in a process group of its own, so the runtime survived the launcher, kept the port, kept the binary open and kept running after the test had finished. The Stage 4.3 staging check, which restarts the Worker to observe a key rotation, was **answered by the old Worker**: the new one could not bind the port, and the check was reading the settings it had before the "restart". The first run of the key-rotation checks failed for that reason.
+- Consequence: the test suite left the machine dirty, a "restart" was not a restart, and `npm ci` could not remove `node_modules` because the runtime still held its binaries open — which broke the deploy gate at its first step.
+- Resolution (Stage 4.3): `test/procs.py` stops a whole process tree, and both harnesses use it. The staging harness asserts that the port was released before it starts again, so a restart that is not a restart fails loudly instead of quietly.
+- Owner: implementation. Planned phase: Stage 4.3 (done).
+- Closure evidence: after the conformance, abuse, staging and isolation runs the process table holds no live runtime; `npm ci` completes over the existing `node_modules`; and the key-rotation checks pass against a Worker that was really restarted.
 
 ## A4. Additional confirmed findings (Stage 2.2 plan/order tooling audit, follow-up to PR #10, 2026-10-26)
 
@@ -681,7 +707,7 @@ No release-blocker metadata has been changed, no release has been published, and
 |---|---|---|
 | F0-001, F0-007 | Phase 1.2 (done) + 2.1.1 | Field migrated to `protocol`; remaining doc sync in F0-019 |
 | F0-002 | Phase 2.1.2 / 7.1 | Only at release-candidate time |
-| F0-003 | Phase 4.2 (implementation, done) + 4.3 (deployment) | Production read gateway: the port exists and passes conformance; deployment, route and runbook outstanding |
+| F0-003 | Phase 4.2 (implementation, done) + 4.3 (deployment, done) | Production read gateway: the port exists and passes conformance; Stage 4.3 added the environments, the deploy gate, the operational checks and the runbook. **The gateway is still not deployed** — no environment has been published |
 | F0-004, F0-009 | Phase 5 (5.1-5.5) | Write gateway, all stub source/tests/scripts/CI; exit gate forbids stubs |
 | F0-005 | Phase 4.1 | Vectors and harness |
 | F0-006 | Phase 6 | Real pilot |
@@ -699,12 +725,13 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-024, F0-025 | Stage 4.1 (closed 2026-10-26) | Path rule, normative scheme description |
 | F0-026, F0-027 | Stage 4.2 (closed 2026-10-27) | The per-order cooldown was unreachable; the refusal burst counted a forger's attempts against the named order |
 | F0-028, F0-029 | Stage 4.2 (closed 2026-10-27) | Workers path normalisation; the policy is now declared and checkable |
+| F0-030, F0-031, F0-032 | Stage 4.3 (closed 2026-10-27) | The state channel failed open and a revoke could be reported that had not happened; the test harness left the runtime running |
 | R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
 | F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
-| R0-008 | Phase 5.4.6 / 5.1.6 | Deployment defaults |
+| R0-008 | Stage 4.3 (partly closed) + Phase 5 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's defaults are still open |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
 

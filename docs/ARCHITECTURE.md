@@ -32,7 +32,9 @@ engine invariant (agents hold no write credential), which is why adopting it nee
 ## Where the rest of the design lives (none of it ships)
 
 - `gateway/read/reference` is the tested spec of the read gateway; `gateway/read/production` is its deployable port — a
-  Cloudflare Worker (decision 0001), implemented in Stage 4.2 and proven against `conformance/`, not yet deployed.
+  Cloudflare Worker (decision 0001), implemented in Stage 4.2 and proven against `conformance/`, with its deployment
+  surface, deploy gate and operator runbook added in Stage 4.3. It is not yet deployed: no environment has been
+  published.
 - `conformance/` is the acceptance suite any signer or gateway must pass, kept outside every implementation so a port in
   another language is held to the same vectors and behaviours.
 - `variants/` previously held alternative designs; the object-storage variant was rejected in Stage 1.3 and removed.

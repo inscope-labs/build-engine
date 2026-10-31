@@ -8,9 +8,14 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types \"test/unit/*.test.ts\"",
     "dev": "wrangler dev",
-    "check:bundle": "wrangler deploy --dry-run --outdir .wrangler-dryrun",
+    "check:bundle": "bash ops/bundle-check.sh",
     "test:conformance": "python3 test/run-conformance.py",
-    "test:abuse": "python3 test/run-abuse-controls.py"
+    "test:abuse": "python3 test/run-abuse-controls.py",
+    "test:staging": "python3 test/run-staging-checks.py",
+    "test:isolation": "python3 test/run-isolation-checks.py",
+    "ops:render": "python3 ops/render-environments.py",
+    "ops:check": "python3 ops/render-environments.py --check",
+    "ops:gate": "bash ops/deploy-gate.sh"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261026.1",
