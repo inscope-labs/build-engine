@@ -34,7 +34,7 @@ The design prioritises:
 | Path | Role | Included in release? |
 |------|------|----------------------|
 | `template/` | The product. Maps 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | Yes (allowlist only) |
-| `gateway/` | Context gateways: `read/` (reference implementation; production work on branches) and `write/` (implementation on branches). **Not included in 0.5.0 Basic**; planned for 0.6.0 Standard. Neither ships in the artifact. | **Never** |
+| `gateway/` | Context gateways: `read/` (reference implementation and production Cloudflare Worker, not deployed) and `write/` (implementation on branches). **Not included in 0.5.0 Basic**; planned for 0.6.0 Standard. Neither ships in the artifact. | **Never** |
 | `conformance/` | Language-neutral acceptance suite for the link scheme and any read gateway (signing vectors, behaviours B1–B11). | No |
 | `variants/` | Retired. Holds only a note that the object-storage variant was rejected (Stage 1.3). | No |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | No |

@@ -201,19 +201,27 @@ audit                        -> served 8, never fetched 0, refused: bad-signatur
 signed links stored in the committed order file: 0
 ```
 
-Not proven (and not claimed): a deployed gateway on any provider; the GitHub-backed source adapter (the proof of
-concept reads a local git repository); rate limiting; behaviour behind your agents' actual GET-only proxy; the
-rejected object-storage approach.
+Not proven (and not claimed) **by the proof of concept**: a deployed gateway on any provider, the
+GitHub-backed source adapter, and rate limiting. The last two now exist in the build-engine source
+repository (`gateway/read/production`, Stage 4.2): the adapter reads the GitHub contents API and the
+gateway bounds its own work. That is not a claim that a gateway is deployed — it is not. Still not
+proven: behaviour behind your agents' actual GET-only proxy, and the rejected object-storage
+approach, which remains rejected.
 
 ## 11. Production path
 
-| Step | What | Done when |
-|---|---|---|
-| 1 | Decide where the gateway runs (section 12) | Done: Cloudflare Workers, operator-owned |
-| 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo |
-| 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B |
-| 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test |
-| 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads |
+| Step | What | Done when | State |
+|---|---|---|---|
+| 1 | Decide where the gateway runs (section 12) | Hosting chosen | **Done** — `docs/decisions/0001`: Cloudflare Workers, operator-owned, single-tenant |
+| 2 | Source adapter: read `GET /repos/{slug}/contents/{path}?ref={sha}` raw with a read-only, single-repo, short-lived token | Adapter passes the gateway behaviours in appendix B against a scratch private repo | **Done** — `gateway/read/production/src/source.ts` |
+| 3 | Port the gateway rules to the chosen runtime | Reproduces the signing vectors and passes appendix B | **Done** — `gateway/read/production`, a Cloudflare Worker that passes the shared conformance suite |
+| 4 | Rate limiting, alerting on repeated refusals, log retention | Documented limits; alert fires in a test | **Done** — `gateway/read/production/ops/limits.md`, tested by `test/run-abuse-controls.py` |
+| 5 | Pilot: one real task, one class B agent, end to end including revoke and audit | Task submitted; audit shows only expected reads | Not done — Stage 6 |
+| 6 | — | Same order integration, delete-based revocation proven | Not done — the object-storage variant was rejected |
+
+Steps 1 to 4 are done in the build-engine source repository and are **not** shipped. Nothing in the
+steps above says that a gateway is deployed: it is not. Deployment, environment separation and the
+operator runbook are the next stage, and the real pilot comes after that.
 
 ## 12. Decisions (recorded 2026-10-26)
 
@@ -229,7 +237,8 @@ rejected object-storage approach.
 5. **Class A agents:** the private raw `url` fields are enough, with the agent's own credentials. Class A and Class B remain
    separate trust paths.
 
-These decisions describe what the production gateway must do. The production gateway is not yet built.
+These decisions are recorded in `docs/decisions/0001` to `0004`. The production gateway that implements them is
+`gateway/read/production` in the build-engine source repository (not shipped); it is not deployed.
 
 
 ## Appendix B: gateway behaviours a production port must pass

@@ -172,6 +172,7 @@ class ReferenceGateway:
         gw = cg.Gateway(self.fixture["keys"], cg.GitSource(self.repo, self.fixture["max_bytes"]),
                          allow_prefixes=tuple(self.fixture.get("allow_prefixes", [""])),
                          max_bytes=self.fixture["max_bytes"], max_ttl=self.fixture["max_ttl"],
+                         clock_skew_tolerance=self.fixture.get("clock_skew_tolerance", 0),
                          audit_path=str(self.audit), revoked_path=str(self.revoked))
         self.srv = cg.make_server(gw, "127.0.0.1", 0)
         self.base_url = "http://127.0.0.1:%d" % self.srv.server_address[1]
@@ -186,18 +187,54 @@ class ReferenceGateway:
             self.srv.server_close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def fetch_health(self):
+        status, headers, body = http_request(self.base_url, "/healthz", "GET")
+        if status != 200:
+            raise RuntimeError("the gateway has no usable /healthz endpoint (HTTP %s)" % status)
+        return json.loads(body.decode("utf-8"))
+
+    def read_audit(self):
+        if not self.audit.exists():
+            return None
+        return [json.loads(l) for l in self.audit.read_text(encoding="utf-8").splitlines() if l.strip()]
+
 
 class HttpGateway:
     def __init__(self, base_url, ref, audit_log):
         self.base_url = base_url.rstrip("/")
         self.ref = ref
         self.audit_log = audit_log
+        self.audit_url = None
+        self.admin_token = None
 
     def start(self):
         return self.base_url
 
     def stop(self):
         pass
+
+    def fetch_health(self):
+        status, headers, body = http_request(self.base_url, "/healthz", "GET")
+        if status != 200:
+            raise RuntimeError("the gateway has no usable /healthz endpoint (HTTP %s)" % status)
+        return json.loads(body.decode("utf-8"))
+
+    def read_audit(self):
+        """The audit trail, as a list of records."""
+        if self.audit_url:
+            req = urllib.request.Request(self.audit_url)
+            if self.admin_token:
+                req.add_header("Authorization", "Bearer " + self.admin_token)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                text = r.read().decode("utf-8")
+            text = text.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [json.loads(l) for l in text.splitlines() if l.strip()]
+        path = self.audit_log
+        if not path or not Path(path).exists():
+            return None
+        return [json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 # --------------------------------------------------------------------------- the runner
@@ -273,6 +310,10 @@ def check_response(report, case, status, headers, body):
         if h == "X-Content-SHA256" and want == "$sha256":
             want = hashlib.sha256(body).hexdigest()
         got = headers.get(h)
+        if want == "$present":
+            if not got:
+                return report.add(name, False, "header %s is missing or empty" % h)
+            continue
         if got != want:
             return report.add(name, False, "header %s=%r, expected %r" % (h, got, want))
     for h in (exp.get("headers_absent") or []):
@@ -313,13 +354,10 @@ def run_vectors(report, signer):
             report.add("reject %s %s" % (v["id"], v["name"]), True, detail=str(e))
 
 
-def summarize_audit(log_path, order, expected=()):
+def summarize_audit(records, order, expected=()):
     """Independent implementation of the audit summary described in SCHEME.md section 10."""
     seen, refused = {}, []
-    for line in Path(log_path).read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        r = json.loads(line)
+    for r in records:
         if r.get("order") != order:
             continue
         if r.get("status") == 200:
@@ -334,7 +372,23 @@ def run_cases(report, signer, gateway, fixture, ref):
     doc = json.loads((CONFORMANCE / "cases" / "behaviours.json").read_text(encoding="utf-8"))
     base = int(time.time())
     os.environ["CTXGATE_NOW"] = str(base)
-    os.environ["CTXGATE_CONFORMANCE"] = "1"
+    os.environ["CTXGATE_TEST_CLOCK"] = "1"
+
+    # the gateway's EFFECTIVE policy, so a deployment is judged as it is configured
+    try:
+        health = gateway.fetch_health()
+    except Exception as e:  # noqa: BLE001
+        report.add("the gateway reports its effective policy on /healthz", False, str(e))
+        return
+    report.add("the gateway reports its effective policy on /healthz", True)
+    skew = int(health.get("clock_skew_tolerance", 0))
+    max_ttl = int(health.get("max_ttl", 0))
+    max_bytes = int(health.get("max_bytes", 0))
+    # the operator's approved ceilings (docs/decisions/0003). A gateway that is more permissive
+    # than the policy fails here even if every other case passes.
+    report.add("clock_skew_tolerance is within the approved ceiling (120 s)", 0 <= skew <= 120,
+               "declared %s" % skew)
+    report.add("max_ttl is within the approved ceiling (72 h)", 0 < max_ttl <= 259200, "declared %s" % max_ttl)
 
     cases = doc["cases"]
     requests = [c for c in cases if c.get("kind", "request") == "request"]
@@ -343,16 +397,38 @@ def run_cases(report, signer, gateway, fixture, ref):
     order = {"uniform-refusal": 0, "audit-reason": 1, "audit-invariants": 2, "audit-summary": 3}
     others.sort(key=lambda c: order.get(c["kind"], 9))
 
+    def resolve(value, exp_offset):
+        """Resolve a symbolic offset against the gateway's effective policy."""
+        if isinstance(value, int):
+            return value
+        if value == "$max_ttl":
+            return max_ttl
+        if value == "$max_ttl_plus_1":
+            return max_ttl + 1
+        if value == "$exp":
+            return exp_offset
+        if value == "$exp_plus_1":
+            return exp_offset + 1
+        if value == "$exp_plus_skew":
+            return exp_offset + skew
+        if value == "$exp_plus_skew_plus_1":
+            return exp_offset + skew + 1
+        if value == "$expired":
+            # an expiry that is past the end of the clock-skew window, relative to the base time
+            return -(skew + 1)
+        raise ValueError("unknown symbolic offset %r" % value)
+
     def mint_link(link, mutate=None):
         secret = fixture["keys"][link.get("kid", "k1")]
-        exp = base + int(link.get("exp_offset", 600))
+        exp_offset = resolve(link.get("exp_offset", 600), 0)
+        exp = base + exp_offset
         sig, upath = signer.mint(secret, link.get("kid", "k1"), exp, link.get("order", "10008-S001"),
                                  link.get("ref", ref), link["path"])
-        return apply_mutation(upath, mutate)
+        return apply_mutation(upath, mutate), exp_offset
 
     def request_block(block):
-        upath = mint_link(block["link"], block.get("mutate"))
-        at = base + int(block["link"].get("at_offset", 0))
+        upath, exp_offset = mint_link(block["link"], block.get("mutate"))
+        at = base + resolve(block["link"].get("at_offset", 0), exp_offset)
         return http_request(gateway.base_url, upath, block.get("method", "GET"), now=at)
 
     print("gateway behaviours (%s)" % gateway.base_url)
@@ -380,26 +456,25 @@ def run_cases(report, signer, gateway, fixture, ref):
             if status != exp.get("status"):
                 report.add(case["id"], False, "expected HTTP %s, got %s" % (exp.get("status"), status))
                 continue
-            log = getattr(gateway, "audit_log", None) or getattr(gateway, "audit", None)
-            if not log or not Path(log).exists():
-                report.add(case["id"], False, "no audit log to check (use --audit-log for an external gateway)")
+            records = gateway.read_audit()
+            if records is None:
+                report.add(case["id"], False, "no audit trail to check (use --audit-url or --audit-log for an external gateway)")
                 continue
-            lines = [l for l in Path(log).read_text(encoding="utf-8").splitlines() if l.strip()]
-            if not lines:
+            if not records:
                 report.add(case["id"], False, "the request wrote no audit record")
                 continue
-            last = json.loads(lines[-1])
-            if last.get("reason") != exp.get("reason"):
-                report.add(case["id"], False, "audited as %r, expected %r" % (last.get("reason"), exp.get("reason")))
+            last = records[-1]
+            wanted = exp.get("reason")
+            allowed = wanted if isinstance(wanted, list) else [wanted]
+            if last.get("reason") not in allowed:
+                report.add(case["id"], False, "audited as %r, expected %r" % (last.get("reason"), wanted))
                 continue
             report.add(case["id"], True)
         elif case["kind"] == "audit-invariants":
-            log = getattr(gateway, "audit_log", None) or getattr(gateway, "audit", None)
-            if not log or not Path(log).exists():
-                report.add(case["id"], False, "no audit log to check (use --audit-log for an external gateway)")
+            records = gateway.read_audit()
+            if records is None:
+                report.add(case["id"], False, "no audit trail to check (use --audit-url or --audit-log for an external gateway)")
                 continue
-            text = Path(log).read_text(encoding="utf-8")
-            records = [json.loads(l) for l in text.splitlines() if l.strip()]
             n_requests = (len(requests)
                           + sum(len(c["requests"]) for c in others if c["kind"] == "uniform-refusal")
                           + sum(1 for c in others if c["kind"] == "audit-reason"))
@@ -409,7 +484,7 @@ def run_cases(report, signer, gateway, fixture, ref):
                 ok, detail = False, "%d audit records for %d requests" % (len(records), n_requests)
             if ok and case["expect"].get("no_signature_in_records"):
                 # the record must have exactly the documented fields (SCHEME.md section 10) and no capability
-                documented = {"ts", "status", "reason", "kid", "order", "ref", "path", "bytes"}
+                documented = {"ts", "status", "reason", "kid", "order", "ref", "path", "bytes", "request_id"}
                 for r in records:
                     extra = set(r) - documented
                     missing = documented - set(r)
@@ -418,16 +493,22 @@ def run_cases(report, signer, gateway, fixture, ref):
                         break
             if ok and any("sig" in k.lower() for r in records for k in r):
                 ok, detail = False, "an audit record has a signature field"
-            if ok and "test-secret" in text:
-                ok, detail = False, "the signing secret appears in the audit log"
+            if ok and "test-secret" in json.dumps(records):
+                ok, detail = False, "the signing secret appears in the audit trail"
+            if ok and case["expect"].get("unique_request_ids"):
+                ids = [r.get("request_id") for r in records]
+                if len(set(ids)) != len(ids):
+                    ok, detail = False, "request ids are not unique: %d ids for %d records" % (len(set(ids)), len(ids))
+                if any(not i or i == "-" for i in ids):
+                    ok, detail = False, "a record has no request id"
             report.add(case["id"], ok, detail)
         elif case["kind"] == "audit-summary":
-            log = getattr(gateway, "audit_log", None) or getattr(gateway, "audit", None)
-            if not log or not Path(log).exists():
-                report.add(case["id"], False, "no audit log to check (use --audit-log for an external gateway)")
+            records = gateway.read_audit()
+            if records is None:
+                report.add(case["id"], False, "no audit trail to check (use --audit-url or --audit-log for an external gateway)")
                 continue
             exp = case["expect"]
-            s = summarize_audit(log, case["order"], expected=list(exp["served"]) + list(exp.get("never_fetched", [])))
+            s = summarize_audit(records, case["order"], expected=list(exp["served"]) + list(exp.get("never_fetched", [])))
             ok = True
             detail = ""
             if sorted(s["served"]) != sorted(exp["served"]):
@@ -452,6 +533,8 @@ def main(argv=None):
     p.add_argument("--signer", help="an external signer program (JSON-lines contract)")
     p.add_argument("--ref", help="the commit the external gateway serves from")
     p.add_argument("--audit-log", help="the external gateway's audit log")
+    p.add_argument("--audit-url", help="the external gateway's operator audit endpoint (JSONL)")
+    p.add_argument("--admin-token", help="the operator credential for the gateway's admin channel")
     p.add_argument("--json", help="write a JSON report here")
     a = p.parse_args(argv)
 
@@ -469,6 +552,8 @@ def main(argv=None):
             gateway.start()
         elif a.gateway:
             gateway = HttpGateway(a.gateway, a.ref, a.audit_log)
+            gateway.audit_url = a.audit_url
+            gateway.admin_token = a.admin_token
             gateway.start()
         else:
             p.error("cases need --reference or --gateway URL")
