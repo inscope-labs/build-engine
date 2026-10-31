@@ -54,6 +54,6 @@
 | A2 | One work order may cover several tasks (up to `max_tasks_per_order`); its id is `PLAN-Snnn`. | Is a work order exactly one task? |
 | A3 | All stages are gates (strictly sequential stages). | Gates, or just groups? |
 | A4 | The worker returns files and the operator uploads; the supervisor builds the branch; the operator publishes. | Who pushes, and is a supervisor wanted? |
-| A5 | Limited agents are served by a signed context gateway (proof of concept built; not deployed). Hosting, link lifetime and allowed prefixes are open. | See `docs/CONTEXT-EXPORT.md` section 12. |
+| A5 | Limited agents are served by a signed context gateway. Decided: Cloudflare Workers, host named in the work order, 24 h default and 72 h maximum link life, operator-set prefix allow-list. The reference gateway is a proof of concept; the production gateway is not yet built or deployed. | See `docs/CONTEXT-EXPORT.md` section 12. |
 | A6 | Deliverables are Markdown only (plus two plain-text version files). | Is Markdown-only right? |
 | A7 | Task statuses and gate rules from v0.1 are kept. | Which statuses do you want? |

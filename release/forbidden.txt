@@ -1,6 +1,10 @@
 # Independent second line of defence: verify.sh fails the build if the FINISHED artifact matches any rule
 # here, even when release/manifest.txt allows the path. Format:  path: <ERE>   or   text: <ERE>
-# path rules match the artifact-relative file path; text rules match file contents (binary files skipped).
+# path rules match the artifact-relative file path; text rules match file contents.
+#
+# Text rules are matched against binary files as well (grep -a). A rule that only matched text files would be
+# bypassed by putting the payload in a file with a NUL byte in it. The shipped payload contains no binary file,
+# so the specific shapes below cannot match one by accident.
 
 # -- the gateway, by location and by name
 path: (^|/)gateway(/|$)
@@ -8,12 +12,15 @@ path: (^|/)ctxgate\.py$
 path: (^|/)test_ctxgate\.py$
 path: (^|/)gw[^/]*\.json$
 # -- the gateway, by code (so a renamed copy is still caught)
-text: ^class Gateway[(:]
-text: ^class GitSource[(:]
-text: ^def make_server\(
+# The patterns are not anchored to the start of a line: an indented copy of the gateway is still the gateway.
+text: class[[:space:]]+Gateway[(:]
+text: class[[:space:]]+GitSource[(:]
+text: def[[:space:]]+make_server\(
 
 # -- development-only trees that must never reach a consumer
 path: (^|/)(conformance|variants)(/|$)
+# -- the conformance vectors, by content (a renamed copy is still caught)
+text: "vectors_version"
 
 # -- the write gateway (gateway/write, a Cloudflare Worker), by location, config and code
 path: (^|/)wrangler\.toml$
@@ -29,6 +36,9 @@ path: (^|/)\.env
 path: \.(pem|key|p12|pat|token)$
 path: (^|/)__pycache__(/|$)
 path: \.pyc$
+path: (^|/)\.build-engine\.lock$
+path: (^|/)\.DS_Store$
+path: (^|/)[^/]*~$
 
 # -- credential shapes. These match real tokens, not the scanner patterns in cbridge/plan_tool.py
 # (those contain a bracket right after the prefix, which these require to be a token character).

@@ -4,7 +4,7 @@ A Cloudflare Worker with one Durable Object class that lets a **Class B agent** 
 requests, no credentials) create, edit and deliver text files into a task-specific folder, using a single secret
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
-**Status: scaffold only.** The structure is exactly the one proposed in `docs/proposal/project-structure.md` (112 files,
+**Status: scaffold only; required for 0.5.0 (Phase 5).** 46 of 48 source files and all 32 test files are stubs. The structure is exactly the one proposed in `docs/proposal/project-structure.md` (112 files,
 generated from it). Real content so far: `wrangler.toml`, `package.json`, `tsconfig.json`, `src/config/quotas.json`,
 `AGENTS.md` (section anchors + quotas), a Worker entry that answers `501`, and a `TaskSession` stub so the Durable
 Object binding resolves. Everything else is a stub that says so in its first lines. The agent-facing tool prompt is
@@ -18,7 +18,7 @@ back that up.
 
 GET only, payload in the query string as base64url. Uncommitted state is ephemeral. One writer per task (`409`).
 Commit pushes only the listed files and is idempotent. Seal freezes the folder (`410` afterwards). Revocation is
-operator-only and not exposed. Quotas: 20 files, 240 KB total, 12 KB per file, 30 requests per 60 s, concurrency 1.
+operator-only and not exposed. Quotas: 20 files, 240 KiB (245760 bytes) total, 12 KiB (12288 bytes) per file, 30 requests per 60 s, concurrency 1.
 
 ## Working on it
 
@@ -27,21 +27,16 @@ operator-only and not exposed. Quotas: 20 files, 240 KB total, 12 KB per file, 3
     npm run typecheck      # tsc --noEmit over src, tests, scripts
     npm run check:bundle   # wrangler deploy --dry-run: validates wrangler.toml and bundles the Worker
 
-## Open questions (decide before implementing)
+## Decision status
 
-1. **Token scope.** The commit step needs a GitHub credential that can write to the private repository. GitHub
-   fine-grained tokens are scoped by repository and permission, not by folder, so "path-scoped" has to be enforced by
-   this Worker's own code (`policy/path-safety.ts`, `scripts/check-token-scope.ts`) and a leaked token could write
-   anywhere in that repository. Consider a dedicated submissions repository or branch, so the blast radius is only the
-   submissions.
-2. **Engine invariants.** `template/engine/AGENTS.md` says workers hold no credential and the operator uploads
-   submissions (`cbridge upload`). This module changes that for Class B agents: the gateway writes submissions itself.
-   The invariant text, `docs/SECURITY.md` and the supervisor prompt need to be updated when it is adopted.
-3. **Name.** `ctxgate` already names the read gateway (`../ctxgate.py`, link scheme `ctxgate-v1`). Same family, two
-   programs; decide whether the write gateway keeps the name.
-4. **GET with side effects** (`docs/adr/0003-get-only-side-effects.md`): GET is cacheable, prefetchable and logged by
-   intermediaries; payload in the query string lands in access logs. ADR 0003 and 0004 (log hygiene) must settle this.
-5. **Units.** "240 KB" and "12 KB" are not defined in the proposal; `quotas.json` assumes 1024 bytes per KB.
-6. **Test framework.** None is installed yet: the proposal names a "Miniflare / worker-test harness" but not a runner, and the
-   latest vitest failed to install under npm 10 (a resolver error), so no runner was pinned. Tests are `export {}` stubs.
-7. **Durable Object storage.** `wrangler.toml` assumes a SQLite-backed class; ADR 0001 should confirm.
+The questions raised in the proposal are recorded in `docs/release/PHASE-1.4-WRITE-GATEWAY-DECISIONS.md` and the ADRs under `docs/adr/`.
+
+| Question | Status |
+|---|---|
+| Token scope | Decided (Stage 1.4.6, amended): a dedicated, isolated submissions repository and branch; branch and task folder pre-created, never created by the gateway. The token is repository-scoped; folder confinement is enforced by this Worker's code. |
+| Engine invariants | To do: `template/engine/AGENTS.md`, `template/docs/SECURITY.md` and the supervisor prompt still say the operator uploads submissions; update them when the gateway is adopted (Phases 5 and 6). |
+| Name | Open: `ctxgate` also names the read gateway. |
+| GET with side effects | Decided with mitigations (ADR 0003, Stage 1.4.4); residual risk accepted. |
+| Units | Decided: binary KiB, bytes authoritative (Stage 1.4.8). `src/config/quotas.json` still carries the old note and is updated in Phase 5. |
+| Test framework | Open: none installed; pinning a runner is Stage 5.5.1. All tests are `export {}` stubs. |
+| Durable Object storage | Decided (ADR 0001, Stage 1.4.2): control-plane state durable, task file contents ephemeral. |

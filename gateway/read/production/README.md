@@ -111,3 +111,8 @@ This is Stage 4.2: the port. Deployment, environment separation, the deploy gate
 operator runbook are Stage 4.3, and the real end-to-end pilot is Stage 6. Nothing here has been
 deployed to a staging or production environment, and no claim in this README should be read as a
 claim about a running service.
+
+## Release scope
+
+The Class B gateways are **unsupported in 0.5.0** (Basic, Class A-only). This gateway is planned for
+0.6.0 Standard, after Stage 4.3 (deployment) and the real pilot.

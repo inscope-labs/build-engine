@@ -122,7 +122,7 @@ class Gateway:
         kid, exp_s, order, sig, ref = parts[2], parts[3], parts[4], parts[5], parts[6]
         path = "/".join(unquote(p) for p in parts[7:])
         ctx = dict(kid=kid, order=order, ref=ref, path=path, request_id=request_id)
-        if not (KID_RE.match(kid) and ORDER_RE.match(order) and REF_RE.match(ref) and exp_s.isdigit() and safe_path(path)):
+        if not (KID_RE.fullmatch(kid) and ORDER_RE.fullmatch(order) and REF_RE.fullmatch(ref) and exp_s.isdigit() and safe_path(path)):
             return self._forbidden(at, "malformed", **ctx)
         secret = self.keys.get(kid)
         if secret is None:
