@@ -1,12 +1,26 @@
 # Release allowlist. Only paths listed here (relative to template/) can enter the release artifact.
 # Anything not listed is excluded by default. Format:  <managed|seed> <path>
 #   managed  replaced on every update; update.sh refuses to overwrite local edits unless --force.
-#            A directory entry includes everything beneath it (minus __pycache__ and *.pyc).
+#            A directory entry includes everything tracked beneath it (minus __pycache__ and *.pyc).
 #   seed     installed only if absent, never overwritten (consumer-owned configuration). Files only.
 # The gateway (gateway/) is NOT under template/ and must never be listed here.
+#
+# Rules release/package.sh enforces on this file (Stage 3.1):
+#   - A path may be listed once. A path may not be listed as both managed and seed, and no two
+#     paths may be equal under case folding: the artifact must install on a case-insensitive
+#     filesystem, where engine/ENGINE.json and engine/engine.json would be the same file.
+#   - A path is relative, has no empty, '.' or '..' component and contains no whitespace.
+#   - Every path must exist in template/ and must be tracked by git. Packaging refuses a dirty
+#     template tree, so an untracked or locally modified file can never enter the artifact.
+#   - Only regular files are packaged. Symlinks and special files are refused.
+#   - Shipped modes are normalised: 0644, except a file whose git index mode is 100755, which
+#     ships 0755. The builder's umask cannot change the artifact.
+#   - The managed engine metadata is engine/release.json. It was engine/ENGINE.json until the
+#     F0-013 case-folding collision with the seed file engine/engine.json forced a distinct,
+#     lowercase name.
 managed engine/AGENTS.md
 managed engine/VERSION
-managed engine/ENGINE.json
+managed engine/release.json
 managed engine/bin
 managed engine/prompts
 managed engine/schemas

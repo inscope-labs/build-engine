@@ -19,11 +19,18 @@ Commands:
   coverage <plan> [--fail] [--target DIR]     spec-item coverage
   check-submission <plan> <submission_id>     mechanical gates G1/G2 on an uploaded submission
 
-Python 3.8+, standard library only.
+Exit codes: 0 success; 1 validation or operator error (message on stderr, or ERROR lines from check commands);
+2 usage error (argument parser); 70 unexpected internal error (re-run with PLAN_DEBUG=1 for a traceback);
+130 interrupted. State-changing commands hold a per-plan lock, write files atomically, and restore the files
+they already wrote if a multi-file operation fails part-way.
+
+Standard library only.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -31,9 +38,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:  # advisory locking is available on Linux, Termux and macOS
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
 
 VERSION = "0.1.0"
 STATUSES = ("planned", "in_progress", "pr_open", "done", "dropped", "superseded")
@@ -54,7 +67,10 @@ SECRET_RE = re.compile(
 IGNORED_IN_SUBMISSION = {"MANIFEST.sha256", "UPLOAD.json", "EXIT-REPORT.md", "RECONCILE.json", "PR-BODY.md"}
 ORDER_BEGIN = "=== WORK ORDER BEGIN ==="
 ORDER_END = "=== WORK ORDER END ==="
-ID_RE = re.compile(r"^([0-9]{5})-([1-9][0-9]*)-([0-9]{3})-([0-9]{2})$")
+ID_RE = re.compile(r"([0-9]{5})-([1-9][0-9]*)-([0-9]{3})-([0-9]{2})")
+PLAN_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+SID_RE = re.compile(r"[0-9]{5}-S[0-9]{3,}")
+SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 ROOT = Path(os.environ.get("PLAN_ROOT") or Path(__file__).resolve().parents[2])
 
@@ -77,25 +93,120 @@ def read_json(path):
         raise ToolError("invalid JSON in %s: %s" % (path, e))
 
 
-def write_json(path, obj):
-    """Atomic write: serialize to a temp file in the same directory, then os.replace.
-    Leaves recoverable prior state if the process is interrupted before the replace."""
+def write_text_atomic(path, text):
+    """Write a file so that readers (and an interrupted run) see either the old or the new content, never a mix."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=str(path.parent))
+    fd, tmp = tempfile.mkstemp(prefix="." + path.name + ".", suffix=".tmp", dir=str(path.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        else:
+            um = os.umask(0)
+            os.umask(um)
+            os.chmod(tmp, 0o666 & ~um)
         os.replace(tmp, path)
-    except Exception:
-        try:
+    except BaseException:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
+
+
+def write_json(path, obj):
+    write_text_atomic(path, json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
+
+
+@contextlib.contextmanager
+def plan_lock(name):
+    """One writer at a time per plan on this machine. The lock dies with the process, so it can never go stale."""
+    if fcntl is None:  # pragma: no cover
+        yield
+        return
+    key = hashlib.sha256(str((ROOT / "plans" / name).resolve()).encode()).hexdigest()[:16]
+    fh = open(os.path.join(tempfile.gettempdir(), "plan_tool-%s.lock" % key), "a+")
+    try:
+        deadline = time.monotonic() + float(os.environ.get("PLAN_LOCK_TIMEOUT", "15"))
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ToolError("another plan_tool process is still writing %s; wait for it to finish and retry" % name)
+                time.sleep(0.05)
+        yield
+    finally:
+        fh.close()
+
+
+class Txn:
+    """Group file writes. If anything fails part-way, rollback() restores every file already written."""
+
+    def __init__(self):
+        self.undo = []
+
+    def _remember(self, path):
+        p = Path(path)
+        self.undo.append((p, p.read_bytes() if p.exists() else None))
+
+    def write_text(self, path, text):
+        self._remember(path)
+        write_text_atomic(path, text)
+
+    def write_json(self, path, obj):
+        self.write_text(path, json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
+
+    def create_new(self, path, text):
+        """Create a file that must not exist yet; refuse to overwrite (another run may have claimed the name)."""
+        p = Path(path)
+        fd, tmp = tempfile.mkstemp(prefix="." + p.name + ".", suffix=".tmp", dir=str(p.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            um = os.umask(0)
+            os.umask(um)
+            os.chmod(tmp, 0o666 & ~um)
+            try:
+                os.link(tmp, p)  # atomic, fails if the name exists
+            except FileExistsError:
+                raise ToolError("refusing to overwrite existing %s" % p.name)
+            except OSError:  # filesystem without hard links: fall back to exclusive create
+                try:
+                    fd2 = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+                except FileExistsError:
+                    raise ToolError("refusing to overwrite existing %s" % p.name)
+                with os.fdopen(fd2, "w", encoding="utf-8", newline="") as fh2:
+                    fh2.write(text)
+            self.undo.append((p, None))
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+
+    def rollback(self):
+        for p, old in reversed(self.undo):
+            try:
+                if old is None:
+                    p.unlink()
+                else:
+                    fd, tmp = tempfile.mkstemp(prefix="." + p.name + ".", suffix=".tmp", dir=str(p.parent))
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(old)
+                    os.replace(tmp, p)
+            except OSError:
+                pass
+
+
+def read_json_object(path, what):
+    v = read_json(path)
+    if not isinstance(v, dict):
+        raise ToolError("%s must be a JSON object: %s" % (what, path))
+    return v
 
 
 def engine_cfg():
@@ -116,7 +227,7 @@ def sha256_file(path):
 
 def parse_id(tid):
     """PLAN(5)-PHASE(n)-TASK(3)-SUB(2); the stage is the hundreds digit of TASK."""
-    m = ID_RE.match(tid or "")
+    m = ID_RE.fullmatch(tid) if isinstance(tid, str) else None
     return (m.group(1), m.group(2), int(m.group(3)), int(m.group(4))) if m else None
 
 
@@ -126,7 +237,7 @@ def base_of(tid):
 
 def safe_rel(p):
     """Reject absolute, Windows, null, empty, '.' or '..' path components (aligned with ctxlink.safe_path).
-    Uses raw split so that intermediate '.' components are rejected even though Path normalises them away."""
+    Uses a raw split so that intermediate '.' components are rejected even though Path normalises them away."""
     if not isinstance(p, str) or not p or p.startswith("/") or "\\" in p or "\x00" in p:
         return False
     if re.match(r"^[A-Za-z]:", p):
@@ -204,41 +315,57 @@ def validate(inst, sch, path="$"):
 # ----------------------------------------------------------------- plan model
 class Plan:
     def __init__(self, pid):
-        if not re.match(r"^[a-z0-9][a-z0-9-]*$", pid or ""):
+        if not isinstance(pid, str) or not PLAN_ID_RE.fullmatch(pid):
             raise ToolError("bad plan id: %r" % pid)
         self.id = pid
         self.dir = ROOT / "plans" / pid
         if not self.dir.is_dir():
             raise ToolError("unknown plan: %s" % pid)
-        self.meta = read_json(self.dir / "plan.json")
-        sdata = read_json(self.dir / "stages.json")
+        self.meta = read_json_object(self.dir / "plan.json", "plan.json")
+        sdata = read_json_object(self.dir / "stages.json", "stages.json")
         self.stages = sdata.get("stages", [])
         self.phases = sdata.get("phases", [])
+        for what, val in (("stages", self.stages), ("phases", self.phases)):
+            if not isinstance(val, list) or not all(isinstance(x, dict) for x in val):
+                raise ToolError("stages.json: '%s' must be a list of objects" % what)
         self.tasks = {}
         self.task_files = {}
+        self.load_errors = []
         tdir = self.dir / "tasks"
         if tdir.is_dir():
             for f in sorted(tdir.glob("*.json")):
                 t = read_json(f)
-                tid = t.get("id", f.stem) if isinstance(t, dict) else f.stem
+                if not isinstance(t, dict):
+                    raise ToolError("task file %s must be a JSON object" % f.name)
+                tid = t.get("id", f.stem)
+                if not isinstance(tid, str):
+                    raise ToolError("task file %s: id must be a string" % f.name)
+                if tid in self.tasks:
+                    self.load_errors.append("duplicate task id %s in %s and %s" % (tid, self.task_files[tid].name, f.name))
+                    continue
                 self.tasks[tid] = t
                 self.task_files[tid] = f
         ex = self.dir / "coverage_exempt.json"
-        self.exempt = read_json(ex) if ex.exists() else {"items": []}
+        self.exempt = read_json_object(ex, "coverage_exempt.json") if ex.exists() else {"items": []}
         dj = self.dir / "decisions.json"
-        self.decisions = read_json(dj).get("decisions", []) if dj.exists() else []
+        self.decisions = read_json_object(dj, "decisions.json").get("decisions", []) if dj.exists() else []
+        if not isinstance(self.decisions, list):
+            raise ToolError("decisions.json: 'decisions' must be a list")
 
     def decision(self, did):
         for d in self.decisions:
-            if d.get("id") == did:
+            if isinstance(d, dict) and d.get("id") == did:
                 return d
         return None
 
     def stage_ids(self):
         return [s.get("id") for s in self.stages]
 
-    def save_task(self, tid):
-        write_json(self.task_files.get(tid) or (self.dir / "tasks" / ("%s.json" % tid)), self.tasks[tid])
+    def task_path(self, tid):
+        return self.task_files.get(tid) or (self.dir / "tasks" / ("%s.json" % tid))
+
+    def save_task(self, tid, txn=None):
+        (txn.write_json if txn else write_json)(self.task_path(tid), self.tasks[tid])
 
 
 def stage_state(plan, sid):
@@ -322,20 +449,26 @@ def find_cycles(tasks):
 
 # ----------------------------------------------------------------- check
 def check_plan(plan):
-    errs, warns = [], []
+    errs, warns = list(getattr(plan, "load_errors", [])), []
     cfg = engine_cfg()
     deny = cfg.get("deny_in_task_branches", [])
-    errs += ["plan.json " + e for e in validate(plan.meta, load_schema("plan"))]
-    errs += ["stages.json " + e for e in validate({"phases": plan.phases, "stages": plan.stages}, load_schema("stages"))]
+    meta_errs = ["plan.json " + e for e in validate(plan.meta, load_schema("plan"))]
+    stage_errs = ["stages.json " + e for e in validate({"phases": plan.phases, "stages": plan.stages}, load_schema("stages"))]
+    errs += meta_errs + stage_errs
     errs += ["coverage_exempt.json " + e for e in validate(plan.exempt, load_schema("coverage_exempt"))]
     if (plan.dir / "decisions.json").exists():
-        errs += ["decisions.json " + e for e in validate({"decisions": plan.decisions}, load_schema("decisions"))]
-        dids = [d.get("id") for d in plan.decisions]
-        if len(set(dids)) != len(dids):
-            errs.append("decisions.json: duplicate decision ids")
-        for d in plan.decisions:
-            if d.get("status") == "resolved" and not (d.get("by") and d.get("resolution")):
-                errs.append("decision %s: resolved requires by and resolution" % d.get("id"))
+        derrs = ["decisions.json " + e for e in validate({"decisions": plan.decisions}, load_schema("decisions"))]
+        errs += derrs
+        if not derrs:  # the checks below assume schema-valid decisions
+            dids = [d.get("id") for d in plan.decisions]
+            if len(set(dids)) != len(dids):
+                errs.append("decisions.json: duplicate decision ids")
+            for d in plan.decisions:
+                if d.get("status") == "resolved" and not (d.get("by") and d.get("resolution")):
+                    errs.append("decision %s: resolved requires by and resolution" % d.get("id"))
+    if meta_errs or stage_errs:
+        # the checks below assume well-formed plan.json and stages.json; fix those first
+        return errs, warns
     if plan.meta.get("plan_id") != plan.id:
         errs.append("plan.json plan_id %r != directory %r" % (plan.meta.get("plan_id"), plan.id))
     sids = plan.stage_ids()
@@ -371,12 +504,14 @@ def check_plan(plan):
         except re.error as e:
             errs.append("plan.json deliverable_patterns: bad regex %r (%s)" % (pat, e))
     tschema = load_schema("task")
+    bad_tasks = set()
     for tid, t in sorted(plan.tasks.items()):
         pre = "task %s: " % tid
-        if not isinstance(t, dict):
-            errs.append(pre + "not an object")
-            continue
-        errs += [pre + e for e in validate(t, tschema)]
+        terrs = validate(t, tschema)
+        if terrs:
+            errs += [pre + e for e in terrs]
+            bad_tasks.add(tid)
+            continue  # deeper checks assume a schema-valid task
         if plan.task_files[tid].stem != tid:
             errs.append(pre + "filename %s does not match id" % plan.task_files[tid].name)
         parsed = parse_id(tid)
@@ -436,10 +571,11 @@ def check_plan(plan):
                     errs.append(pre + "superseded_by points at dropped task %s" % x)
         if status in STARTED and gate_blockers(plan, t):
             errs.append(pre + "started while gate stage(s) %s not done" % ",".join(gate_blockers(plan, t)))
-    for c in find_cycles(plan.tasks):
+    good = {k: v for k, v in plan.tasks.items() if k not in bad_tasks}
+    for c in find_cycles(good):
         errs.append("dependency cycle: %s" % c)
     seen = {}
-    for tid, t in plan.tasks.items():
+    for tid, t in good.items():
         if t.get("status") in DEAD:
             continue
         for p in t.get("deliverables", []):
@@ -448,7 +584,7 @@ def check_plan(plan):
         if len(ids) > 1:
             warns.append("deliverable %s claimed by several tasks: %s" % (p, ", ".join(sorted(ids))))
     for s_ in plan.stages:
-        if not any(t.get("stage") == s_.get("id") for t in plan.tasks.values()):
+        if not any(t.get("stage") == s_.get("id") for t in good.values()):
             warns.append("stage %s has no tasks" % s_.get("id"))
     return errs, warns
 
@@ -587,9 +723,10 @@ def concurrency(plan):
     return "\n".join(out).rstrip() + "\n"
 
 
-def write_generated(plan):
-    (plan.dir / "PLAN.md").write_text(render(plan), encoding="utf-8")
-    (plan.dir / "CONCURRENCY.md").write_text(concurrency(plan), encoding="utf-8")
+def write_generated(plan, txn=None):
+    w = txn.write_text if txn else write_text_atomic
+    w(plan.dir / "PLAN.md", render(plan))
+    w(plan.dir / "CONCURRENCY.md", concurrency(plan))
 
 
 def generated_current(plan):
@@ -664,11 +801,17 @@ def cmd_plans(a):
     found = sorted(p.name for p in base.iterdir() if (p / "plan.json").exists()) if base.is_dir() else []
     if not found:
         print("(no plans)")
+    bad = 0
     for pid in found:
-        p = Plan(pid)
+        try:
+            p = Plan(pid)
+        except ToolError as e:  # one unreadable plan must not hide the others
+            print("%s  (unreadable: %s)" % (pid, e))
+            bad = 1
+            continue
         done = sum(1 for t in p.tasks.values() if t.get("status") == "done")
         print("%s  tasks=%d done=%d  %s" % (pid, len(p.tasks), done, p.meta.get("title", "")))
-    return 0
+    return bad
 
 
 def counter_path():
@@ -691,34 +834,45 @@ def bump_counter(number):
 
 def cmd_new(a):
     guard_halt()
-    if not re.match(r"^[a-z0-9][a-z0-9-]*$", a.plan):
+    if not PLAN_ID_RE.fullmatch(a.plan):
         raise ToolError("plan_id must be lowercase letters, digits, dashes")
-    number = a.number or next_plan_number()
-    if not re.match(r"^[0-9]{5}$", number):
-        raise ToolError("--number must be exactly 5 digits")
-    for other in sorted((ROOT / "plans").iterdir()) if (ROOT / "plans").is_dir() else []:
-        if (other / "plan.json").exists() and read_json(other / "plan.json").get("plan_number") == number:
-            raise ToolError("plan number %s already used by plan %s" % (number, other.name))
-    dest = ROOT / "plans" / a.plan
-    if dest.exists():
-        raise ToolError("plan already exists: %s" % a.plan)
-    tpl = ROOT / "engine" / "templates" / "plan"
-    title = a.title or a.plan
-    for src in sorted(tpl.rglob("*")):
-        rel = src.relative_to(tpl)
-        tgt = dest / rel
-        if src.is_dir():
-            tgt.mkdir(parents=True, exist_ok=True)
-            continue
-        tgt.parent.mkdir(parents=True, exist_ok=True)
-        text = src.read_text(encoding="utf-8")
-        text = text.replace("{{PLAN_ID}}", a.plan).replace("{{PLAN_NUMBER}}", number).replace("{{TITLE}}", title)
-        tgt.write_text(text, encoding="utf-8")
-    for sub in ("orders", "submissions"):
-        (dest / sub).mkdir(exist_ok=True)
-        (dest / sub / ".gitkeep").touch()
-    bump_counter(number)
-    write_generated(Plan(a.plan))
+    with plan_lock("__new__"):
+        number = a.number or next_plan_number()
+        if not re.fullmatch(r"[0-9]{5}", number):
+            raise ToolError("--number must be exactly 5 digits")
+        for other in sorted((ROOT / "plans").iterdir()) if (ROOT / "plans").is_dir() else []:
+            if (other / "plan.json").exists() and read_json(other / "plan.json").get("plan_number") == number:
+                raise ToolError("plan number %s already used by plan %s" % (number, other.name))
+        dest = ROOT / "plans" / a.plan
+        if dest.exists():
+            raise ToolError("plan already exists: %s" % a.plan)
+        tpl = ROOT / "engine" / "templates" / "plan"
+        title = a.title or a.plan
+        (ROOT / "plans").mkdir(exist_ok=True)
+        stage = Path(tempfile.mkdtemp(prefix=".new-%s-" % a.plan, dir=str(ROOT / "plans")))
+        moved = False
+        try:
+            for src in sorted(tpl.rglob("*")):
+                rel = src.relative_to(tpl)
+                tgt = stage / rel
+                if src.is_dir():
+                    tgt.mkdir(parents=True, exist_ok=True)
+                    continue
+                tgt.parent.mkdir(parents=True, exist_ok=True)
+                text = src.read_text(encoding="utf-8")
+                text = text.replace("{{PLAN_ID}}", a.plan).replace("{{PLAN_NUMBER}}", number).replace("{{TITLE}}", title)
+                tgt.write_text(text, encoding="utf-8")
+            for sub_ in ("orders", "submissions"):
+                (stage / sub_).mkdir(exist_ok=True)
+                (stage / sub_ / ".gitkeep").touch()
+            os.rename(str(stage), str(dest))
+            moved = True
+            write_generated(Plan(a.plan))
+            bump_counter(number)  # last, so a failure above never skips a plan number
+        except BaseException:
+            import shutil
+            shutil.rmtree(str(dest if moved else stage), ignore_errors=True)
+            raise
     print("created plans/%s (number %s)" % (a.plan, number))
     return 0
 
@@ -736,6 +890,7 @@ def cmd_check(a):
 
 def cmd_render(a):
     plan = Plan(a.plan)
+    _refuse_invalid(plan)
     if a.check:
         ok, which = generated_current(plan)
         if not ok:
@@ -744,13 +899,15 @@ def cmd_render(a):
         print("PLAN.md and CONCURRENCY.md are current")
         return 0
     guard_halt(plan.id)
-    write_generated(plan)
+    with plan_lock(plan.id):
+        write_generated(plan)
     print("wrote plans/%s/PLAN.md and CONCURRENCY.md" % plan.id)
     return 0
 
 
 def cmd_next(a):
     plan = Plan(a.plan)
+    _refuse_invalid(plan)
     rows, blocked = [], []
     for tid, t in sorted(plan.tasks.items()):
         if t.get("status") != "planned":
@@ -785,19 +942,27 @@ def next_submission_id(plan):
     return "%s-S%03d" % (pn, max(nums) + 1)
 
 
+def git_blob(target, ref, path):
+    """Bytes of path as committed at ref in the checkout at target, or None. Never reads the working tree."""
+    r = subprocess.run(["git", "-C", str(target), "cat-file", "blob", "%s:%s" % (ref, path)], capture_output=True)
+    return r.stdout if r.returncode == 0 else None
+
+
 def context_urls(plan, items, env):
-    """Context is delivered ONLY as URLs into the private castiel-dev repository, pinned to a commit."""
+    """Context is delivered ONLY as URLs into the private context repository, pinned to a full commit id."""
     out = []
     for it in items:
         path, sha = it["path"], None
+        if not safe_rel(path):
+            raise ToolError("unsafe context path %r" % path)
         if it["source"] == "target":
-            # castiel content as mirrored in castiel-dev `main` (same commit ids as castiel after `cbridge sync`)
+            # target content as mirrored in the private repository's main branch (same commit ids as upstream after `cbridge sync`)
             url = "%s/%s/%s" % (env["target_base"].rstrip("/"), env["ref"], quote(path))
             if env["target"]:
-                f = Path(env["target"]) / path
-                if not f.is_file():
-                    raise ToolError("target file not found at the pinned checkout: %s" % path)
-                sha = sha256_file(f)
+                blob = git_blob(env["target"], env["ref"], path)
+                if blob is None:
+                    raise ToolError("target file not found at the pinned commit %s: %s" % (env["ref"][:12], path))
+                sha = hashlib.sha256(blob).hexdigest()
         else:
             if not env["plan_ref"]:
                 raise ToolError("context item %s is a plan file: pass --plan-ref <build-engine commit sha>" % path)
@@ -826,11 +991,20 @@ def with_gateway(order):
         if not secret:
             raise ToolError("context.gateway is configured: set %s (the signing secret, never stored in the repo)" % env_name)
         import ctxlink
+        try:
+            ttl = int(gw.get("ttl_seconds", 86400))
+        except (TypeError, ValueError):
+            ttl = 0
+        if not 1 <= ttl <= ctxlink.MAX_TTL:
+            raise ToolError("context.gateway.ttl_seconds must be an integer between 1 and %d (72 hours)" % ctxlink.MAX_TTL)
     for t in out["tasks"]:
         for c in t["context"]:
             if secret:
-                c["gateway_url"] = ctxlink.mint(gw["base"], secret.encode(), gw.get("kid", "k1"), out["submission_id"],
-                                                c["ref"], [c["repo_path"]], int(gw.get("ttl_seconds", 86400)))[0]
+                try:
+                    c["gateway_url"] = ctxlink.mint(gw["base"], secret.encode(), gw.get("kid", "k1"), out["submission_id"],
+                                                    c["ref"], [c["repo_path"]], ttl)[0]
+                except ValueError as e:
+                    raise ToolError("cannot mint a gateway link for %s: %s" % (c["path"], e))
             else:
                 c["gateway_url"] = tpl.replace("{url}", c["url"])
     return out
@@ -841,7 +1015,9 @@ def open_orders(plan):
     odir = plan.dir / "orders"
     for f in sorted(odir.glob("*.json")) if odir.is_dir() else []:
         o = read_json(f)
-        if any(plan.tasks.get(t["id"], {}).get("status") == "in_progress" for t in o.get("tasks", [])):
+        if not isinstance(o, dict) or not isinstance(o.get("tasks", []), list):
+            raise ToolError("order file %s is malformed (expected a JSON object with a task list)" % f.name)
+        if any(isinstance(t, dict) and plan.tasks.get(t.get("id"), {}).get("status") == "in_progress" for t in o.get("tasks", [])):
             out.append(o)
     return out
 
@@ -865,7 +1041,7 @@ def build_order(plan, ids, rework_of=None, target=None, ref=None, plan_ref=None)
         if reasons:
             raise ToolError("%s is not orderable: %s" % (tid, "; ".join(reasons)))
     if rework_of:
-        if not (plan.dir / "orders" / ("%s.json" % rework_of)).exists():
+        if not SID_RE.fullmatch(rework_of) or not (plan.dir / "orders" / ("%s.json" % rework_of)).exists():
             raise ToolError("no order named %s" % rework_of)
         mode = "rework"
     else:
@@ -882,18 +1058,23 @@ def build_order(plan, ids, rework_of=None, target=None, ref=None, plan_ref=None)
                         raise ToolError("%s conflicts with in-progress task %s (shared: %s)" % (tid, other["id"], ", ".join(shared)))
     sid = next_submission_id(plan)
     cx = cfg.get("context", {})
+    pin_help = "pass a full 40-hex commit id (40 lowercase hex characters); moving refs such as a branch name are not accepted (or pass --target to pin that checkout's HEAD)"
+    if ref and not SHA_RE.fullmatch(ref):
+        raise ToolError("--ref %r is not a pinned commit: %s" % (ref, pin_help))
+    if plan_ref and not SHA_RE.fullmatch(plan_ref):
+        raise ToolError("--plan-ref %r is not a pinned commit: %s" % (plan_ref, pin_help.split(" (or")[0]))
     if not ref and target:
         r = subprocess.run(["git", "-C", str(target), "rev-parse", "HEAD"], capture_output=True, text=True)
         if r.returncode != 0:
             raise ToolError("cannot read HEAD of --target (pass --ref explicitly)")
         ref = r.stdout.strip()
+        if not SHA_RE.fullmatch(ref):
+            raise ToolError("HEAD of --target is not a full commit id (is it a git checkout?)")
     if not ref:
-        raise ToolError("context URLs must be pinned: pass --target <castiel-dev main checkout> or --ref <commit sha>")
-    if not re.fullmatch(r"[0-9a-f]{40}", ref):
-        raise ToolError("context ref must be an immutable 40-hex commit SHA (got %r); do not pass branch names" % ref)
+        raise ToolError("context URLs must be pinned: pass --target <checkout of the private context repository> or --ref <full commit sha>")
     if not plan_ref:
         r = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
-        plan_ref = r.stdout.strip() if r.returncode == 0 else ""
+        plan_ref = r.stdout.strip() if r.returncode == 0 and SHA_RE.fullmatch(r.stdout.strip()) else ""
     env = {
         "target_base": cx.get("target_base") or "https://raw.githubusercontent.com/%s" % cfg["private_slug"],
         "plan_base": cx.get("plan_base") or "https://raw.githubusercontent.com/%s" % cfg["private_slug"],
@@ -905,9 +1086,9 @@ def build_order(plan, ids, rework_of=None, target=None, ref=None, plan_ref=None)
         t = plan.tasks[tid]
         items = list(t.get("context", []))
         have = {i["path"] for i in items}
-        if target:  # a file the task replaces must be readable in its current form
+        if target:  # a file the task replaces must be readable in its current form, as committed at the pinned ref
             for path in t["deliverables"] + t.get("companions", []):
-                if path not in have and (Path(target) / path).is_file():
+                if path not in have and safe_rel(path) and git_blob(target, ref, path) is not None:
                     items.append({"source": "target", "path": path, "label": "CURRENT: %s" % path, "role": "edit"})
         entry = {
             "id": tid, "title": t["title"], "branch": "%s%s" % (prefix, tid), "task_dir": tid,
@@ -924,7 +1105,7 @@ def build_order(plan, ids, rework_of=None, target=None, ref=None, plan_ref=None)
             rules.update(f.read_bytes())
     order = {
         "kind": "TASK_ORDER", "order_version": 3, "plan_id": plan.id, "submission_id": sid, "mode": mode,
-        "context_ref": ref, "context_ref_pinned": bool(re.fullmatch(r"[0-9a-f]{40}", ref)),
+        "context_ref": ref, "context_ref_pinned": True,
         "plan_ref": plan_ref, "rules": plan.meta.get("order_rules", []),
         "upload_to": "plans/%s/submissions/%s/" % (plan.id, sid),
         "report_headings": cfg["report_headings"], "rules_sha256": rules.hexdigest(), "tasks": tasks,
@@ -960,63 +1141,101 @@ def order_text(o):
     return "\n".join(L)
 
 
-def cmd_order(a):
-    plan = Plan(a.plan)
-    if a.write or a.start:
-        guard_halt(plan.id)
-    order = build_order(plan, a.ids, a.rework_of, a.target or os.environ.get("PLAN_TARGET"), a.ref, a.plan_ref)
-    body = json.dumps(order, indent=2, ensure_ascii=False)
-    if a.write:
-        (plan.dir / "orders").mkdir(exist_ok=True)
-        (plan.dir / "orders" / ("%s.json" % order["submission_id"])).write_text(body + "\n", encoding="utf-8")
-    if a.start:
-        for t in order["tasks"]:
-            if plan.tasks[t["id"]]["status"] == "planned":
-                commit_transition(plan, t["id"], "in_progress", "plan_tool")
-        write_generated(plan)
+def _order_output(a, order):
     shown = with_gateway(order)  # signed links appear only in what is printed, never in the written order file
     print(json.dumps(shown, indent=2, ensure_ascii=False) if a.json else "%s\n%s\n%s" % (ORDER_BEGIN, order_text(shown), ORDER_END))
+
+
+def _refuse_invalid(plan):
+    errs, _ = check_plan(plan)
+    if errs:
+        raise ToolError("plan %s has %d error(s); fix them before ordering (plan_tool.py check %s). First: %s" % (plan.id, len(errs), plan.id, errs[0]))
+
+
+def cmd_order(a):
+    plan = Plan(a.plan)
+    target = a.target or os.environ.get("PLAN_TARGET")
+    if not (a.write or a.start):
+        _refuse_invalid(plan)
+        _order_output(a, build_order(plan, a.ids, a.rework_of, target, a.ref, a.plan_ref))
+        return 0
+    guard_halt(plan.id)
+    with plan_lock(plan.id):
+        plan = Plan(a.plan)  # reload: another run may have changed the plan before we got the lock
+        _refuse_invalid(plan)
+        order = build_order(plan, a.ids, a.rework_of, target, a.ref, a.plan_ref)
+        txn = Txn()
+        try:
+            if a.write:
+                (plan.dir / "orders").mkdir(exist_ok=True)
+                txn.create_new(plan.dir / "orders" / ("%s.json" % order["submission_id"]), json.dumps(order, indent=2, ensure_ascii=False) + "\n")
+            if a.start:
+                starting = [t["id"] for t in order["tasks"] if plan.tasks[t["id"]]["status"] == "planned"]
+                before = set(check_plan(plan)[0])
+                for tid in starting:
+                    apply_transition(plan, tid, "in_progress", "plan_tool")
+                introduced = set(check_plan(plan)[0]) - before
+                if introduced:
+                    raise ToolError("starting these tasks would introduce plan errors:\n  " + "\n  ".join(sorted(introduced)))
+                for tid in starting:
+                    plan.save_task(tid, txn)
+                write_generated(plan, txn)
+        except BaseException:
+            txn.rollback()
+            raise
+    _order_output(a, order)
     return 0
 
 
 def cmd_links(a):
     """Re-print an existing work order with freshly minted links (links expire; the order does not change)."""
     plan = Plan(a.plan)
+    if not SID_RE.fullmatch(a.order):
+        raise ToolError("bad order id %r (expected NNNNN-SNNN)" % a.order)
     cx = engine_cfg().get("context", {})
     if not ((cx.get("gateway") or {}).get("base") or cx.get("gateway_template")):
         raise ToolError("no gateway configured in engine.json context.gateway")
     order = read_json(plan.dir / "orders" / ("%s.json" % a.order))
-    shown = with_gateway(order)
-    print(json.dumps(shown, indent=2, ensure_ascii=False) if a.json else "%s\n%s\n%s" % (ORDER_BEGIN, order_text(shown), ORDER_END))
+    oerrs = validate(order, load_schema("order")) if isinstance(order, dict) else ["not a JSON object"]
+    if oerrs:
+        raise ToolError("order %s is malformed: %s" % (a.order, oerrs[0]))
+    _order_output(a, order)
     return 0
 
 
 def cmd_set(a):
     guard_halt(a.plan)
-    plan = Plan(a.plan)
-    commit_transition(plan, a.task, a.status, a.by, pr=a.pr, commit=a.commit, merge_sha=a.merge_sha, notes=a.notes)
+    with plan_lock(a.plan):
+        plan = Plan(a.plan)
+        commit_transition(plan, a.task, a.status, a.by, pr=a.pr, commit=a.commit, merge_sha=a.merge_sha, notes=a.notes)
     print("%s -> %s" % (a.task, a.status))
     return 0
 
 
 def cmd_decide(a):
     guard_halt(a.plan)
-    plan = Plan(a.plan)
-    d = plan.decision(a.decision)
-    if d is None:
-        raise ToolError("unknown decision: %s" % a.decision)
-    if not a.by:
-        raise ToolError("--by is required")
-    if a.reopen:
-        d["status"] = "open"
-        for k in ("resolution", "by", "at"):
-            d.pop(k, None)
-    else:
-        if not a.notes:
-            raise ToolError("--notes (the resolution) is required")
-        d["status"], d["resolution"], d["by"], d["at"] = "resolved", a.notes, a.by, now()
-    write_json(plan.dir / "decisions.json", {"decisions": plan.decisions})
-    write_generated(Plan(a.plan))
+    with plan_lock(a.plan):
+        plan = Plan(a.plan)
+        d = plan.decision(a.decision)
+        if d is None:
+            raise ToolError("unknown decision: %s" % a.decision)
+        if not a.by:
+            raise ToolError("--by is required")
+        if a.reopen:
+            d["status"] = "open"
+            for k in ("resolution", "by", "at"):
+                d.pop(k, None)
+        else:
+            if not a.notes:
+                raise ToolError("--notes (the resolution) is required")
+            d["status"], d["resolution"], d["by"], d["at"] = "resolved", a.notes, a.by, now()
+        txn = Txn()
+        try:
+            txn.write_json(plan.dir / "decisions.json", {"decisions": plan.decisions})
+            write_generated(Plan(a.plan), txn)
+        except BaseException:
+            txn.rollback()
+            raise
     print("%s -> %s" % (a.decision, d["status"]))
     return 0
 
@@ -1113,16 +1332,30 @@ def cmd_coverage(a):
 
 def cmd_check_submission(a):
     plan = Plan(a.plan)
+    if not SID_RE.fullmatch(a.submission):
+        raise ToolError("bad submission id %r (expected NNNNN-SNNN)" % a.submission)
     cfg = engine_cfg()
     sdir = plan.dir / "submissions" / a.submission
     errs = []
     sj = read_json(sdir / "SUBMISSION.json")
     errs += validate(sj, load_schema("submission"))
+    if not isinstance(sj, dict) or not isinstance(sj.get("tasks"), list) or not all(isinstance(x, dict) for x in sj["tasks"]):
+        errs.append("SUBMISSION.json must be an object whose 'tasks' is a list of objects")
+        for e in errs:
+            print("ERROR " + e)
+        print("submission %s: %d error(s)" % (a.submission, len(errs)))
+        return 1
     if sj.get("submission_id") != a.submission:
         errs.append("SUBMISSION.json submission_id != folder name")
     if sj.get("plan_id") != plan.id:
         errs.append("SUBMISSION.json plan_id != %s" % plan.id)
     order = read_json(plan.dir / "orders" / ("%s.json" % a.submission))
+    oerrs = validate(order, load_schema("order")) if isinstance(order, dict) else ["order file is not a JSON object"]
+    if oerrs:
+        for e in oerrs:
+            print("ERROR order %s: %s" % (a.submission, e))
+        print("submission %s: %d error(s)" % (a.submission, len(oerrs)))
+        return 1
     otasks = {t["id"]: t for t in order["tasks"]}
     sids = [t.get("id") for t in sj.get("tasks", [])]
     for tid in sids:
@@ -1174,7 +1407,7 @@ def cmd_check_submission(a):
             errs.append(pre + "missing file: %s" % x)
         for x in sorted(actual - expected):
             errs.append(pre + "unexpected file: %s" % x)
-        if entry.get("files") is not None and set(entry["files"]) != actual:
+        if entry.get("files") is not None and (not isinstance(entry["files"], list) or set(map(str, entry["files"])) != actual):
             errs.append(pre + "SUBMISSION.json files list does not match files/")
     up = sdir / "UPLOAD.json"
     if not up.exists():
@@ -1249,6 +1482,14 @@ def main(argv=None):
     except ToolError as e:
         print("ERROR: %s" % e, file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("ERROR: interrupted", file=sys.stderr)
+        return 130
+    except Exception as e:  # noqa: BLE001 - anything unexpected must not surface as a raw traceback
+        if os.environ.get("PLAN_DEBUG"):
+            raise
+        print("ERROR: unexpected %s: %s (run 'plan_tool.py check <plan>'; set PLAN_DEBUG=1 for a traceback)" % (type(e).__name__, e), file=sys.stderr)
+        return 70
 
 
 if __name__ == "__main__":

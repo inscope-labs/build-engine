@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "note": [
+    "The single source of truth for the read gateway's deployed configuration.",
+    "",
+    "wrangler.toml is GENERATED from this file by ops/render-environments.py. Edit this file,",
+    "re-render, and commit both. The deploy gate refuses to deploy if the committed wrangler.toml",
+    "does not match what this file renders to, so an environment cannot drift from its record.",
+    "",
+    "Nothing secret belongs in this file. The three secrets of every environment - the signing",
+    "keys, the operator token and the repository credential - are set per environment with",
+    "'wrangler secret put --env <env>' and are listed here only by name, so that the gate can",
+    "check that each environment has its own.",
+    "",
+    "The three environments are separated in three ways, and the gate checks all three:",
+    "  - by worker name: they are different Workers, with different Durable Object namespaces;",
+    "  - by key id: the sets of key ids are disjoint, so a link minted for one environment is",
+    "    refused with 'unknown-key' by another;",
+    "  - by secrets: each environment holds its own values, which the operator sets separately."
+  ],
+  "ceiling_notes": [
+    "MAX_TTL may not exceed 259200 (72 h) and CLOCK_SKEW_TOLERANCE may not exceed 120 seconds.",
+    "These are the operator's approved ceilings (docs/decisions/0003) and the gateway refuses to",
+    "start with a larger value. The renderer refuses to write a configuration that breaks them."
+  ],
+  "environments": {
+    "test": {
+      "label": "the local test environment: CI, the conformance suite and the operator's laptop",
+      "deployed": false,
+      "worker_name": "ctxgate-read",
+      "exposure": "none",
+      "key_ids": ["k1"],
+      "secrets": ["SIGNING_KEYS", "OPERATOR_TOKEN", "GITHUB_TOKEN"],
+      "vars": {
+        "GITHUB_API_BASE": "https://api.github.com",
+        "GITHUB_REPO": "OWNER/REPO",
+        "ALLOW_PREFIXES": "amk/,plans/*/package/",
+        "DENY_PATTERNS": [
+          "(^|/)\\.git(/|$)",
+          "(^|/)\\.github/",
+          "(^|/)\\.env",
+          "(^|/)(secrets?|credentials?)(\\.|/|$)",
+          "\\.(pem|key|p12)$",
+          "(^|/)__pycache__(/|$)",
+          "\\.pyc$"
+        ],
+        "MAX_BYTES": "1048576",
+        "MAX_TTL": "259200",
+        "CLOCK_SKEW_TOLERANCE": "120",
+        "SOURCE_TIMEOUT_MS": "5000",
+        "RATE_LIMIT_PER_ORDER": "120",
+        "RATE_LIMIT_PER_IP": "600",
+        "RATE_LIMIT_GLOBAL": "2000",
+        "REFUSAL_BURST": "60",
+        "REFUSAL_COOLDOWN_SECONDS": "300",
+        "AUDIT_RETENTION": "500"
+      }
+    },
+    "staging": {
+      "label": "staging: a disposable deployment used for the pilot and for operational rehearsal",
+      "deployed": true,
+      "worker_name": "ctxgate-read-staging",
+      "exposure": "workers_dev",
+      "key_ids": ["k1"],
+      "secrets": ["SIGNING_KEYS", "OPERATOR_TOKEN", "GITHUB_TOKEN"],
+      "notes": [
+        "Staging reads a DISPOSABLE repository. It must never be pointed at the repository that",
+        "staging is meant to rehearse against by accident, and its keys are not the production keys.",
+        "Staging is the environment where the pilot (Stage 6) runs, so it must be able to reach a",
+        "disposable copy of the source content."
+      ],
+      "vars": {
+        "GITHUB_API_BASE": "https://api.github.com",
+        "GITHUB_REPO": "OWNER/REPO-STAGING",
+        "ALLOW_PREFIXES": "amk/,plans/*/package/",
+        "DENY_PATTERNS": [
+          "(^|/)\\.git(/|$)",
+          "(^|/)\\.github/",
+          "(^|/)\\.env",
+          "(^|/)(secrets?|credentials?)(\\.|/|$)",
+          "\\.(pem|key|p12)$",
+          "(^|/)__pycache__(/|$)",
+          "\\.pyc$"
+        ],
+        "MAX_BYTES": "1048576",
+        "MAX_TTL": "259200",
+        "CLOCK_SKEW_TOLERANCE": "120",
+        "SOURCE_TIMEOUT_MS": "5000",
+        "RATE_LIMIT_PER_ORDER": "120",
+        "RATE_LIMIT_PER_IP": "600",
+        "RATE_LIMIT_GLOBAL": "2000",
+        "REFUSAL_BURST": "60",
+        "REFUSAL_COOLDOWN_SECONDS": "300",
+        "AUDIT_RETENTION": "500"
+      }
+    },
+    "production": {
+      "label": "production: the gateway the operator's own tasks are served by",
+      "deployed": true,
+      "worker_name": "ctxgate-read",
+      "exposure": "route",
+      "key_ids": ["p1"],
+      "secrets": ["SIGNING_KEYS", "OPERATOR_TOKEN", "GITHUB_TOKEN"],
+      "routes": [
+        {
+          "pattern": "REPLACE-WITH-THE-GATEWAY-HOST.example.com",
+          "custom_domain": true
+        }
+      ],
+      "notes": [
+        "The host is part of the work-order contract: docs/decisions/0002 requires the host to be",
+        "one the Class B agent's proxy is allowed to contact. It is not a free choice.",
+        "Production has no workers.dev exposure. The gateway is reachable on one named host only.",
+        "The key id is 'p1' and is disjoint from staging's, so a staging-minted link cannot be",
+        "replayed against production even if the two environments shared a worker name."
+      ],
+      "vars": {
+        "GITHUB_API_BASE": "https://api.github.com",
+        "GITHUB_REPO": "OWNER/REPO",
+        "ALLOW_PREFIXES": "amk/,plans/*/package/",
+        "DENY_PATTERNS": [
+          "(^|/)\\.git(/|$)",
+          "(^|/)\\.github/",
+          "(^|/)\\.env",
+          "(^|/)(secrets?|credentials?)(\\.|/|$)",
+          "\\.(pem|key|p12)$",
+          "(^|/)__pycache__(/|$)",
+          "\\.pyc$"
+        ],
+        "MAX_BYTES": "1048576",
+        "MAX_TTL": "259200",
+        "CLOCK_SKEW_TOLERANCE": "120",
+        "SOURCE_TIMEOUT_MS": "5000",
+        "RATE_LIMIT_PER_ORDER": "120",
+        "RATE_LIMIT_PER_IP": "600",
+        "RATE_LIMIT_GLOBAL": "2000",
+        "REFUSAL_BURST": "60",
+        "REFUSAL_COOLDOWN_SECONDS": "300",
+        "AUDIT_RETENTION": "500"
+      }
+    }
+  }
+}

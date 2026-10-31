@@ -1,0 +1,148 @@
+# ctxgate read gateway: the production Class B context-read route (RELEASE-PLAN.md Stage 4.2).
+#
+# Hosting is decided: docs/decisions/0001 (Cloudflare Workers, operator-owned, single-tenant).
+#
+# THIS FILE IS GENERATED from ops/environments.json by ops/render-environments.py. Do not edit
+# it by hand: edit ops/environments.json, re-render, and commit both. The deploy gate runs
+# 'python3 ops/render-environments.py --check' and refuses to deploy if the two disagree, so an
+# environment cannot drift away from its own record.
+#
+# It carries NO secrets. The signing keys, the operator token and the repository credential are
+# set per environment with 'wrangler secret put --env <env>'.
+
+name = "ctxgate-read"
+main = "src/index.ts"
+
+# Pin deliberately and bump on purpose; do not float.
+compatibility_date = "2025-09-01"
+
+# The gateway's state: the revocation set, the audit trail and the rate-limit counters.
+# A Durable Object is used rather than KV because revocation must take effect
+# immediately: a capability that is revoked must stop working at once, not up to a
+# cache TTL later.
+[[durable_objects.bindings]]
+name = "STATE"
+class_name = "GatewayState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GatewayState"]
+
+# ---------------------------------------------------------------------------
+# Non-secret configuration. Everything here is safe to read, but the values that
+# describe the policy are ALSO reported on /healthz, so that a verifier can test the
+# gateway as it is actually configured.
+# ---------------------------------------------------------------------------
+
+[vars]
+  GITHUB_API_BASE = "https://api.github.com"
+  GITHUB_REPO = "OWNER/REPO"
+  ALLOW_PREFIXES = "amk/,plans/*/package/"
+  DENY_PATTERNS = "[\"(^|/)\\\\.git(/|$)\",\"(^|/)\\\\.github/\",\"(^|/)\\\\.env\",\"(^|/)(secrets?|credentials?)(\\\\.|/|$)\",\"\\\\.(pem|key|p12)$\",\"(^|/)__pycache__(/|$)\",\"\\\\.pyc$\"]"
+  MAX_BYTES = "1048576"
+  MAX_TTL = "259200"
+  CLOCK_SKEW_TOLERANCE = "120"
+  SOURCE_TIMEOUT_MS = "5000"
+  RATE_LIMIT_PER_ORDER = "120"
+  RATE_LIMIT_PER_IP = "600"
+  RATE_LIMIT_GLOBAL = "2000"
+  REFUSAL_BURST = "60"
+  REFUSAL_COOLDOWN_SECONDS = "300"
+  AUDIT_RETENTION = "500"
+
+# routes / workers_dev are intentionally unset in the test environment: it is never
+# deployed. The deployed environments are below.
+
+# ---------------------------------------------------------------------------
+# STAGING environment: staging: a disposable deployment used for the pilot and for operational rehearsal
+#
+# Staging reads a DISPOSABLE repository. It must never be pointed at the repository that
+# staging is meant to rehearse against by accident, and its keys are not the production keys.
+# Staging is the environment where the pilot (Stage 6) runs, so it must be able to reach a
+# disposable copy of the source content.
+#
+# Secrets for this environment (set once, per environment, never in this file):
+#   wrangler secret put --env staging SIGNING_KEYS
+#   wrangler secret put --env staging OPERATOR_TOKEN
+#   wrangler secret put --env staging GITHUB_TOKEN
+# ---------------------------------------------------------------------------
+[env.staging]
+name = "ctxgate-read-staging"
+
+# Staging is reachable on workers.dev, so that a pilot agent can reach it
+# without a domain. It is a disposable environment and it holds no real content.
+workers_dev = true
+
+[[env.staging.durable_objects.bindings]]
+name = "STATE"
+class_name = "GatewayState"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["GatewayState"]
+
+[env.staging.vars]
+  GITHUB_API_BASE = "https://api.github.com"
+  GITHUB_REPO = "OWNER/REPO-STAGING"
+  ALLOW_PREFIXES = "amk/,plans/*/package/"
+  DENY_PATTERNS = "[\"(^|/)\\\\.git(/|$)\",\"(^|/)\\\\.github/\",\"(^|/)\\\\.env\",\"(^|/)(secrets?|credentials?)(\\\\.|/|$)\",\"\\\\.(pem|key|p12)$\",\"(^|/)__pycache__(/|$)\",\"\\\\.pyc$\"]"
+  MAX_BYTES = "1048576"
+  MAX_TTL = "259200"
+  CLOCK_SKEW_TOLERANCE = "120"
+  SOURCE_TIMEOUT_MS = "5000"
+  RATE_LIMIT_PER_ORDER = "120"
+  RATE_LIMIT_PER_IP = "600"
+  RATE_LIMIT_GLOBAL = "2000"
+  REFUSAL_BURST = "60"
+  REFUSAL_COOLDOWN_SECONDS = "300"
+  AUDIT_RETENTION = "500"
+
+# ---------------------------------------------------------------------------
+# PRODUCTION environment: production: the gateway the operator's own tasks are served by
+#
+# The host is part of the work-order contract: docs/decisions/0002 requires the host to be
+# one the Class B agent's proxy is allowed to contact. It is not a free choice.
+# Production has no workers.dev exposure. The gateway is reachable on one named host only.
+# The key id is 'p1' and is disjoint from staging's, so a staging-minted link cannot be
+# replayed against production even if the two environments shared a worker name.
+#
+# Secrets for this environment (set once, per environment, never in this file):
+#   wrangler secret put --env production SIGNING_KEYS
+#   wrangler secret put --env production OPERATOR_TOKEN
+#   wrangler secret put --env production GITHUB_TOKEN
+# ---------------------------------------------------------------------------
+[env.production]
+name = "ctxgate-read"
+
+# Production is NOT exposed on workers.dev. It is reachable on one named
+# host only, and that host is part of the work-order contract
+# (docs/decisions/0002).
+workers_dev = false
+
+[[env.production.durable_objects.bindings]]
+name = "STATE"
+class_name = "GatewayState"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["GatewayState"]
+
+[[env.production.routes]]
+pattern = "REPLACE-WITH-THE-GATEWAY-HOST.example.com"
+custom_domain = true
+
+[env.production.vars]
+  GITHUB_API_BASE = "https://api.github.com"
+  GITHUB_REPO = "OWNER/REPO"
+  ALLOW_PREFIXES = "amk/,plans/*/package/"
+  DENY_PATTERNS = "[\"(^|/)\\\\.git(/|$)\",\"(^|/)\\\\.github/\",\"(^|/)\\\\.env\",\"(^|/)(secrets?|credentials?)(\\\\.|/|$)\",\"\\\\.(pem|key|p12)$\",\"(^|/)__pycache__(/|$)\",\"\\\\.pyc$\"]"
+  MAX_BYTES = "1048576"
+  MAX_TTL = "259200"
+  CLOCK_SKEW_TOLERANCE = "120"
+  SOURCE_TIMEOUT_MS = "5000"
+  RATE_LIMIT_PER_ORDER = "120"
+  RATE_LIMIT_PER_IP = "600"
+  RATE_LIMIT_GLOBAL = "2000"
+  REFUSAL_BURST = "60"
+  REFUSAL_COOLDOWN_SECONDS = "300"
+  AUDIT_RETENTION = "500"
