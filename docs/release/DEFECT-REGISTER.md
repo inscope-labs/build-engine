@@ -263,6 +263,22 @@ Added after the operator asked for a register that omits no known defect. Method
 - Owner: implementation/administrator. Planned phase: Phase 3 - 3.3.3, 3.3.4, 3.3.5, 3.3.6, 3.3.7.
 - Closure evidence: a tag on a commit with failed or missing CI publishes nothing, shown by a dry-run test.
 
+### F0-024 — A context path may contain control characters
+- Severity: S2. Status: CONFIRMED by source; **closed in Stage 4.1** (2026-10-26).
+- Evidence: `ctxlink.safe_path()` rejected `\x00`, `\\`, absolute paths, and the `.`/`..`/empty components, but accepted any other control character. A path such as `a\nb` or `a\x01b` was therefore mintable and served, and the path is written into the audit log and used to build the source request. A port written in another language, reading the rules in prose rather than from the code, had no way to know this was intended.
+- Consequence: a path that is awkward to represent in a URL, a log line or a header can reach the gateway; the scheme had no single written rule for it, so "any implementation must reproduce" was not actually testable.
+- Resolution (Stage 4.1): the path rule is now written normatively in `conformance/SCHEME.md` section 5 and says that a path must contain no character in `U+0000`-`U+001F` or `U+007F`. `ctxlink.safe_path()` was tightened to match, which is a strict subset of the paths it accepted before: no previously minted legitimate link is affected. `gateway/read/reference/ctxgate.py` imports the same function, so the client and the gateway cannot drift apart.
+- Owner: implementation. Planned phase: Stage 4.1 (done).
+- Closure evidence: vectors `I15`-`I19` in `conformance/signing-vectors.json` (NUL, newline, control character, DEL, trailing slash) are refused by the shipped client; `template/engine/tools/test_ctxlink.py` asserts the rule in the shipped copy; `conformance/test_conformance.py` fails if the shipped test and the shared vectors disagree.
+
+### F0-025 — The scheme had no written normative description
+- Severity: S2. Status: CONFIRMED by source; **closed in Stage 4.1** (2026-10-26).
+- Evidence: the scheme existed as prose in `template/docs/CONTEXT-EXPORT.md` sections 5 and 6, as a docstring in `template/engine/tools/ctxlink.py`, and as two vectors in two different places. `conformance/signing-vectors.json` was `{"vectors": []}` with the note "stub: to be filled when code work starts", and `conformance/harness/` held one README. `behaviours.md` stated that the reference gateway's behaviour mapping was "not yet recorded".
+- Consequence: "any implementation must reproduce the signing vectors" and "a production port must pass appendix B" were both unfalsifiable. A port had to read Python to learn the encoding rules, and the rules that mattered most (per-segment percent-decoding, no Unicode normalisation, the order of the verification checks) were not written down anywhere at all.
+- Resolution (Stage 4.1): `conformance/SCHEME.md` is now the normative description of the scheme — message construction, signature encoding, field rules, path rules, URL encoding, the order of the verification checks, the response and audit formats, and the conformance requirements including the test clock. The vectors file is complete (17 valid, 19 invalid) and was produced by an implementation independent of the shipped client, cross-checked against OpenSSL, and then compared with the shipped client.
+- Owner: implementation. Planned phase: Stage 4.1 (done).
+- Closure evidence: `conformance/harness/run.py` executes the vectors and the B1-B10 cases; `conformance/test_conformance.py` is the CI gate; the suite was itself checked against thirteen deliberate defects in the reference gateway (an off-by-one in the expiry comparison, a path check written as a substring glob, the signature check moved after the expiry check, per-reason refusal bodies, the allow-prefix ignored, the pinned commit ignored, the TTL and revocation checks disabled, the size limit disabled, a wrong hash header, POST allowed, the audit path dropped) and every one is caught by a named case.
+
 ## A4. Additional confirmed findings (Stage 2.2 plan/order tooling audit, follow-up to PR #10, 2026-10-26)
 
 IDs F0-050 onward, to avoid collisions with parallel branches. Every item was reproduced by execution against `main` before the fix (probes and a schema-wide fuzz), and each now has a regression test in `template/engine/tools/test_plan_tool_hardening.py`; run against the pre-fix tools those tests produced 22 failures and 16 errors. PR #10 had already made `write_json` atomic, aligned `safe_rel` and required a 40-hex ref in `context_urls`; items marked "(partly #10)" were completed here.
@@ -597,7 +613,7 @@ executed baseline run or by reading the verifier's own control flow, and all fiv
 | Operator-controlled plan/order/context-link tooling and `cbridge` workflow | REQUIRED FOR FIRST RELEASE, subject to acceptance tests | Core shipped workflow; verify against documented claims and consumer tests. |
 | Production Class B read gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.3)** | Not started; Phase 4. |
 | Agent-side write gateway | **REQUIRED for the first release (operator decision 2026-10-26; Stage 1.4)** | Scaffold only; Phase 5. |
-| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | Current vectors/harness incomplete. |
+| Shared conformance harness | **REQUIRED** (gates the read gateway exit, Stage 4.1) | **Complete as of 2026-10-26** — `conformance/SCHEME.md`, 17 valid + 19 invalid signing vectors, 53 executable cases for B1-B10, a runner that drives any gateway over HTTP and any signer over a JSON-lines contract, and a CI gate. See `docs/release/PHASE-4.1-CLOSEOUT.md`. The production port must still pass it (Stage 4.2). |
 | Real end-to-end pilot | **REQUIRED** (Phase 6) | Pilot not started. |
 | Object-storage variant | REJECTED | Explicitly rejected in Stage 1.3. |
 
@@ -648,6 +664,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-019 | Phase 2.1.3-2.1.4 | Documentation |
 | F0-020 | Phase 1.1 (this PR) | Needs operator approval |
 | F0-021, F0-022 | Phase 4 / 3.3.2 | Lint and dev dependencies |
+| F0-024, F0-025 | Stage 4.1 (closed 2026-10-26) | Path rule, normative scheme description |
 | R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |

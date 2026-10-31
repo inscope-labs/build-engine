@@ -1,0 +1,489 @@
+{
+  "schema": 1,
+  "note": "Executable cases for the gateway behaviours B1-B10. Language-neutral: a runner mints a link from the 'link' block, applies 'mutate' to the minted URL, and asserts 'expect'. The runner is conformance/harness/run.py. Times are offsets in seconds from a base time T chosen by the runner: exp = T + link.exp_offset, and the request is evaluated at T + link.at_offset.",
+  "fixture": {
+    "files": {
+      "amk/spec.md": "normative text\n",
+      "amk/big.md": {"repeat": "x", "count": 5000},
+      "amk/a+b.md": "plus in the name\n",
+      "amk/dir with space/é.md": "accented\n",
+      "docs/other.md": "outside the allowed prefix\n",
+      ".github/wf.yml": "secret workflow\n",
+      "amk/secrets.md": "denied by name\n"
+    },
+    "later_files": {
+      "amk/spec.md": "REVISED normative text\n",
+      "amk/newer.md": "added after the pinned commit\n"
+    },
+    "keys": {"k1": "test-secret"},
+    "allow_prefixes": ["amk/"],
+    "max_bytes": 4000,
+    "max_ttl": 3600,
+    "revoked_orders": ["10008-S002"]
+  },
+  "cases": [
+    {
+      "id": "B1-valid-read",
+      "behaviour": "B1",
+      "description": "A valid link returns the exact bytes of the file, the correct hash header and a no-store cache directive.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {
+        "status": 200,
+        "body": "normative text\n",
+        "headers": {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "X-Content-SHA256": "$sha256",
+          "X-Ctx-Order": "10008-S001"
+        }
+      }
+    },
+    {
+      "id": "B1-hash-matches-body",
+      "behaviour": "B1",
+      "description": "The X-Content-SHA256 header is the SHA-256 of the body actually returned.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 200, "body_sha256": "$sha256-of-body", "header_hashes_body": "X-Content-SHA256"}
+    },
+    {
+      "id": "B1-plus-in-path",
+      "behaviour": "B1",
+      "description": "A path whose name contains a literal '+' is served. The URL form is %2B and the verifier must percent-decode it, not form-decode it into a space.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/a+b.md", "exp_offset": 600},
+      "expect": {"status": 200, "body": "plus in the name\n"}
+    },
+    {
+      "id": "B1-space-and-non-ascii-in-path",
+      "behaviour": "B1",
+      "description": "A path with a space and a non-ASCII character is served, so the verifier decodes each segment as UTF-8.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/dir with space/é.md", "exp_offset": 600},
+      "expect": {"status": 200, "body": "accented\n"}
+    },
+    {
+      "id": "B1-url-form-is-canonical",
+      "behaviour": "B1",
+      "description": "The URL form of the path is canonical: rewriting the encoded space as a '+' produces a different path, so the signature no longer matches and the link is refused. A verifier must percent-decode and never form-decode, or an equivalent-but-unsigned URL would be accepted.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/dir with space/é.md", "exp_offset": 600},
+      "mutate": {"kind": "raw_path_replace", "from": "%20", "to": "+"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B1-content-is-pinned-to-the-named-commit",
+      "behaviour": "B1",
+      "description": "The link names a commit, and the bytes served are the bytes AT that commit. The fixture repository has a later commit that rewrites this file; the link still serves the pinned version.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 200, "body": "normative text\n"}
+    },
+    {
+      "id": "B1-file-added-after-the-pinned-commit-is-not-visible",
+      "behaviour": "B1",
+      "description": "A file that only exists in a later commit is not served by a link pinned to the earlier commit.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/newer.md", "exp_offset": 600},
+      "expect": {"status": 404}
+    },
+    {
+      "id": "B2-head-no-body",
+      "behaviour": "B2",
+      "description": "HEAD returns the headers of the same file and no body at all.",
+      "method": "HEAD",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 200, "body": "", "headers": {"Content-Length": "15", "X-Ctx-Order": "10008-S001"}}
+    },
+    {
+      "id": "B2-post-405",
+      "behaviour": "B2",
+      "description": "POST is refused; the gateway is read-only.",
+      "method": "POST",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 405, "headers": {"Allow": "GET, HEAD"}}
+    },
+    {
+      "id": "B2-put-405",
+      "behaviour": "B2",
+      "description": "PUT is refused.",
+      "method": "PUT",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 405}
+    },
+    {
+      "id": "B2-delete-405",
+      "behaviour": "B2",
+      "description": "DELETE is refused.",
+      "method": "DELETE",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 405}
+    },
+    {
+      "id": "B2-patch-405",
+      "behaviour": "B2",
+      "description": "PATCH is refused.",
+      "method": "PATCH",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 405}
+    },
+    {
+      "id": "B3-valid-at-expiry",
+      "behaviour": "B3",
+      "description": "The expiry boundary is inclusive: at exactly exp the link is still served.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": 0},
+      "expect": {"status": 200, "body": "normative text\n"}
+    },
+    {
+      "id": "B3-refused-one-past-expiry",
+      "behaviour": "B3",
+      "description": "One second past exp the link is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 0, "at_offset": 1},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B3-expired-refused",
+      "behaviour": "B3",
+      "description": "A link that is already expired is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10, "at_offset": 0},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-kid",
+      "behaviour": "B4",
+      "description": "Changing the key id invalidates the link.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "kid", "value": "k2"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-exp",
+      "behaviour": "B4",
+      "description": "Stretching the expiry invalidates the link.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "exp", "value": "1999999999"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-order",
+      "behaviour": "B4",
+      "description": "Moving the link to another order invalidates it.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "order", "value": "10008-S002"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-signature",
+      "behaviour": "B4",
+      "description": "Replacing the signature invalidates the link.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-ref",
+      "behaviour": "B4",
+      "description": "Repointing the link at another commit invalidates it.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "ref", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B4-tamper-path",
+      "behaviour": "B4",
+      "description": "Repointing the link at another file invalidates it.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "path", "value": "amk/big.md"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B5-ttl-too-long",
+      "behaviour": "B5",
+      "description": "A link whose remaining lifetime exceeds max_ttl is refused, however well it is signed.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3601},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B5-ttl-at-limit",
+      "behaviour": "B5",
+      "description": "A link whose remaining lifetime is exactly max_ttl is served. The limit is inclusive.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3600},
+      "expect": {"status": 200, "body": "normative text\n"}
+    },
+    {
+      "id": "B6-revoked-order-refused",
+      "behaviour": "B6",
+      "description": "A link for a revoked order is refused even though it is perfectly signed and unexpired.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S002", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B6-other-order-unaffected",
+      "behaviour": "B6",
+      "description": "Revoking one order kills nobody else's links.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "expect": {"status": 200, "body": "normative text\n"}
+    },
+    {
+      "id": "B7-out-of-prefix",
+      "behaviour": "B7",
+      "description": "A validly signed link outside every allowed prefix is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "docs/other.md", "exp_offset": 600},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B7-denied-by-name",
+      "behaviour": "B7",
+      "description": "A validly signed link to a denied file name is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/secrets.md", "exp_offset": 600},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B7-denied-directory",
+      "behaviour": "B7",
+      "description": "A validly signed link to a denied directory is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": ".github/wf.yml", "exp_offset": 600},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B8-dotdot-component",
+      "behaviour": "B8",
+      "description": "A '..' component is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "path", "value": "amk/../docs/other.md"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B8-encoded-slash",
+      "behaviour": "B8",
+      "description": "An encoded slash is refused before anything is decoded.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "raw_path", "value": "amk%2Fspec.md"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B8-nul-byte",
+      "behaviour": "B8",
+      "description": "A NUL byte in the path is refused.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+      "mutate": {"kind": "raw_path", "value": "amk/spec.md%00"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B9-not-found-after-valid-signature",
+      "behaviour": "B9",
+      "description": "A validly signed link to a file that does not exist is 404, not 403.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
+      "expect": {"status": 404}
+    },
+    {
+      "id": "B9-too-large-after-valid-signature",
+      "behaviour": "B9",
+      "description": "A validly signed link to a file over max_bytes is 413, not 403.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/big.md", "exp_offset": 600},
+      "expect": {"status": 413}
+    },
+    {
+      "id": "B9-unknown-commit-after-valid-signature",
+      "behaviour": "B9",
+      "description": "A validly signed link to an unknown commit is 404.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "ref": "cccccccccccccccccccccccccccccccccccccccc", "exp_offset": 600},
+      "expect": {"status": 404}
+    },
+    {
+      "id": "B9-forged-link-never-reveals-existence",
+      "behaviour": "B9",
+      "description": "A forged link is refused with 403 and never reveals whether the file exists.",
+      "method": "GET",
+      "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
+      "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+      "expect": {"status": 403}
+    },
+    {
+      "id": "B9-refusals-are-indistinguishable",
+      "behaviour": "B9",
+      "description": "Every refusal returns the same body, so a caller cannot tell the checks apart.",
+      "kind": "uniform-refusal",
+      "requests": [
+        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
+         "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": -10}},
+        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600},
+         "mutate": {"kind": "field", "name": "kid", "value": "k2"}},
+        {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "docs/other.md", "exp_offset": 600}}
+      ],
+      "expect": {"status": 403, "identical_bodies": true}
+    },
+    {
+      "id": "B10-one-record-per-request",
+      "behaviour": "B10",
+      "description": "Every request writes exactly one audit record, and no record holds a signature.",
+      "kind": "audit-invariants",
+      "expect": {"records_equal_requests": true, "no_signature_in_records": true}
+    },
+    {
+      "id": "B10-audit-summary",
+      "behaviour": "B10",
+      "description": "The audit summary reports what was served, what was never fetched and what was refused.",
+      "kind": "audit-summary",
+      "order": "10008-S001",
+      "expect": {
+        "served": ["amk/spec.md", "amk/a+b.md", "amk/dir with space/é.md"],
+        "never_fetched": ["amk/never.md"],
+        "refused_at_least": 1
+      }
+    },
+    {
+      "id": "B2-method-refusal-is-audited-as-method",
+      "behaviour": "B2",
+      "description": "A refused method is audited with the reason 'method'.",
+      "kind": "audit-reason",
+      "request": {"method": "POST", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600}},
+      "expect": {"status": 405, "reason": "method"}
+    },
+    {
+      "id": "B3-expired-is-audited-as-expired",
+      "behaviour": "B3",
+      "description": "An expired link is audited with the reason 'expired'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10}},
+      "expect": {"status": 403, "reason": "expired"}
+    },
+    {
+      "id": "B4-forged-link-is-audited-as-bad-signature",
+      "behaviour": "B4",
+      "description": "A forged link is audited with the reason 'bad-signature'. The signature is checked before expiry, ttl, revocation and path policy, so the audit trail distinguishes an attack from an expired or revoked link.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+      "expect": {"status": 403, "reason": "bad-signature"}
+    },
+    {
+      "id": "B4-forged-and-expired-is-still-bad-signature",
+      "behaviour": "B4",
+      "description": "A link that is forged AND expired is audited as 'bad-signature', not as 'expired'. The signature check comes first, so an expired forged link cannot be used to make the audit trail look like ordinary expiry.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": -10},
+                  "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+      "expect": {"status": 403, "reason": "bad-signature"}
+    },
+    {
+      "id": "B4-forged-and-out-of-prefix-is-still-bad-signature",
+      "behaviour": "B4",
+      "description": "A link that is forged AND points outside the allowed prefixes is audited as 'bad-signature', not as 'path-denied'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "docs/other.md", "exp_offset": 600},
+                  "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+      "expect": {"status": 403, "reason": "bad-signature"}
+    },
+    {
+      "id": "B4-forged-and-revoked-is-still-bad-signature",
+      "behaviour": "B4",
+      "description": "A link that is forged AND belongs to a revoked order is audited as 'bad-signature', not as 'revoked'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S002", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "field", "name": "sig", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+      "expect": {"status": 403, "reason": "bad-signature"}
+    },
+    {
+      "id": "B4-tampered-path-is-audited-as-bad-signature",
+      "behaviour": "B4",
+      "description": "A link repointed at another file is audited with the reason 'bad-signature', not as a path problem.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "path", "value": "amk/big.md"}},
+      "expect": {"status": 403, "reason": "bad-signature"}
+    },
+    {
+      "id": "B5-ttl-too-long-is-audited-as-ttl-too-long",
+      "behaviour": "B5",
+      "description": "A link over max_ttl is audited with the reason 'ttl-too-long'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 3601}},
+      "expect": {"status": 403, "reason": "ttl-too-long"}
+    },
+    {
+      "id": "B6-revoked-is-audited-as-revoked",
+      "behaviour": "B6",
+      "description": "A link for a revoked order is audited with the reason 'revoked'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S002", "path": "amk/spec.md", "exp_offset": 600}},
+      "expect": {"status": 403, "reason": "revoked"}
+    },
+    {
+      "id": "B7-out-of-prefix-is-audited-as-path-denied",
+      "behaviour": "B7",
+      "description": "A path outside the allowed prefixes is audited with the reason 'path-denied'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "docs/other.md", "exp_offset": 600}},
+      "expect": {"status": 403, "reason": "path-denied"}
+    },
+    {
+      "id": "B7-unknown-key-is-audited-as-unknown-key",
+      "behaviour": "B7",
+      "description": "An unknown key id is audited with the reason 'unknown-key'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "field", "name": "kid", "value": "k2"}},
+      "expect": {"status": 403, "reason": "unknown-key"}
+    },
+    {
+      "id": "B8-encoded-separator-is-audited-as-encoded-separator",
+      "behaviour": "B8",
+      "description": "An encoded separator is audited with the reason 'encoded-separator'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "raw_path", "value": "amk%2Fspec.md"}},
+      "expect": {"status": 403, "reason": "encoded-separator"}
+    },
+    {
+      "id": "B8-dotdot-is-audited-as-malformed",
+      "behaviour": "B8",
+      "description": "A '..' component is audited with the reason 'malformed'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/spec.md", "exp_offset": 600},
+                  "mutate": {"kind": "path", "value": "amk/../docs/other.md"}},
+      "expect": {"status": 403, "reason": "malformed"}
+    },
+    {
+      "id": "B9-not-found-is-audited-as-not-found",
+      "behaviour": "B9",
+      "description": "A missing file under a valid signature is audited with the reason 'not-found'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/missing.md", "exp_offset": 600}},
+      "expect": {"status": 404, "reason": "not-found"}
+    },
+    {
+      "id": "B9-too-large-is-audited-as-too-large",
+      "behaviour": "B9",
+      "description": "An oversized file under a valid signature is audited with the reason 'too-large'.",
+      "kind": "audit-reason",
+      "request": {"method": "GET", "link": {"kid": "k1", "order": "10008-S001", "path": "amk/big.md", "exp_offset": 600}},
+      "expect": {"status": 413, "reason": "too-large"}
+    }
+  ]
+}
