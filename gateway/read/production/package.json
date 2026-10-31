@@ -1,0 +1,26 @@
+{
+  "name": "ctxgate-read",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Production read gateway for the ctxgate-v1 signed context links: a Cloudflare Worker that verifies a signed link and serves exactly one file at one pinned commit",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"test/unit/*.test.ts\"",
+    "dev": "wrangler dev",
+    "check:bundle": "bash ops/bundle-check.sh",
+    "test:conformance": "python3 test/run-conformance.py",
+    "test:abuse": "python3 test/run-abuse-controls.py",
+    "test:staging": "python3 test/run-staging-checks.py",
+    "test:isolation": "python3 test/run-isolation-checks.py",
+    "ops:render": "python3 ops/render-environments.py",
+    "ops:check": "python3 ops/render-environments.py --check",
+    "ops:gate": "bash ops/deploy-gate.sh"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261026.1",
+    "@types/node": "^22.20.5",
+    "typescript": "7.0.2",
+    "wrangler": "4.153.0"
+  }
+}

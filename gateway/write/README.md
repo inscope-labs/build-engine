@@ -5,7 +5,7 @@ requests, no credentials) create, edit and deliver text files into a task-specif
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
 **Status: the core request and session lifecycle (Stage 5.2), the GitHub delivery (Stage 5.3) and the audit,
-privacy and operations (Stage 5.4) are implemented. Required for 0.5.0 (Phase 5).** The protocol is `ctxwrite-v1`, specified in
+privacy and operations (Stage 5.4) are implemented. Unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in
 [`docs/protocol.md`](docs/protocol.md) — the canonical, normative contract and the single authoritative definition
 of the write protocol (plan rule G-11).
 
