@@ -24,11 +24,12 @@ import { parseCapabilityPath } from "./auth/root-url.ts";
 import { sign, verifySignature } from "./auth/signature.ts";
 import { contractDocument } from "./http/contract.ts";
 import { errorResponse, envelope, jsonResponse } from "./http/responses.ts";
-import { markdownHeaders, textHeaders } from "./http/headers.ts";
+import { baseHeaders, markdownHeaders, textHeaders } from "./http/headers.ts";
 import { errorSpec } from "./http/status-codes.ts";
 import { originOf } from "./http/help.ts";
 import { audit } from "./audit/logger.ts";
 import { count, emptyCounters, type Counters } from "./audit/metrics.ts";
+import type { AuditFields } from "./audit/redaction.ts";
 import { PROTOCOL } from "./config/constants.ts";
 import { now as currentTime, testClockEngaged } from "./util/clock.ts";
 import { quotas } from "./policy/quotas.ts";
@@ -124,17 +125,21 @@ async function handleCapability(input: RouterInput, base: string, now: number): 
       base,
       error: authorized.toBody(),
     });
-    audit({
-      ts: now,
-      status: authorized.status,
-      reason: authorized.code,
-      op: operation ?? "index",
-      kid: capability.kid,
-      order: capability.order,
-      task: capability.task,
-      writer: capability.writer,
-      request_id: requestId,
-    });
+    await writeAudit(
+      { env, counters },
+      {
+        ts: now,
+        status: authorized.status,
+        reason: authorized.code,
+        op: operation ?? "index",
+        kid: capability.kid,
+        order: capability.order,
+        task: capability.task,
+        writer: capability.writer,
+        request_id: requestId,
+      },
+      capability.order,
+    );
     count(counters, { op: operation ?? "index", status: authorized.status, code: authorized.code });
     return response;
   }
@@ -201,20 +206,24 @@ async function handleCapability(input: RouterInput, base: string, now: number): 
 
   // The audit record is a fixed schema. The session says which of the extra fields may be
   // written, and only those are copied: nothing from the result is merged in wholesale.
-  audit({
-    ts: now,
-    status,
-    reason: outcome.ok ? "ok" : (outcome.error?.code ?? "error"),
-    op: outcome.op,
-    kid: capability.kid,
-    order: capability.order,
-    task: capability.task,
-    writer: capability.writer,
-    ...(outcome.audit?.commit !== undefined ? { commit: outcome.audit.commit } : {}),
-    ...(outcome.audit?.files !== undefined ? { files: outcome.audit.files } : {}),
-    ...(outcome.audit?.selection !== undefined ? { selection: outcome.audit.selection } : {}),
-    request_id: requestId,
-  });
+  await writeAudit(
+    { env, counters },
+    {
+      ts: now,
+      status,
+      reason: outcome.ok ? "ok" : (outcome.error?.code ?? "error"),
+      op: outcome.op,
+      kid: capability.kid,
+      order: capability.order,
+      task: capability.task,
+      writer: capability.writer,
+      ...(outcome.audit?.commit !== undefined ? { commit: outcome.audit.commit } : {}),
+      ...(outcome.audit?.files !== undefined ? { files: outcome.audit.files } : {}),
+      ...(outcome.audit?.selection !== undefined ? { selection: outcome.audit.selection } : {}),
+      request_id: requestId,
+    },
+    capability.order,
+  );
   count(counters, {
     op: outcome.op,
     status,
@@ -225,6 +234,73 @@ async function handleCapability(input: RouterInput, base: string, now: number): 
   });
 
   return response;
+}
+
+/**
+ * Write one audit record: to the platform's log, and to the durable stream.
+ *
+ * The platform's log is the **complete** stream — every request writes exactly one line there,
+ * and the operator's log retention decides how long it is kept (protocol section 10.2). The
+ * durable stream is a copy, one instance per order, that survives a log pipeline which samples
+ * and that the operator can query over HTTP.
+ *
+ * A request that never authenticated has no order, and an order's stream is about that order, so
+ * those refusals are logged and counted and go nowhere else. They are exactly the traffic an
+ * operator watches for abuse, and a single global instance for them would be a denial of service
+ * with extra steps.
+ *
+ * The durable write is awaited, and a failure is counted rather than swallowed: the record is in
+ * the platform's log either way, and a silent failure would make the count of durable records
+ * quietly wrong.
+ */
+async function writeAudit(
+  context: { env: Env; counters: Counters },
+  fields: AuditFields,
+  order: string | undefined,
+): Promise<void> {
+  const record = audit(fields);
+  if (order === undefined) return;
+  try {
+    const stub = context.env.AUDIT_STREAM.get(context.env.AUDIT_STREAM.idFromName(order));
+    const response = await stub.fetch("https://audit.internal/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(record),
+    });
+    if (!response.ok) context.counters.auditWriteFailures += 1;
+  } catch {
+    context.counters.auditWriteFailures += 1;
+  }
+}
+
+/**
+ * The operator's view of an order's audit stream.
+ *
+ * The order is the unit: the stream is one instance per order, and the operator asks for an
+ * order. The `since` and `limit` parameters bound the answer, and the bounds are applied in the
+ * Durable Object, not here, so a caller cannot ask for everything.
+ */
+async function auditStream(input: RouterInput): Promise<Response> {
+  const { request, env, requestId } = input;
+  const url = new URL(request.url);
+  const order = url.searchParams.get("order");
+  if (order === null || order === "") {
+    return new Response("bad request\n", { status: 400, headers: textHeaders(requestId) });
+  }
+
+  const query = new URLSearchParams();
+  const since = url.searchParams.get("since");
+  const limit = url.searchParams.get("limit");
+  if (since !== null) query.set("since", since);
+  if (limit !== null) query.set("limit", limit);
+
+  try {
+    const stub = env.AUDIT_STREAM.get(env.AUDIT_STREAM.idFromName(order));
+    const result = await stub.fetch(`https://audit.internal/records?${query.toString()}`);
+    return new Response(await result.text(), { status: result.status, headers: baseHeaders(requestId) });
+  } catch {
+    return new Response("audit stream unavailable\n", { status: 503, headers: textHeaders(requestId) });
+  }
 }
 
 /**
@@ -294,15 +370,20 @@ async function operatorChannel(input: RouterInput, base: string): Promise<Respon
   }
 
   if (url.pathname === `${ROUTE_ADMIN}/metrics` && request.method === "GET") {
-    return new Response(JSON.stringify(counters), { status: 200, headers: textHeaders(requestId) });
+    // The counters are per Worker instance, and therefore per isolate. The body says so, because
+    // a number that looks like a total and is not is worse than no number.
+    return new Response(
+      JSON.stringify({
+        scope: "worker-instance",
+        note: "these counters cover this Worker instance only; the durable totals are the audit stream",
+        counters,
+      }),
+      { status: 200, headers: textHeaders(requestId) },
+    );
   }
 
   if (url.pathname === `${ROUTE_ADMIN}/audit` && request.method === "GET") {
-    // Stage 5.4.1 implements the audit stream and its retention.
-    return new Response(
-      JSON.stringify({ error: { code: "not-implemented", message: "the audit stream is Stage 5.4.1" } }),
-      { status: 501, headers: textHeaders(requestId) },
-    );
+    return auditStream(input);
   }
 
   if (url.pathname === `${ROUTE_ADMIN}/mint` && request.method === "POST") {

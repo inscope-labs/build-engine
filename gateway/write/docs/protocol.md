@@ -1005,6 +1005,13 @@ A failure response, and the audit record, MUST NOT contain:
 The envelope (section 4.3) is built field by field for this reason: a field that is not in the schema has no
 path into the body.
 
+**A failure body may name a parameter, but only one the contract defines.** A message that says which
+parameter is wrong is useful, and the parameter names the contract defines are a fixed set. A name the client
+invented is client-supplied text, and the stricter reading of "any query value that the client supplied
+verbatim" includes it. So `unknown-parameter` names the operation's own parameters — which the contract
+fixes — and never the one that was refused, and `repeated-parameter` names the repeated parameter only when
+the contract defines it.
+
 ### 10.4 Operator channel
 
 The operator channel is a **separate route namespace with a separate credential**, exactly as on the read side:
@@ -1065,7 +1072,21 @@ operator can read both streams with the same eyes.
 
 The record is built field by field from a fixed schema (ADR 0004: `src/audit/redaction.ts` is a hard gate for
 every log line). A signature, a secret, a payload, a file's content, a raw URL and a query string have **no
-path into it**. This is tested with sentinel injection (Stage 5.5.6).
+path into it**. This is tested with sentinel injection (Stage 5.4.2 implemented the check; Stage 5.5.6 adds the
+full capture test).
+
+**Two copies of the stream, and the difference between them.** The **platform's log** is the complete
+stream: every request writes exactly one line there, including the requests that never authenticated, and the
+operator's log retention decides how long it is kept. The **durable stream** at `{base}/admin/audit` is the
+queryable copy of the records that belong to **one order**; it survives a log pipeline that samples, and it is
+bounded, because an unbounded audit log is a disk-filling denial of service. A request that never
+authenticated has no order, and an order's stream is about that order: those refusals are counted in the
+metrics and appear in the platform's log, which is where an operator watches for abuse.
+
+The durable copy is **not trusted**. The Durable Object that holds it rebuilds every record from the fields
+it is handed, through the same fixed-schema gate the platform's log uses, and refuses to store a record that
+still contains something that looks like a secret. A bug in the Worker, or a compromised one, cannot put a
+capability into the durable stream.
 
 Retention and access are operator-controlled. Only the operator, or systems the operator designates, may query
 the stream.

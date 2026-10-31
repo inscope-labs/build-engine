@@ -211,7 +211,7 @@ A release build (`release/verify.sh --release`) refuses to publish while `protoc
 
 Version 0.5.0 is unreleased and nothing has been published. The first release requires both Class B gateways, so it cannot be tagged until they exist and pass the staging pilot. Known gaps, ordered by priority; the complete list with evidence is `docs/release/DEFECT-REGISTER.md`:
 
-1. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook, but **it has not been deployed**: no environment has been published. The write gateway (`gateway/write`) is a scaffold: its Worker answers 501 and all tests are empty stubs (Phase 5). See `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
+1. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook, but **it has not been deployed**: no environment has been published. The write gateway (`gateway/write`) has its core session lifecycle, GitHub delivery and audit/privacy/operations implemented and tested (Stages 5.2 to 5.4), and is likewise **not deployed**. See `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
 2. No end-to-end pilot has run (Phase 6).
 3. `CHANGELOG.md` still reads `0.5.0 - unreleased`; the dated entry is written at release-candidate time only.
 4. GitHub branch protection on `main` and tag protection for `v*` are not configured; they are needed before any tag (Stage 3.3.7).

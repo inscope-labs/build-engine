@@ -4,8 +4,8 @@ A Cloudflare Worker with one Durable Object class that lets a **Class B agent** 
 requests, no credentials) create, edit and deliver text files into a task-specific folder, using a single secret
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
-**Status: the core request and session lifecycle (Stage 5.2) and the GitHub delivery (Stage 5.3) are implemented.
-Unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in
+**Status: the core request and session lifecycle (Stage 5.2), the GitHub delivery (Stage 5.3) and the audit,
+privacy and operations (Stage 5.4) are implemented. Unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in
 [`docs/protocol.md`](docs/protocol.md) — the canonical, normative contract and the single authoritative definition
 of the write protocol (plan rule G-11).
 
@@ -19,10 +19,20 @@ selected files into the task folder, creates exactly one commit, and records it.
 real Worker, the real Durable Object and the **real** provider client, driven against a mock GitHub that is an
 actual HTTP server on loopback.
 
-**What does not work yet.** The chaos suite and the CI wiring are Stage 5.5; the audit stream and the operator
-procedures are Stage 5.4. The gateway is **not deployed** — the deployment is Stage 5.4.6 — and it has never
-been run against the real GitHub, so nothing here may be read as a claim that a write gateway is operational.
-The Phase 5 exit gate is therefore not met.
+**What does not work yet.** The remaining chaos tests (the Durable Object eviction and the isolate eviction)
+and the CI wiring are Stage 5.5. The gateway is **not deployed** — the deployment workflow exists and is
+gated, but it has never been run — and it has never been run against the real GitHub, so nothing here may be
+read as a claim that a write gateway is operational. The Phase 5 exit gate is therefore not met.
+
+**The audit, the privacy and the operations (Stage 5.4).** The audit record is built field by field from a
+fixed schema, and the **durable** copy of it — one instance per order, queryable at `/admin/audit` — is
+rebuilt by the Durable Object that holds it, so a bug in the Worker cannot put a capability into the store.
+The log-hygiene check plants a sentinel in every place a secret could be and drives the whole protocol with
+them in place; the **same** driver backs the unit test and the deploy gate, so the two cannot drift apart.
+The operator runbook is written: minting, monitoring, revoking, closing, resetting a quota, rotating each of
+the three secrets, deploying, and four incident procedures. The deploy workflow is triggered by a push to
+`main` or by hand, its credentials come from a protected environment, and the gate checks that no
+pull-request-triggered workflow holds one.
 
 **One property worth knowing before you use it.** A capability authorises **exactly one commit**: the commit's
 parent is pinned to the head the capability was minted against, so the first commit moves the branch and a
@@ -43,7 +53,7 @@ back that up.
 | [`docs/quotas-and-type-policy.md`](docs/quotas-and-type-policy.md) | the published view of `src/config/quotas.json` and `src/config/type-policy.json`, which are the authorities. |
 | [`docs/architecture.md`](docs/architecture.md) | the design: components, request flow, Durable Object coordination, module map. Not normative. |
 | [`docs/security-checklist.md`](docs/security-checklist.md) | the contract's security requirements, collected, with the stage that checks each one. |
-| [`docs/operator-runbook.md`](docs/operator-runbook.md) | what Stage 5.1 specified; the procedures themselves are Stage 5.4.4 and the sign-off is Stage 6. |
+| [`docs/operator-runbook.md`](docs/operator-runbook.md) | the operator's procedures: mint, monitor, revoke, close, reset a quota, read the audit stream, rotate each of the three secrets, deploy, and four incident procedures. Written in Stage 5.4.4 and 5.4.5. The operational sign-off is Stage 6. |
 | [`AGENTS.md`](AGENTS.md) | the agent-facing index and the stable section anchors. |
 | [`docs/proposal/agent-tool-prompt.md`](docs/proposal/agent-tool-prompt.md) | the prompt handed to a Class B agent. A map, not the contract. |
 | [`docs/adr/`](docs/adr/) | ADRs 0001–0004: the durable/ephemeral split, content handling, GET side effects, log hygiene. |

@@ -53,6 +53,10 @@ export interface Env {
   CTXGATE_TEST_CLOCK?: string;
   /** The Durable Object namespace. */
   TASK_SESSION: DurableObjectNamespace;
+  /** The Durable Object namespace that holds the durable audit stream, one instance per order. */
+  AUDIT_STREAM: DurableObjectNamespace;
+  /** How long the durable audit stream keeps its records, in seconds. */
+  AUDIT_RETENTION_SECONDS?: string;
 }
 
 /** The effective configuration. */

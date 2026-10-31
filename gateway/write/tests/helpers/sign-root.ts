@@ -51,12 +51,20 @@ export function capabilityFields(fields: TestCapabilityFields = {}): Required<Om
   };
 }
 
-/** Sign a capability and return its parts. */
-export async function signedCapability(fields: TestCapabilityFields = {}): Promise<{
+/**
+ * Sign a capability and return its parts.
+ *
+ * The secret is a parameter, so that a test can sign with a sentinel secret and then prove that
+ * the secret never appears in anything the gateway emits.
+ */
+export async function signedCapability(
+  fields: TestCapabilityFields = {},
+  signingSecret?: string,
+): Promise<{
   capability: Capability;
   secret: string;
 }> {
-  const secret = fields.secret ?? TEST_SECRET;
+  const secret = signingSecret ?? fields.secret ?? TEST_SECRET;
   const parts = capabilityFields(fields);
   const sig = await sign(secret, parts);
   return { capability: { ...parts, sig }, secret };

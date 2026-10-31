@@ -76,14 +76,23 @@ export interface CommitDriver {
  * contract's expected-head precondition compares against. A test that wants a stale head mints
  * its own capability.
  */
-export async function commitDriver(github: MockGitHub): Promise<CommitDriver> {
+export async function commitDriver(
+  github: MockGitHub,
+  providedEnv?: Record<string, unknown>,
+  signingSecret?: string,
+): Promise<CommitDriver> {
   const namespace = new MemoryNamespace();
   const head = github.branchHead("build-engine") ?? "0".repeat(40);
-  const { capability } = await signedCapability(capabilityFields({ head }));
+  const { capability } = await signedCapability(capabilityFields({ head }), signingSecret);
 
+  // The environment has to be the one the **namespace** holds, not a copy of it: the Durable
+  // Object reads its own environment, and the provider's address is part of it. A copy would
+  // leave the Durable Object pointing at the default loopback address, and every commit would
+  // fail to reach the mock.
   const env = testEnv(namespace, {
     GITHUB_API_BASE: github.baseUrl,
     GITHUB_TIMEOUT_MS: "2000",
+    ...(providedEnv ?? {}),
   });
 
   const getWith = async (
