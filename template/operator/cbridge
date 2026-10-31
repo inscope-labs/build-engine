@@ -138,11 +138,18 @@ cmd_status() {
 engine_sync() {
   need_clone; assert_private; fetch
   g rev-parse -q --verify refs/remotes/private/build-engine >/dev/null || die "no build-engine branch (bootstrap?)"
+  # Recover from interrupted operations that left a stale worktree registration
+  # (path missing but still registered) or a half-created directory.
   if [ -e "$ENGINE_WT/.git" ]; then
     [ -z "$(git -C "$ENGINE_WT" status --porcelain)" ] || die "engine worktree dirty: $ENGINE_WT"
     git -C "$ENGINE_WT" checkout -q --detach refs/remotes/private/build-engine
   else
-    g worktree add -q --detach "$ENGINE_WT" refs/remotes/private/build-engine
+    # Recover from interrupted operations: path gone but registration remains.
+    g worktree remove -f -q "$ENGINE_WT" 2>/dev/null || true
+    g worktree prune -q 2>/dev/null || true
+    rm -rf "$ENGINE_WT" 2>/dev/null || true
+    g worktree add -f -q --detach "$ENGINE_WT" refs/remotes/private/build-engine \
+      || die "cannot create engine worktree at $ENGINE_WT"
   fi
 }
 
@@ -170,12 +177,15 @@ cmd_upload() {
     if grep -Eq '(^/|\.\.)' <<<"$listing"; then die "zip contains absolute or '..' paths"; fi
     unzip -q "$src" -d "$root"
   fi
-  local hits; mapfile -t hits < <(find "$root" -maxdepth 2 -name SUBMISSION.json)
-  [ "${#hits[@]}" = 1 ] || die "expected exactly one SUBMISSION.json, found ${#hits[@]}"
-  local dir id pj; dir=$(dirname "${hits[0]}")
-  id=$(jq -er .submission_id "${hits[0]}") || die "SUBMISSION.json has no submission_id"
+  local sub_json hit_count
+  # Avoid process substitution (not reliable under all restricted shells / fd limits).
+  hit_count=$(find "$root" -maxdepth 2 -name SUBMISSION.json 2>/dev/null | wc -l | tr -d ' ')
+  [ "$hit_count" = 1 ] || die "expected exactly one SUBMISSION.json, found $hit_count"
+  sub_json=$(find "$root" -maxdepth 2 -name SUBMISSION.json 2>/dev/null | head -1)
+  local dir id pj; dir=$(dirname "$sub_json")
+  id=$(jq -er .submission_id "$sub_json") || die "SUBMISSION.json has no submission_id"
   [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || die "bad submission_id: $id"
-  pj=$(jq -r '.plan_id // empty' "${hits[0]}")
+  pj=$(jq -r '.plan_id // empty' "$sub_json")
   [ -z "$pj" ] || [ "$pj" = "$plan" ] || die "SUBMISSION.json plan_id ($pj) != $plan"
   [ -z "$(find "$dir" -type l)" ] || die "symlinks not allowed in submission"
   if grep -rEl "$SECRET_RE" "$dir" >/dev/null 2>&1; then die "secret pattern found in submission"; fi
@@ -234,11 +244,12 @@ cmd_publish() {
   done
   [ -n "$branch" ] || die "usage: publish <task-branch> [--title T] [--body-file F] [-y]"
   fetch; guard_task "$branch"
-  local subj body
-  mapfile -t subj < <(g log --reverse --format=%s "$TASK_BASE..$TASK_SHA")
-  [ -n "$title" ] || title="${subj[0]}"
+  local subj body first_subj
+  subj=$(g log --reverse --format=%s "$TASK_BASE..$TASK_SHA")
+  first_subj=$(printf '%s\n' "$subj" | head -1)
+  [ -n "$title" ] || title="$first_subj"
   if [ -n "$bodyf" ]; then [ -f "$bodyf" ] || die "no such file: $bodyf"; body=$(cat "$bodyf")
-  else body=$(printf 'Task `%s`.\n\nCommits:\n' "$branch"; printf -- '- %s\n' "${subj[@]}"); fi
+  else body=$(printf 'Task `%s`.\n\nCommits:\n' "$branch"; printf '%s\n' "$subj" | sed 's/^/- /'); fi
   if grep -Eiq "$DENY_TEXT" <<<"$title"$'\n'"$body"; then die "PR title/body matches DENY_TEXT (would leak private context)"; fi
   echo "Branch : $branch @ ${TASK_SHA:0:10} (base ${TASK_BASE:0:10})"
   echo "Title  : $title"; g diff --stat "$TASK_BASE" "$TASK_SHA"

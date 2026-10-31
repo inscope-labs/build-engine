@@ -43,11 +43,11 @@ def main():
                 raise ValueError("unknown op %r" % req.get("op"))
             kid, exp, order, ref, path = req["kid"], int(req["exp"]), req["order"], req["ref"], req["path"]
             secret = req["secret"]
-            if not cg.KID_RE.match(kid):
+            if not cg.KID_RE.fullmatch(kid):
                 raise ValueError("bad kid")
-            if not cg.ORDER_RE.match(order):
+            if not cg.ORDER_RE.fullmatch(order):
                 raise ValueError("bad order")
-            if not cg.REF_RE.match(ref):
+            if not cg.REF_RE.fullmatch(ref):
                 raise ValueError("bad ref")
             if not cg.safe_path(path):
                 raise ValueError("unsafe path")

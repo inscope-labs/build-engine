@@ -4,7 +4,7 @@
 
 This repository is the single source of the build-engine: the plan/implementation system comprising plans, work orders, operator tooling, prompts, and related infrastructure. Private `<project>-dev` repositories (for example, `inscope-labs/PROJECT-dev`) consume verified **release artifacts**. Consumers never clone or copy from this repository by hand; they install or update via `engine/bin/update.sh`.
 
-Current version: **0.5.0** (unreleased).
+Current version: **0.5.0** (unreleased) — **Basic, Class A-only** (operator redesignation 2026-10-29).
 
 ---
 
@@ -18,7 +18,7 @@ The engine enables an operator to:
 4. Receive deliverables, publish them upstream, and reconcile state.
 5. Audit fetches and revoke access when work completes.
 
-Class A agents (authenticated git or curl) may bypass the gateway and read private raw URLs directly. Class B agents are limited to plain HTTPS GET and therefore rely on the signed-link gateway.
+Class A agents (authenticated git or curl) may bypass the gateway and read private raw URLs directly; this is the supported path in 0.5.0 Basic. Class B agents are limited to plain HTTPS GET and therefore rely on the signed-link gateway; **Class B is not supported in 0.5.0** and is planned for 0.6.0 Standard.
 
 The design prioritises:
 
@@ -34,7 +34,7 @@ The design prioritises:
 | Path | Role | Included in release? |
 |------|------|----------------------|
 | `template/` | The product. Maps 1:1 onto a consumer repository root (`engine/`, `operator/`, `docs/`, `plans/README.md`). | Yes (allowlist only) |
-| `gateway/` | Context gateways: `read/` (reference implementation; production port not started) and `write/` (Cloudflare Worker, scaffold only). Both are required for 0.5.0 and are being built; neither ships in the artifact. | **Never** |
+| `gateway/` | Context gateways: `read/` (reference implementation and production Cloudflare Worker, not deployed) and `write/` (implementation on branches). **Not included in 0.5.0 Basic**; planned for 0.6.0 Standard. Neither ships in the artifact. | **Never** |
 | `conformance/` | Language-neutral acceptance suite for the link scheme and any read gateway (signing vectors, behaviours B1–B11). | No |
 | `variants/` | Retired. Holds only a note that the object-storage variant was rejected (Stage 1.3). | No |
 | `release/` | Allowlist (`manifest.txt`), deny rules (`forbidden.txt`), `package.sh`, `verify.sh`, `set-version.sh`, self-test. | No |
@@ -69,12 +69,12 @@ The design prioritises:
 | Plan and order | `plan_tool.py order`, work orders, plan templates | `template/engine/` | Implemented |
 | Mint links | `ctxlink.py`, `plan_tool.py links` | `template/engine/tools/` | Implemented |
 | Serve context | Read gateway (reference) | `gateway/read/reference/` | Reference only; not deployed |
-| Serve context | Read gateway (production) | `gateway/read/production/` | Implemented (Cloudflare Worker, hosting decided): passes the shared conformance suite over real HTTP. Stage 4.3 added the three environments, the deploy gate, the operational checks and the operator runbook. **Not deployed** - no environment has been published |
-| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Implemented: 17 valid + 19 invalid vectors, 53 executable cases, a runner and a CI gate (Stage 4.1) |
+| Serve context | Read gateway (production) | `gateway/read/production/` | Implemented (Cloudflare Worker): passes the shared conformance suite over real HTTP; Stage 4.3 added the three environments, the deploy gate, the operational checks and the operator runbook. **Not deployed** and **not included in 0.5.0**; planned for 0.6.0 Standard |
+| Acceptance | Signing vectors, behaviours B1–B11 | `conformance/` | Implemented: 17 valid + 19 invalid vectors, 53 executable cases, a runner and a CI gate (Stage 4.1); not run against a live deployment (planned for 0.6.0) |
 | Submit deliverables (operator) | `cbridge upload` | `template/operator/` | Implemented |
-| Submit deliverables (agent) | Write gateway | `gateway/write/` | Scaffold only (Worker answers 501); required for 0.5.0 |
+| Submit deliverables (agent) | Write gateway | `gateway/write/` | **Not included in 0.5.0**; planned for 0.6.0 Standard |
 | Publish upstream | `cbridge publish`, `reconcile` | `template/operator/` | Implemented |
-| Revoke and audit | `ctxgate.py revoke`, `audit`; the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | Implemented in both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail |
+| Revoke and audit | `ctxgate.py revoke`, `audit`; the production operator channel | `gateway/read/reference/`, `gateway/read/production/` | Implemented in both: the production gateway revokes by order over an authenticated admin channel and keeps a bounded audit trail; the remote operator channel is **not included in 0.5.0**, planned for 0.6.0 |
 | Release and install | Package, verify, update | `release/`, `template/engine/bin/` | Implemented (hardening in progress) |
 | Pilot | One real task end-to-end | `docs/pilot/` | Not started |
 
@@ -118,7 +118,15 @@ Consumers install a release artifact into their private `<project>-dev` reposito
 - Installs **seed** files (e.g. `engine/engine.json`) only when absent and never overwrites them.
 - Removes files dropped by the new release (if unmodified).
 - Records state in `.build-engine.lock`.
-- Performs no commit; the consumer reviews the diff and opens a pull request.
+- Performs no commit, staging or push; the consumer reviews the diff and opens a pull request.
+- Is **all or nothing**: new files are staged and every file about to change is backed up in `.build-engine.txn/` first. A
+  failure restores the previous state; if the process is killed, the next run recovers automatically and says so.
+- **Stops before touching anything** on a damaged lock or manifest, a locally edited or unrecorded managed file
+  (conflict), an artifact whose contents are a different version than requested, a downgrade, and any path that goes
+  through a symlink, a directory where a file belongs, or a file where a directory belongs.
+- Refuses a release whose paths differ only by case when the filesystem ignores case.
+- Requires **bash 4.4 or newer**, GNU coreutils (`sha256sum`), `tar`, `gzip`, `find` and `sed`; `gh` only to download.
+  Supported on Linux and Termux. macOS's stock bash 3.2 is not supported.
 
 ### First install
 
@@ -136,7 +144,9 @@ engine/bin/update.sh --version X.Y.Z
 engine/bin/update.sh
 ```
 
-Useful options: `--dry-run`, `--force` (overwrite local conflicts), `--repo OWNER/build-engine`, `--from-dir DIR`.
+Useful options: `--dry-run`, `--force` (overwrite local conflicts), `--allow-downgrade`, `--repo OWNER/build-engine`, `--from-dir DIR`.
+
+If an update is interrupted, just run it again: it restores the previous state first. `--dry-run` refuses to run while an interrupted update is waiting to be recovered. If `.build-engine.lock` is damaged, restore it with `git checkout -- .build-engine.lock`, or delete it and re-run with `--force` to re-adopt the managed files, then review `git diff`.
 
 Because this repository is private, authenticated `gh` access is required to fetch release assets.
 
@@ -168,8 +178,8 @@ release/package.sh && release/verify.sh dist/build-engine-v$(cat VERSION).tar.gz
 ## Releasing
 
 1. Branch from `main`. Make and test changes. Add any new shipping paths to `release/manifest.txt`.
-2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/ENGINE.json`).
-3. Confirm the protocol version this release implements: `protocol` in `template/engine/ENGINE.json`, with a matching row in `COMPATIBILITY.md`.
+2. Set the version: `release/set-version.sh X.Y.Z` (updates `VERSION`, `template/engine/VERSION`, and `template/engine/release.json`).
+3. Confirm the protocol version this release implements: `protocol` in `template/engine/release.json`, with a matching row in `COMPATIBILITY.md`.
 4. Update `CHANGELOG.md` (replace the unreleased section with a dated entry).
 5. Open a pull request; CI must pass (unit tests, release self-test, update-flow test, dry-run package + verify).
 6. After merge: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`.
@@ -181,8 +191,9 @@ Never edit or delete a published release asset; publish a new version instead. F
 Release isolation is enforced by three independent layers:
 
 1. **Structure** — `gateway/` sits outside `template/`; nothing under `template/` imports from it.
-2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`.
-3. **Inspection** — `release/verify.sh` unpacks the artifact and fails on gateway-like paths, credential-shaped strings, non-allowlisted content, manifest/version mismatches, or payloads that fail their own tests.
+2. **Allowlist** — `release/package.sh` copies only paths listed in `release/manifest.txt`, and only the files git
+   tracks: an untracked or locally modified file under `template/` fails the build instead of being shipped.
+3. **Inspection** — `release/verify.sh` unpacks the artifact and fails on gateway-like paths, credential-shaped strings, non-allowlisted content, manifest/version mismatches, or a payload that does not parse. It does **not** run the artifact's code: the payload's own test suite is a separate, explicit step (`--test-payload`) that the build side opts into and that whoever downloads an artifact never does.
 
 ---
 
@@ -190,7 +201,7 @@ Release isolation is enforced by three independent layers:
 
 | Engine | Protocol | Notes |
 |--------|----------|-------|
-| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/ENGINE.json` (`protocol`) |
+| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/release.json` (`protocol`) |
 
 A release build (`release/verify.sh --release`) refuses to publish while `protocol` is missing or `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
 

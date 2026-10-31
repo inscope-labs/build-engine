@@ -136,3 +136,8 @@ be read as a claim about a running service.
 
 The real end-to-end pilot is Stage 6, and the release itself is Phase 7. The write gateway is
 still a scaffold (Stage 5).
+
+## Release scope
+
+The Class B gateways are **unsupported in 0.5.0** (Basic, Class A-only). This gateway is planned for
+0.6.0 Standard, after its first real deployment and the real pilot.

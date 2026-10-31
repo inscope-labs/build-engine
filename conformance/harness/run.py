@@ -83,11 +83,11 @@ class PythonSigner:
 
     def mint(self, secret, kid, exp, order, ref, path):
         cg = self.cg
-        if not cg.KID_RE.match(kid):
+        if not cg.KID_RE.fullmatch(kid):
             raise SignerError("bad kid")
-        if not cg.ORDER_RE.match(order):
+        if not cg.ORDER_RE.fullmatch(order):
             raise SignerError("bad order")
-        if not cg.REF_RE.match(ref):
+        if not cg.REF_RE.fullmatch(ref):
             raise SignerError("bad ref")
         if not cg.safe_path(path):
             raise SignerError("unsafe path")
