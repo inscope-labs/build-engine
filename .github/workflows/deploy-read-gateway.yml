@@ -1,0 +1,82 @@
+name: deploy read gateway
+# Publishes the read gateway to one environment, and only after the gate has passed.
+#
+# Publishing is an operator action (RELEASE-PLAN.md G-12). This workflow is how the operator
+# takes it: the gate job runs every check, and the publish job waits for the gate, waits for
+# the environment's reviewer, and only then publishes.
+#
+# The same gate script runs in both jobs, so the thing that decides whether a deployment may
+# happen is one script, not two configurations of it.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "the environment to publish to"
+        type: choice
+        options:
+          - staging
+          - production
+        required: true
+permissions:
+  contents: read
+concurrency:
+  # One deployment per environment at a time. A second one waits rather than racing.
+  group: deploy-read-gateway-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  gate:
+    name: the gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/read/production
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/read/production/package-lock.json
+      - name: The gate
+        run: bash ops/deploy-gate.sh --env "${{ inputs.environment }}"
+
+  publish:
+    name: publish to ${{ inputs.environment }}
+    needs: gate
+    runs-on: ubuntu-latest
+    # The environment is the operator's gate: a reviewer must approve it, and the secrets
+    # live in it rather than in the repository.
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: gateway/read/production
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/read/production/package-lock.json
+      - name: Only a reviewed branch may be published
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "the gateway may only be published from main, not from ${{ github.ref }}"
+            exit 1
+          fi
+      - name: The gate, and then publish
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CTXGATE_BASE_URL: ${{ secrets.CTXGATE_BASE_URL }}
+        run: bash ops/deploy-gate.sh --env "${{ inputs.environment }}" --deploy
