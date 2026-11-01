@@ -234,7 +234,11 @@ test("a provider failure caused by a bad receiver is not mistaken for an outage"
       userAgent: "build-engine-write-gateway",
     });
     await assert.rejects(() => client.getBranchHead(), (e: unknown) => e instanceof ProviderError);
-    const error = await client.getBranchHead().catch((e: unknown) => e as ProviderError);
+    const error = await client.getBranchHead().then(
+      () => null,
+      (e: unknown) => e as ProviderError,
+    );
+    assert.ok(error !== null, "the call failed");
     assert.equal(error.kind, "network");
     // The kind is "network", so the failure is retryable - and a TypeError is not something a
     // retry can fix. The client cannot tell the two apart, which is why the receiver is bound
