@@ -30,6 +30,7 @@ import { nextLinks } from "../hypermedia/links.ts";
 import { indexResult } from "../hypermedia/index.ts";
 import { countRequest } from "../policy/rate-limit.ts";
 import { checkTypeAllowed, typeFailureCode } from "../policy/type-policy.ts";
+import { checkPath } from "../policy/path-safety.ts";
 import { checkFileCount } from "../policy/quotas.ts";
 import { sealSession } from "../seal/seal.ts";
 import { appendChunk } from "../staging/append.ts";
@@ -353,6 +354,24 @@ export class TaskSession {
     params: Record<string, string | string[] | number | undefined>,
     request: InternalRequest,
   ): Promise<PerformOutcome> {
+    // The path rules (protocol section 5.1). A path that fails a rule is not a path, so the
+    // operation that carries it is refused before it changes anything — not three steps later,
+    // at the commit, where the agent has already spent a slot and a byte budget on a file that
+    // could never be delivered.
+    //
+    // The message is fixed. The path is client-supplied text, and a failure message never echoes
+    // it (F0-035). The rules themselves are in the contract, and the help link points at them.
+    if (typeof params.path === "string") {
+      const pathCheck = checkPath(params.path);
+      if (!pathCheck.ok) {
+        return {
+          ok: false,
+          code: "malformed-path",
+          message: "that path does not satisfy the path rules",
+        };
+      }
+    }
+
     switch (op) {
       case "index":
         return {

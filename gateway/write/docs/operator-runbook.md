@@ -76,6 +76,20 @@ git -C "$SUBMISSIONS" push origin "$BRANCH"
 **The gateway never creates a repository, a branch or a folder.** If the folder is missing at commit
 time the commit is refused with `404 task-folder-missing`, and only the operator can fix it.
 
+For a **throwaway** repository — a rehearsal, or a pilot's own sandbox — there is a tool that does
+it, because doing it by hand is four commands that are easy to get subtly wrong:
+
+```bash
+GITHUB_TOKEN=… node --experimental-strip-types scripts/seed-test-repo.ts \
+  --repo owner/name --branch build-engine --folder "plans/$PLAN/submissions/$ORDER/$TASK" \
+  --i-understand-this-writes-to-a-real-repository
+```
+
+It writes the placeholder, creates the branch and **refuses to touch a branch that already
+exists**. It reads the credential from the environment, never from an argument, and it is an
+operator tool with a wider reach than the gateway's own client — it can create a branch, which the
+gateway deliberately cannot.
+
 ### 2.2 Accept the residual transport risk in writing
 
 The transport is a GET with side effects, and the residual risk of caching, prefetching and
@@ -122,6 +136,20 @@ Four things about the parameters:
 
 **Do not put the capability anywhere that is logged, shared, or pasted into a chat.** It is a bearer
 credential: anyone holding it can do what the agent can do, for that task, until it expires.
+
+There is also an **offline** mint, for the cases where the gateway is not the thing to ask — a
+rehearsal against a local harness, or a capability that is minted on the operator's own machine and
+handed to the agent afterwards. It signs with the **shipped** signing code, so a capability minted
+this way is exactly one the gateway verifies:
+
+```bash
+SIGNING_KEYS='{"k1":"…"}' node --experimental-strip-types scripts/mint-root-url.ts \
+  --task "$TASK" --order "$ORDER" --plan "$PLAN" --writer "agent-7" \
+  --head "$(git -C "$SUBMISSIONS" rev-parse "$BRANCH")"
+```
+
+The signing keys come from the environment and never from an argument, so the secret does not end
+up in the shell history or in the process list, and the script never prints them.
 
 ---
 
@@ -254,8 +282,26 @@ The GitHub credential is a single secret, so its rotation has a window.
 
 **The token's scope is the operator's responsibility, not the code's.** The gateway can only reach
 one repository and one branch, but a leaked token can reach every task's folder in that
-repository. `scripts/check-token-scope.ts` checks the configured repository against the token's
-scope; it is Stage 5.5.
+repository. `scripts/check-token-scope.ts` checks the credential's scope; it was written in
+Stage 5.5 and it has two halves.
+
+The **static** half runs in CI on every pull request, and it needs no credential: the provider
+client's method list is the credential's entire reach inside this codebase, and a method that
+created a branch, merged, deleted or force-pushed would widen it. Run it yourself with:
+
+    cd gateway/write && npm run check:token-scope -- --static
+
+The **live** half asks GitHub what scopes the credential carries, and it is the operator's to run
+before a deployment:
+
+    GITHUB_TOKEN=… node --experimental-strip-types scripts/check-token-scope.ts
+
+It refuses a credential that carries a scope the gateway has no business holding — `workflow`,
+`admin:*`, `delete_repo`, `write:packages` and the rest — and it **fails closed** when the scopes
+cannot be determined, which is what a fine-grained token looks like from the outside. Note what the
+check reports about a classic token: the `repo` scope reaches every repository the account can
+reach, not only the submissions repository. That is the residual risk the contract records in
+section 12.4, and the check says so rather than hiding it.
 
 ### 6.3 Rotate the operator token
 
@@ -400,5 +446,7 @@ The catalogue is the authority; this is the operator's reading of it.
   gateway commits into the submissions repository; what happens after that is not part of this
   release.
 - **The pilot procedure** is Stage 6, and the sign-off with it.
-- **The token-scope check** (`scripts/check-token-scope.ts`) is Stage 5.5, and the scope of the
-  token is the operator's responsibility until then.
+- **The scope of the token itself** is the operator's responsibility. The check that exists
+  (Stage 5.5, `scripts/check-token-scope.ts`) confirms that the credential carries no scope the
+  gateway does not need and that the code does not widen its reach; it cannot make a classic
+  `repo` token narrower than GitHub makes it.

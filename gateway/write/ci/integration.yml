@@ -1,4 +1,36 @@
-# ci/integration.yml
-# STATUS: scaffold only, not implemented. Structure from docs/proposal/project-structure.md.
-# Note: GitHub only runs workflows from the repository's root .github/workflows/. This file is a
-# definition for that wiring; it does not run from here.
+# ci/integration.yml: the integration gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
+# `write-gateway/integration`, and it runs on every pull request and on every push to main.
+#
+# The integration suite drives the **real** Worker and the **real** Durable Object class over an
+# in-memory storage, and the **real** provider client against a mock GitHub that is an actual
+# HTTP server on loopback. Nothing in it reaches the internet: the provider address in the test
+# environment is a dead loopback address, so a test that forgets to point it at the mock fails
+# fast and locally, and `tests/unit/config/no-internet.test.ts` is the guard that keeps it that
+# way.
+#
+# It is separated from the unit suite so that a failure says which half of the system is wrong.
+name: write gateway integration
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  write-gateway-integration:
+    name: write gateway (integration)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The integration suite
+        run: npm run test:integration

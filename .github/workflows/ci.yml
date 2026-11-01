@@ -77,8 +77,14 @@ jobs:
         run: npm run test:staging
       - name: Isolation proof (no writes to the source repository, no copy of what was served)
         run: npm run test:isolation
-  write-gateway:
-    name: write gateway (typecheck, tests + bundle)
+
+  # The four write-gateway gates. They are four jobs and not one, because a gate that says which
+  # half of the system is wrong is worth more than a gate that only says that something is.
+  # The definitions are in gateway/write/ci/*.yml; GitHub only runs workflows from the root's
+  # .github/workflows/, so the copies that run are here.
+
+  write-gateway-lint:
+    name: write gateway (typecheck, bundle, contract)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -93,8 +99,64 @@ jobs:
           cache: npm
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
-      - run: npm run typecheck
-      - name: Unit, integration and load tests (the real Worker and the real Durable Object)
-        run: npm test
-      - name: Bundle dry run (validates wrangler.toml, no deploy, no credentials)
+      - name: The typecheck, over three programs
+        run: npm run typecheck
+      - name: The bundle dry run (validates wrangler.toml and bundles the Worker; no deploy)
         run: npm run check:bundle
+      - name: The contract documents agree with the code
+        run: npm run check:contract
+
+  write-gateway-unit:
+    name: write gateway (unit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The unit suite
+        run: npm run test:unit
+
+  write-gateway-integration:
+    name: write gateway (integration)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The integration suite
+        run: npm run test:integration
+
+  write-gateway-deploy-gate:
+    name: write gateway (log hygiene and the credential boundary)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The log hygiene and the credential boundary
+        run: npm run verify:log-hygiene
+      - name: The credential's reach in the code
+        run: npm run check:token-scope -- --static

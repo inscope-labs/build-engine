@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { runHygieneCheck } from "../../helpers/hygiene.ts";
+import { findLeaks, runHygieneCheck, type Sentinel } from "../../helpers/hygiene.ts";
 import { containsSecret } from "../../../src/audit/redaction.ts";
 
 test("nothing the gateway emits contains a sentinel", async () => {
@@ -52,4 +52,51 @@ test("the audit records are in the captured outputs, and they are redacted", asy
   // The record carries the counts and the identifiers, and never the file's name.
   assert.ok(audit!.text.includes("\"files\":1"));
   assert.ok(!audit!.text.includes("sentinel-file"), "the audit record must not name the file");
+});
+
+test("the check can fail: a planted leak is found", async () => {
+  // A check that cannot fail proves nothing, and this one has failed before by finding nothing
+  // because it had stopped driving the gateway. The rule is therefore exercised directly, on a
+  // synthetic output that carries a sentinel.
+  const sentinels: Sentinel[] = [{ name: "a-secret", value: "sentinel-value-0123456789" }];
+
+  const planted = findLeaks([{ where: "log", text: "the secret is sentinel-value-0123456789" }], sentinels);
+  assert.equal(planted.length, 1);
+  assert.equal(planted[0]?.sentinel, "a-secret");
+  assert.equal(planted[0]?.where, "log");
+
+  // And the shape rule catches a secret that nobody planted.
+  const shape = findLeaks(
+    [{ where: "output-0", text: "the token is ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" }],
+    sentinels,
+  );
+  assert.equal(shape.length, 1);
+  assert.equal(shape[0]?.sentinel, "shape");
+
+  // And a clean output is clean.
+  assert.deepEqual(findLeaks([{ where: "log", text: "{\"status\":200}" }], sentinels), []);
+});
+
+test("the sentinels cover the capability itself, not only the secrets behind it", async () => {
+  const result = await runHygieneCheck();
+  const names = result.sentinels.map((sentinel) => sentinel.name);
+
+  for (const expected of [
+    "signing-secret",
+    "github-token",
+    "operator-token",
+    "payload",
+    "payload-base64",
+    "query-value",
+    "capability-url",
+    "signature",
+  ]) {
+    assert.ok(names.includes(expected), `the ${expected} sentinel is planted`);
+  }
+
+  // And each one is a value that is actually distinctive, so that a substring match means
+  // something.
+  for (const sentinel of result.sentinels) {
+    assert.ok(sentinel.value.length >= 8, `${sentinel.name} is distinctive enough to match on`);
+  }
 });

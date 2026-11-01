@@ -4,8 +4,9 @@ A Cloudflare Worker with one Durable Object class that lets a **Class B agent** 
 requests, no credentials) create, edit and deliver text files into a task-specific folder, using a single secret
 root URL as both its identity and its scope. It is the write-side counterpart of the read gateway in `../ctxgate.py`.
 
-**Status: the core request and session lifecycle (Stage 5.2), the GitHub delivery (Stage 5.3) and the audit,
-privacy and operations (Stage 5.4) are implemented. Unsupported in 0.5.0 (Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in
+**Status: the core request and session lifecycle (Stage 5.2), the GitHub delivery (Stage 5.3), the audit, privacy
+and operations (Stage 5.4) and the real test suite and CI gates (Stage 5.5) are implemented. Unsupported in 0.5.0
+(Basic), planned for 0.6.0 Standard.** The protocol is `ctxwrite-v1`, specified in
 [`docs/protocol.md`](docs/protocol.md) — the canonical, normative contract and the single authoritative definition
 of the write protocol (plan rule G-11).
 
@@ -19,10 +20,19 @@ selected files into the task folder, creates exactly one commit, and records it.
 real Worker, the real Durable Object and the **real** provider client, driven against a mock GitHub that is an
 actual HTTP server on loopback.
 
-**What does not work yet.** The remaining chaos tests (the Durable Object eviction and the isolate eviction)
-and the CI wiring are Stage 5.5. The gateway is **not deployed** — the deployment workflow exists and is
-gated, but it has never been run — and it has never been run against the real GitHub, so nothing here may be
-read as a claim that a write gateway is operational. The Phase 5 exit gate is therefore not met.
+**What does not work yet.** The gateway is **not deployed** — the deployment workflow exists and is gated, but it
+has never been run — and it has never been run against the real GitHub, so nothing here may be read as a claim
+that a write gateway is operational. The pilot is Phase 6. The Phase 5 exit gate is therefore not met.
+
+**The test suite and the CI gates (Stage 5.5).** **362 tests pass**: the unit suite covers every module, the
+integration suite drives the real Worker and the real Durable Object through the whole protocol, the chaos suite
+covers the two evictions and every row of the provider's status table, the load suite fills the published quota
+and concurrency envelope to its edges, and the log-hygiene check plants a sentinel in every place a secret could
+be — the three secrets, the payload, the capability URL and the signature — and proves that none of them comes
+out. The gates are wired: four on every pull request (typecheck and bundle, unit, integration, and the
+log-hygiene and credential-boundary gate) and three on a schedule (the load suite, the chaos suite, and a
+staging rehearsal that builds the bundle and publishes nothing). `tests/unit/config/test-inventory.test.ts`
+fails the build if a stub appears anywhere in the module, or if a test file falls out of the runner's glob.
 
 **The audit, the privacy and the operations (Stage 5.4).** The audit record is built field by field from a
 fixed schema, and the **durable** copy of it — one instance per order, queryable at `/admin/audit` — is
@@ -74,12 +84,32 @@ concurrency 1.
     cd gateway/write
     npm ci
     npm run typecheck      # tsc --noEmit over src, scripts, and the tests
-    npm test               # the Node test runner, over the unit, integration and load suites
+    npm test               # the Node test runner, over every suite
+    npm run test:unit      # the unit suite alone
+    npm run test:integration
+    npm run test:load      # the quota and the concurrency envelope
+    npm run test:chaos     # the evictions and the provider's failures
     npm run check:bundle   # wrangler deploy --dry-run: validates wrangler.toml and bundles the Worker
+    npm run verify:log-hygiene    # the deploy gate: the sentinels, the credentials, the workflows
+    npm run check:token-scope -- --static   # the credential's reach in the code
 
 The test runner is Node 22's built-in one, with type stripping — the same runner the read gateway has used
-since Stage 4.2. The tests drive the **real** Worker and the **real** Durable Object class over an in-memory
+since Stage 4.2 — and `package.json` pins it (`engines.node` is `>=22.18.0 <23`, because type stripping is on by
+default from 22.18). The tests drive the **real** Worker and the **real** Durable Object class over an in-memory
 storage, so a test cannot pass against a re-implementation that has drifted from the shipped code.
+
+Three operator tools live in `scripts/`, and they are not part of the gateway:
+
+    node --experimental-strip-types scripts/mint-root-url.ts --task ID --order ID --plan ID --writer ID
+    node --experimental-strip-types scripts/seed-test-repo.ts --repo owner/name --branch NAME --folder PATH \
+      --i-understand-this-writes-to-a-real-repository
+    GITHUB_TOKEN=… node --experimental-strip-types scripts/check-token-scope.ts
+
+`mint-root-url.ts` signs a capability with the shipped signing code, so a capability minted locally is exactly
+one the gateway verifies; it reads the signing keys from the environment and never from an argument.
+`seed-test-repo.ts` creates the branch and the task folder with its `.keep` placeholder, because the gateway
+will not create either. `check-token-scope.ts` is the credential's scope check: its static half runs in CI, and
+its live half is the operator's to run before a deployment.
 
 ## Decision status
 

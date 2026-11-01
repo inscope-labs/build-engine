@@ -57,8 +57,13 @@ non-retryable without a change, and none of them reveal anything about the task'
 | <a id="schema-invalid"></a>`schema-invalid` | 400 | no | the content fails the type's optional JSON Schema | fix the content; the failing pointer is in the help link |
 | <a id="empty-not-allowed"></a>`empty-not-allowed` | 400 | no | the type policy forbids an empty file for this type | write content, or use a type that allows it |
 | <a id="destination-not-selectable"></a>`destination-not-selectable` | 400 | no | the request tried to name a repository, a branch or a task folder | the destination comes from the capability; remove the parameter |
-| <a id="malformed-path"></a>`malformed-path` | 400 | no | the path fails the path rules | fix the path; the help link lists every rule |
+| <a id="malformed-path"></a>`malformed-path` | 400 | no | the path fails the path rules | fix the path; the rules are in the contract's path rules, section 5.1 |
 | <a id="invalid-parameter"></a>`invalid-parameter` | 400 | no | a required parameter is missing, or a value does not have the required form | send the parameter; the message says which one and what it must look like |
+
+A `malformed-path` refusal means the path failed one of the **path rules** in the contract's section 5.1. A path
+is relative to the task folder, and the scheme performs no normalisation: a path is either already canonical and is
+accepted exactly as written, or it is refused. The rules are in the contract, and the contract is the authority —
+this catalogue does not repeat them, so that there is one place to change.
 
 ### 401 — no valid capability
 

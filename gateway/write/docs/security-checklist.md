@@ -53,7 +53,7 @@ The delivery. These are the requirements the commit path owns.
 |---|---|---|
 | 8 | the task folder is derived, never supplied | implemented: the folder comes from the template and the signed ids, and the commit resolves every selected path **inside** it; a path that would resolve outside is refused |
 | 12 | the agent never holds a repository credential | implemented: the credential is a Worker secret, read by the Durable Object at the point of use and never written into a response, a log line or an audit record |
-| 13 | the credential is scoped to the submissions repository | implemented in the code: the client has no parameter that could name another repository or another branch. The **scope of the token itself** is still the operator's, and `scripts/check-token-scope.ts` is Stage 5.5 |
+| 13 | the credential is scoped to the submissions repository | implemented in the code: the client has no parameter that could name another repository or another branch. The **scope of the token itself** is the operator's, and `scripts/check-token-scope.ts` (Stage 5.5) checks it |
 | 15 | the gateway never creates or merges anything | implemented and tested: the client has no method that creates a repository, a branch or a folder, merges, opens a pull request, deletes, or force-pushes. The ref update is `force: false` |
 | 16 | the commit parent is the expected head | implemented and tested: the branch head is read before anything is created and compared with the capability's `head`; a moved branch is `409 expected-sha-conflict` |
 | 20 | no response body contains the capability, the query, the payload or the credential | implemented: the provider's status and body are never read, and the gateway's own codes replace them |
@@ -110,22 +110,24 @@ The audit, the privacy and the operations.
 | 27 | the deployment defaults are pinned | implemented: `workers_dev = false`, the secrets are `wrangler secret put`, and the deployment workflow holds no credential in a pull-request-triggered job |
 | 28 | deployment credentials are absent from pull-request jobs | implemented **and checked**: the deploy gate reads every workflow and fails if one that a pull request can trigger references a deployment credential. The deploy workflow is triggered by a push to `main` or by hand, and its credentials come from a protected environment |
 
-## What is checked, and when
+## What Stage 5.5 checked
 
-| Check | Stage |
+Every row of the table above that pointed at Stage 5.5 now points at a test that runs.
+
+| Check | Where it runs now |
 |---|---|
-| the signing vectors, valid and invalid | 5.5.2 |
-| the path rules, including the `..`-substring case and the encoding cases | 5.5.4 |
-| the sequence, replay and idempotency rules | 5.5.2, 5.5.4 |
-| the quota, type and size rules | 5.5.4 |
-| the cross-task access attempts | 5.5.4 |
-| the response headers, the redirects and the caches | 5.4.3, 5.5.4 |
-| the log hygiene, by sentinel injection | 5.5.6 |
-| the credential scope, by checking the configured repository against the token's scope | 5.5 (`scripts/check-token-scope.ts`) |
-| the eviction, restart and "committed but the response was lost" recovery | 5.5.5 |
-| the concurrent writers and the quota boundary | 5.5.7 |
-| the CI gates that run all of the above on a pull request | 5.5.8 |
-| the deploy gate: the sentinel injection, the static credential scan, the logging check and the workflow check | 5.4.6 (implemented, and it runs in the deploy workflow) |
+| the signing vectors, valid and invalid | `tests/unit/auth/signature.test.ts` (5.5.2) |
+| the path rules, including the `..`-substring case and the encoding cases | `tests/unit/policy/path-safety.test.ts` and `tests/integration/adversarial-inputs.test.ts` (5.5.2, 5.5.4). The integration half found **F0-063**: the staging operations did not apply the rules |
+| the sequence, replay and idempotency rules | `tests/unit/session/sequence.test.ts`, `tests/unit/session/idempotency.test.ts` (5.5.2) |
+| the quota, type and size rules | `tests/unit/policy/quota-accounting.test.ts`, `tests/unit/policy/type-policy.test.ts`, `tests/unit/policy/rate-limit.test.ts`, `tests/load/quota-envelope.test.ts` (5.5.2, 5.5.7) |
+| the cross-task access attempts | `tests/integration/adversarial-inputs.test.ts` (5.5.4) |
+| the response headers, the redirects and the caches | `tests/integration/transport-hygiene.test.ts` (5.4.3) and `tests/unit/http/errors.test.ts` (5.5.2) |
+| the log hygiene, by sentinel injection | `tests/unit/audit/log-hygiene.test.ts` and the deploy gate, which share one driver (5.5.6) |
+| the credential scope, by checking the configured repository against the token's scope | `src/policy/token-scope.ts` and `scripts/check-token-scope.ts`; the static half is a CI gate, the live half is the operator's (5.5) |
+| the eviction, restart and "committed but the response was lost" recovery | `tests/chaos/do-eviction.test.ts`, `tests/chaos/isolate-eviction.test.ts`, `tests/chaos/provider-status-mapping.test.ts` (5.5.5) |
+| the concurrent writers and the quota boundary | `tests/load/concurrent-writers.test.ts`, `tests/load/quota-envelope.test.ts` (5.5.7) |
+| the CI gates that run all of the above on a pull request | `.github/workflows/ci.yml` (5.5.8), with `tests/unit/config/ci-wiring.test.ts` holding the definition and the wiring together |
+| the deploy gate: the sentinel injection, the static credential scan, the logging check and the workflow check | 5.4.6 — implemented, and it runs in the deploy workflow and on every pull request |
 | the deployed system's own sign-off | 6 |
 
 ## Not implemented
