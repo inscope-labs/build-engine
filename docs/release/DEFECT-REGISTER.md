@@ -905,3 +905,9 @@ Recorded answers to the decision questionnaire; authority for closing remaining 
 
 ### Protocol identifier for 0.6.0 (D6)
 - Conventional `build-engine/0.6`.
+
+## Addendum A8 — Publication record for 0.5.0 (2026-10-29)
+
+- `v0.5.0` tag created on `main` at `c95ae51` (CI green); published by `release.yml` run 40879890746. Release: https://github.com/inscope-labs/build-engine/releases/tag/v0.5.0. Release notes were rewritten after publication to the approved Basic framing (they are not generated from the changelog alone).
+- R0-004 applied after the tag: `main` protected (pull request required with zero approvals, required check `test`, force-push blocked, deletion allowed, administrators not enforced). No tag restriction and no Actions allow-list, per the operator policy in A7. **Accepted open risk, recorded in writing by operator decision:** no required reviews and administrators can bypass.
+- Independent smoke test of the published asset: checksum OK; `verify.sh --release` OK; clean install into an empty repository adds 41 files; re-run reports 40 unchanged and 1 kept seed.
