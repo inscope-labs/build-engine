@@ -25,6 +25,18 @@ export class ConfigError extends Error {
   }
 }
 
+/**
+ * The names a deployment may have.
+ *
+ * A gateway that does not say which environment it is cannot be told apart from the other one.
+ * The name is not a secret: it is reported by the health endpoint, and it is what makes a staging
+ * pilot provably a staging pilot (protocol section 12.5).
+ */
+export const DEPLOY_ENVIRONMENTS = ["staging", "production"] as const;
+
+/** Which environment a deployment is. */
+export type DeployEnvironment = (typeof DEPLOY_ENVIRONMENTS)[number];
+
 /** The bindings the Worker needs. */
 export interface Env {
   /** JSON: `{"k1": "<secret>"}`. A secret; never in wrangler.toml. */
@@ -49,6 +61,28 @@ export interface Env {
   MAX_TTL_SECONDS?: string;
   /** The writer lease duration, in seconds. */
   LEASE_SECONDS?: string;
+  /**
+   * Which environment this deployment is: `staging` or `production`.
+   *
+   * It is not a secret. It is what tells a pilot, and a reviewer looking at a commit, which
+   * environment they are talking to.
+   */
+  DEPLOY_ENV: string;
+  /**
+   * The key ids this deployment serves, comma separated.
+   *
+   * A declaration, not a secret: it says which key ids belong to this environment, so that the
+   * key ids of two environments can be checked to be disjoint without reading either secret.
+   */
+  SIGNING_KEY_IDS: string;
+  /**
+   * The submissions repository the **production** deployment writes to.
+   *
+   * A staging deployment declares it, and refuses to start if it is pointed at it. That is the
+   * rule that makes "staging data can never be mistaken for a production submission" a property
+   * of the configuration and not a matter of care (protocol section 12.5).
+   */
+  PRODUCTION_SUBMISSIONS_REPO?: string;
   /** The test clock. A production deployment MUST NOT set it. */
   CTXGATE_TEST_CLOCK?: string;
   /** The Durable Object namespace. */
@@ -81,6 +115,10 @@ export interface Config {
   commitAuthorName: string;
   /** The commit's author email. */
   commitAuthorEmail: string;
+  /** Which environment this deployment is. */
+  deployEnv: DeployEnvironment;
+  /** The key ids this deployment declares that it serves. */
+  signingKeyIds: string[];
 }
 
 /** The placeholders a folder template may use. */
@@ -109,6 +147,18 @@ export function loadConfig(env: Env): Config {
   requireSetting("GITHUB_TOKEN", env.GITHUB_TOKEN);
   requireSetting("OPERATOR_TOKEN", env.OPERATOR_TOKEN);
 
+  const deployEnv = deployEnvironment(env.DEPLOY_ENV);
+  const signingKeyIds = declaredKeyIds(env.SIGNING_KEY_IDS);
+  for (const kid of keys.keys()) {
+    if (!signingKeyIds.includes(kid)) {
+      throw new ConfigError(
+        "SIGNING_KEY_IDS",
+        "does not declare every key id that SIGNING_KEYS holds: a key id this deployment does not declare belongs to another environment",
+      );
+    }
+  }
+  checkEnvironmentBoundary(deployEnv, submissionsRepo, env.PRODUCTION_SUBMISSIONS_REPO);
+
   const maxTtlSeconds = positiveInt("MAX_TTL_SECONDS", env.MAX_TTL_SECONDS, DEFAULT_MAX_TTL_SECONDS);
   const leaseSeconds = positiveInt("LEASE_SECONDS", env.LEASE_SECONDS, DEFAULT_LEASE_SECONDS);
   const githubApiBase = apiBase(env.GITHUB_API_BASE);
@@ -132,7 +182,91 @@ export function loadConfig(env: Env): Config {
     githubTimeoutMs,
     commitAuthorName: author.name,
     commitAuthorEmail: author.email,
+    deployEnv,
+    signingKeyIds,
   };
+}
+
+/**
+ * The environment this deployment is.
+ *
+ * It is required, and it is one of two names. A gateway that does not say which environment it is
+ * is a gateway a pilot cannot tell apart from the other one, and "fail closed on missing
+ * configuration" is a rule, not a preference.
+ */
+function deployEnvironment(value: string | undefined): DeployEnvironment {
+  if (value === undefined || value === "") throw new ConfigError("DEPLOY_ENV", "is not set");
+  if (!(DEPLOY_ENVIRONMENTS as readonly string[]).includes(value)) {
+    throw new ConfigError("DEPLOY_ENV", "must be one of " + DEPLOY_ENVIRONMENTS.join(", "));
+  }
+  return value as DeployEnvironment;
+}
+
+/**
+ * The key ids this deployment declares.
+ *
+ * A key id is not a secret: it appears in the capability's path and in the health endpoint. The
+ * declaration is what lets two environments be checked to be disjoint without reading either
+ * one's secret.
+ *
+ * The declaration is a **superset** of what the secret holds, and that direction is deliberate:
+ *
+ *  - a key id in the secret that the declaration does not name is refused, because it belongs to
+ *    another environment, and a deployment that serves another environment's key id can answer
+ *    another environment's capabilities;
+ *  - a key id in the declaration that the secret does not hold yet is allowed, because that is
+ *    what a rotation looks like: the declaration is deployed first, the new secret follows, and
+ *    the gateway serves both key ids throughout (runbook section 6.1).
+ */
+function declaredKeyIds(value: string | undefined): string[] {
+  if (value === undefined || value === "") throw new ConfigError("SIGNING_KEY_IDS", "is not set");
+  const ids = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  if (ids.length === 0) throw new ConfigError("SIGNING_KEY_IDS", "declares no key id");
+  for (const kid of ids) {
+    if (!/^[A-Za-z0-9_-]{1,16}$/.test(kid)) {
+      throw new ConfigError("SIGNING_KEY_IDS", "declares a key id that is not a valid kid");
+    }
+  }
+  if (new Set(ids).size !== ids.length) {
+    throw new ConfigError("SIGNING_KEY_IDS", "declares a key id twice");
+  }
+  return ids;
+}
+
+/**
+ * The rule that keeps a staging deployment out of production.
+ *
+ * A staging deployment declares the repository the production deployment writes to, and refuses
+ * to start if it is pointed at it. The refusal is the point: a staging deployment that had been
+ * pointed at production by mistake would otherwise serve perfectly well, and the mistake would
+ * only be visible in the commits.
+ */
+function checkEnvironmentBoundary(
+  deployEnv: DeployEnvironment,
+  submissionsRepo: string,
+  productionRepo: string | undefined,
+): void {
+  if (deployEnv === "production") {
+    if (productionRepo !== undefined && productionRepo !== "") {
+      throw new ConfigError("PRODUCTION_SUBMISSIONS_REPO", "is only meaningful in a staging deployment");
+    }
+    return;
+  }
+  if (productionRepo === undefined || productionRepo === "") {
+    throw new ConfigError(
+      "PRODUCTION_SUBMISSIONS_REPO",
+      "must be set in a staging deployment: it is the repository the staging deployment may not be pointed at",
+    );
+  }
+  if (submissionsRepo === productionRepo) {
+    throw new ConfigError(
+      "SUBMISSIONS_REPO",
+      "is the production submissions repository: a staging deployment may not be pointed at it",
+    );
+  }
 }
 
 /**

@@ -5,7 +5,7 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed)**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed). Stage 6.1 added F0-070, F0-071 and F0-072 (all closed)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
 - Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
@@ -14,6 +14,7 @@
 - Stage 5.3 addendum: 2026-10-27; F0-034, found while the commit was being implemented and closed in it
 - Stage 5.4 addendum: 2026-10-27; F0-035, found by the sentinel injection and closed in it
 - Stage 5.5 addendum: 2026-10-27; F0-063, found by the adversarial input suite of Stage 5.5 and closed in it; F0-064, `main`'s release manifest, found when the Stage 5.5 branch merged `main` and closed in it
+- Stage 6.1 addendum: 2026-11-01; F0-070, F0-071 and F0-072, found by the rehearsal of the disposable staging environment against the real provider, and closed in it
 
 ## Status and evidence rules
 
@@ -851,7 +852,8 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
 | F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
-| R0-008 | Stage 4.3 (partly closed) + Phase 5 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's defaults are still open |
+| F0-070, F0-071, F0-072 | Phase 6 - **Stage 6.1** | Found and closed in Stage 6.1, by the rehearsal against the real provider: the write gateway's `workers_dev` was a variable and not a setting; the gateway could not start in the Workers runtime at all; and every provider call failed with "Illegal invocation" because `fetch` was called with the wrong receiver |
+| R0-008 | Stage 4.3 (partly closed) + Stage 6.1 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070); the `routes` half and the compatibility-date review still stand |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
 
@@ -911,3 +913,128 @@ Recorded answers to the decision questionnaire; authority for closing remaining 
 - `v0.5.0` tag created on `main` at `c95ae51` (CI green); published by `release.yml` run 40879890746. Release: https://github.com/inscope-labs/build-engine/releases/tag/v0.5.0. Release notes were rewritten after publication to the approved Basic framing (they are not generated from the changelog alone).
 - R0-004 applied after the tag: `main` protected (pull request required with zero approvals, required check `test`, force-push blocked, deletion allowed, administrators not enforced). No tag restriction and no Actions allow-list, per the operator policy in A7. **Accepted open risk, recorded in writing by operator decision:** no required reviews and administrators can bypass.
 - Independent smoke test of the published asset: checksum OK; `verify.sh --release` OK; clean install into an empty repository adds 41 files; re-run reports 40 unchanged and 1 kept seed.
+
+---
+
+## Addendum A9 — Stage 6.1: the disposable staging environment (2026-11-01)
+
+Stage 6.1 establishes a disposable staging environment for both gateways, and rehearses them
+against the real provider for the first time. Three findings came out of it. All three were
+found by execution, not by reading, and all three are closed in the same stage.
+
+### F0-070 — `workers_dev = false` was a variable, so production would have been published on workers.dev
+- Severity: S1 for the production deployment. Status: CONFIRMED. **Closed in Stage 6.1.**
+- Evidence: `gateway/write/wrangler.toml` carried the deployment default *inside* the `[vars]` table:
+
+      [vars]
+      ...
+      workers_dev = false
+
+  A TOML key written after a table header belongs to that table, so this was an ordinary Worker
+  variable named `workers_dev`, and the **setting** was never set. Parsed and shown:
+
+      $ python3 -c "import tomllib; d=tomllib.load(open('gateway/write/wrangler.toml','rb')); \
+        print(d.get('workers_dev','(unset)'), d['vars'].get('workers_dev'))"
+      (unset) False
+
+  Wrangler's default for `workers_dev` is `true`. The deployed gateway would therefore have been
+  reachable on a public `*.workers.dev` URL, which protocol section 12.5 and the operator runbook
+  both require to be `false`, and which the file's own comment claims to be pinned.
+
+  The same trap exists in the other direction: a `workers_dev` written after a `[[rules]]` header
+  lands in that table instead. It was tried, and the gate caught it.
+- Consequence: the first production deployment of the write gateway would have been exposed on a
+  public URL, against the contract, with nothing in the pipeline to notice. This is R0-008
+  ("Worker deployment defaults not pinned") materialising, for the write gateway.
+- Required resolution: move the setting into the root table, and make the placement checkable
+  rather than a matter of care.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.1.
+- Closure evidence: the setting is in the root table (`workers_dev = false` parses as a root key,
+  and no longer appears in `vars`); `gateway/write/scripts/check-staging-separation.py` refuses the
+  configuration that caused it, and the check is wired into CI as
+  `write-gateway-staging-separation`. The negative case was executed: moving the line back into
+  `[vars]` makes the gate fail with three findings and exit 1.
+
+### F0-071 — The write gateway could not start in the Workers runtime at all
+- Severity: S1 for every claim that the gateway works. Status: CONFIRMED. **Closed in Stage 6.1.**
+- Evidence: `gateway/write/src/index.ts` ended with `export { PROTOCOL };`. The Workers runtime
+  accepts a default handler, Durable Object classes and a short list of named entry points from
+  the entry module, and nothing else. The first attempt to run the gateway on the local runtime
+  answered:
+
+      ERROR service core:user:ctxgate-write-staging: Uncaught TypeError: Incorrect type for map
+      entry 'PROTOCOL': the provided value is not of type 'function or ExportedHandler'.
+      The Workers runtime failed to start.
+
+  The message names neither the file, nor the line, nor the reason.
+- Consequence: the write gateway had never been started in the Workers runtime. The 363-test
+  suite did not notice, because the tests import the entry module in Node, where a string export
+  is harmless; the bundle dry run did not notice, because it builds the bundle without starting
+  the runtime. Every claim that the gateway "works" was a claim about Node, not about the runtime
+  it is deployed into.
+- Required resolution: export only what the runtime accepts, and make the entry module's exports
+  checkable.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.1.
+- Closure evidence: the export is removed; the gateway starts on the local Workers runtime and
+  answers `/healthz` with 200; the rehearsal (`ops/staging-rehearsal.sh`) drives the whole
+  protocol against it. The runtime's error is quoted in the source comment where the export was,
+  so the next person who adds one knows what it costs.
+
+### F0-072 — Every provider call from the write gateway failed with "Illegal invocation"
+- Severity: S1 for the delivery path. Status: CONFIRMED. **Closed in Stage 6.1.**
+- Evidence: `gateway/write/src/commit/github-client.ts` stored the fetch implementation and
+  called it as a method of the client:
+
+      this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+      ...
+      response = await this.fetchImpl(url, init);
+
+  The Workers runtime refuses to run `fetch` with the wrong receiver:
+
+      TypeError: Illegal invocation: function called with incorrect `this` reference.
+
+  The behaviour was isolated by experiment on the local runtime:
+
+      | 1 direct global call        | 403 (the request went out) |
+      | 2 extracted into a const    | 403 (the request went out) |
+      | 3 as a method of an object  | TypeError: Illegal invocation |
+      | 4 .call(globalThis)         | 403 (the request went out) |
+
+  The client's `catch` turned that TypeError into a *network* provider failure, and the mapping
+  sent it to the agent as `provider-unavailable` — a **retryable** code. The first rehearsal
+  commit therefore answered `503 provider-unavailable` after three attempts and 820 ms, and the
+  gateway's own log named no cause.
+- Consequence: the write gateway could never have spoken to GitHub. This answers the open
+  question in the Stage 5.5 closeout ("the gateway has never spoken to GitHub"): it could not.
+  Every delivery would have failed as a provider outage, forever, with a retryable code.
+- Required resolution: bind the fetch implementation to the global scope, and make the rule
+  testable.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.1.
+- Closure evidence: the implementation is bound to the global scope; a unit test reproduces the
+  runtime's rule (a `fetch` that throws when it is called with a receiver that is neither the
+  global scope nor undefined) and fails without the fix — verified by reverting the fix and
+  watching the test fail, then restoring it. The rehearsal then committed to the real provider:
+  commit `fd7b4f766f8a70f5ef86bde0e94f7e4157c31032`, parent `7a4120854b09b76fda35a0ae3e7f212f83a90ede`,
+  file `plans/pilot-001/submissions/wo-10008/10008-1-001-01/report.md`, 82 bytes.
+
+### R0-008 — Worker deployment defaults not pinned
+- Status: RISK TO TEST → **partly realised and closed for the write gateway**.
+- F0-070 is the `workers_dev` half of this risk, and it is closed. The `routes` half stands: the
+  production host is still the operator's to name, and the compatibility date is still pinned at
+  `2025-09-01` and unreviewed. Stage 6.1 did not change either.
+
+### R0-006 — Repository credential is not inherently folder-scoped
+- Status: unchanged, and **reinforced by the rehearsal**. The credential used in the rehearsal is
+  the operator's session token, whose repository selection covers the build-engine repository.
+  The disposable estate is therefore *branches* of that repository rather than dedicated
+  repositories. The staging configuration keeps the two apart by worker, by key id, by branch
+  and by an explicit production guard, and the guard is enforced by the gateway at startup. The
+  credential the deployed staging gateway holds must be a token restricted to the estate's
+  destination; `gateway/write/scripts/check-token-scope.ts` is the check that says so.
+
+### R0-012 — The write gateway had never run in its runtime
+- Severity: S2. Status: RISK TO TEST → **CONFIRMED and closed as F0-071 and F0-072**.
+- The risk was recorded as "the gateway has never been deployed, and the suite proves it against a
+  mock". The rehearsal showed the sharper truth: the suite proved it against a mock, and the
+  gateway did not work in the runtime at all. The lesson generalises: a mock does not reproduce
+  the runtime's rules, and the runtime's rules include how `fetch` may be called.

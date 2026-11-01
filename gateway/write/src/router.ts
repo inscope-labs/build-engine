@@ -328,6 +328,11 @@ function refuse(requestId: string, now: number, op: string, code: string, base: 
  *
  * It reports the status, the version, the protocol, the effective policy and whether the test
  * clock is on. It holds no path, no order and no count of protected files.
+ *
+ * It also reports **which environment this is**, and the key ids the deployment declares against
+ * the key ids it actually serves. A staging pilot has to be able to prove it is talking to
+ * staging, and a reviewer has to be able to see that a staging deployment is not serving the
+ * production key ids (protocol section 12.5).
  */
 function health(requestId: string, env: Env, config: Config, now: number): Response {
   const limits = quotas();
@@ -337,6 +342,7 @@ function health(requestId: string, env: Env, config: Config, now: number): Respo
       version: "0.5.0",
       protocol: PROTOCOL,
       now,
+      deploy_env: config.deployEnv,
       policy: {
         max_ttl_seconds: config.maxTtlSeconds,
         lease_seconds: config.leaseSeconds,
@@ -346,6 +352,7 @@ function health(requestId: string, env: Env, config: Config, now: number): Respo
         rate_limit: limits.rate_limit,
         max_concurrency: limits.max_concurrency,
         key_ids: [...config.keys.keys()].sort(),
+        declared_key_ids: config.signingKeyIds,
         submissions_repo: config.submissionsRepo,
         submissions_branch: config.submissionsBranch,
       },

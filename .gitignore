@@ -6,3 +6,8 @@ __pycache__/
 *.zip
 dist/
 node_modules/
+
+# The local development secrets of the gateways. They are credentials and they never belong in the
+# repository (G-08). `.dev.vars` is the plain one; `.dev.vars.<env>` is the per-environment one.
+.dev.vars
+.dev.vars.*

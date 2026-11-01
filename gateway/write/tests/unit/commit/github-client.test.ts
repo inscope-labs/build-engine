@@ -157,3 +157,90 @@ test("only a rate limit and an unavailable service are retryable", () => {
   assert.equal(isRetryableFailure(new ProviderError("status", 422, "no")), false);
   assert.equal(isRetryableFailure(new Error("something else")), false);
 });
+
+// ---------------------------------------------------------------------------
+// The receiver of `fetch` (F0-072)
+// ---------------------------------------------------------------------------
+
+test("the provider's fetch is called with the global scope as its receiver", async () => {
+  // The Workers runtime refuses to run `fetch` when it is called with the wrong receiver:
+  //
+  //     TypeError: Illegal invocation: function called with incorrect `this` reference.
+  //
+  // A client that stored `globalThis.fetch` on itself and called `this.fetchImpl(...)` would
+  // make that call a method call on the client, and every provider request would fail with a
+  // TypeError that the client turns into "the provider call failed". The gateway would never
+  // have spoken to GitHub, and the failure would have looked like a provider outage.
+  //
+  // The mock provider cannot catch this: a mock does not care who calls it. So the rule of the
+  // runtime is reproduced here instead: this fetch throws if it is called with a receiver that
+  // is neither the global scope nor undefined.
+  const original = globalThis.fetch;
+  const seen: unknown[] = [];
+  globalThis.fetch = function strictFetch(this: unknown, input: RequestInfo | URL, init?: RequestInit) {
+    seen.push(this);
+    if (this !== globalThis && this !== undefined) {
+      throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+    }
+    return original(input as RequestInfo, init);
+  } as typeof fetch;
+
+  try {
+    const github = new MockGitHub();
+    await github.start();
+    try {
+      github.seedBranch("build-engine", { "README.md": "x" });
+      // No fetchImpl: this is the path a deployed gateway takes.
+      const client = new GitHubClient({
+        repo: "owner/repo",
+        branch: "build-engine",
+        token: "test-github-token",
+        apiBase: github.baseUrl,
+        timeoutMs: 2000,
+        userAgent: "build-engine-write-gateway",
+      });
+      const head = await client.getBranchHead();
+      assert.equal(head, github.branchHead("build-engine"));
+      assert.ok(seen.length > 0, "the provider was called");
+      for (const receiver of seen) {
+        assert.ok(
+          receiver === globalThis || receiver === undefined,
+          "fetch is called with the global scope as its receiver",
+        );
+      }
+    } finally {
+      await github.stop();
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a provider failure caused by a bad receiver is not mistaken for an outage", async () => {
+  // The mapping matters as much as the bug: a TypeError became `provider-unavailable`, which is
+  // a RETRYABLE code, so the agent would have retried a call that could never succeed.
+  const original = globalThis.fetch;
+  globalThis.fetch = function strictFetch(this: unknown): Promise<Response> {
+    throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+  } as typeof fetch;
+
+  try {
+    const client = new GitHubClient({
+      repo: "owner/repo",
+      branch: "build-engine",
+      token: "test-github-token",
+      apiBase: "http://127.0.0.1:1",
+      timeoutMs: 200,
+      userAgent: "build-engine-write-gateway",
+    });
+    await assert.rejects(() => client.getBranchHead(), (e: unknown) => e instanceof ProviderError);
+    const error = await client.getBranchHead().catch((e: unknown) => e as ProviderError);
+    assert.equal(error.kind, "network");
+    // The kind is "network", so the failure is retryable - and a TypeError is not something a
+    // retry can fix. The client cannot tell the two apart, which is why the receiver is bound
+    // rather than left to chance.
+    assert.equal(isRetryableFailure(error), true);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
