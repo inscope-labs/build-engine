@@ -13,7 +13,7 @@ running.
 | Deployed | no | yes | yes |
 | Worker name | `ctxgate-read` | `ctxgate-read-staging` | `ctxgate-read` |
 | Reachable on | nothing | `workers.dev` | one named host, and nothing else |
-| Key ids | `k1` | `k1` | `p1` |
+| Key ids | `k1` | `s1` | `p1` |
 | Repository | whatever the test points at | a disposable copy | the real one |
 | Secrets | test-only values, in `.dev.vars` | its own | its own |
 
@@ -65,12 +65,25 @@ The renderer refuses to render a configuration that breaks one of these rules:
 Two things in `ops/environments.json` are placeholders, and they are the operator's to
 replace:
 
-- `GITHUB_REPO` — the repository the gateway may read. One repository, one credential. The
-  staging entry names a **disposable** repository: staging is where the pilot runs, and it
-  must not be pointed at the real content by accident.
+- the production `GITHUB_REPO` — the repository the gateway may read. One repository, one
+  credential. It is the consumer's repository, and it is still `OWNER/REPO`.
 - the production `routes` pattern — the host the gateway is served on. It is not a free
   choice: it is the host the Class B agent's proxy is allowed to contact for a work order
   (`docs/decisions/0002`), so it is part of the contract with the agent.
+
+**The staging entry is no longer a placeholder.** Stage 6.1 filled it in: staging reads
+`inscope-labs/build-engine`, and the disposable content it serves is the branch
+`staging/source` of that repository, seeded by `ops/staging-estate.py`. The staging branch
+holds one file inside each allowed prefix and one file outside them, which is the negative
+case for the pilot.
+
+The staging repository credential therefore has to be able to read that repository, and it
+has to be a credential that cannot reach anything else. A link pins a **commit**, so the
+pilot pins the commit the branch is at:
+
+```sh
+python3 ../../../ops/staging-estate.py status     # the branch and its head
+```
 
 Until they are filled in, the gate refuses to publish that environment:
 
@@ -87,7 +100,7 @@ down in the repository:
 cd gateway/read/production
 
 # staging
-npx wrangler secret put --env staging SIGNING_KEYS      # {"k1": "<a fresh secret>"}
+npx wrangler secret put --env staging SIGNING_KEYS      # {"s1": "<a fresh secret>"}
 npx wrangler secret put --env staging OPERATOR_TOKEN   # a fresh bearer token
 npx wrangler secret put --env staging GITHUB_TOKEN      # a read-only, short-expiry token
 

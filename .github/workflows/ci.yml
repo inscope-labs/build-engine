@@ -27,10 +27,10 @@ jobs:
           bash -n template/operator/cbridge
           sh -n template/operator/install.sh
           bash -n template/engine/bin/update.sh
-          for f in release/*.sh tests/*.sh gateway/read/production/ops/*.sh; do bash -n "$f"; done
+          for f in release/*.sh tests/*.sh gateway/read/production/ops/*.sh ops/*.sh; do bash -n "$f"; done
       - name: Python syntax (the operator tooling and the gateway's checks)
         run: |
-          for f in gateway/read/production/ops/*.py gateway/read/production/test/*.py; do
+          for f in gateway/read/production/ops/*.py gateway/read/production/test/*.py gateway/write/scripts/*.py ops/*.py; do
             python3 -m py_compile "$f"
           done
       - name: Release machinery self-test
@@ -160,3 +160,20 @@ jobs:
         run: npm run verify:log-hygiene
       - name: The credential's reach in the code
         run: npm run check:token-scope -- --static
+
+  write-gateway-staging-separation:
+    name: write gateway (staging is separate from production)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The staging environment is separate from production
+        run: npm run check:staging

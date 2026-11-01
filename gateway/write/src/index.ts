@@ -14,7 +14,6 @@ import { loadConfig, ConfigError, type Env } from "./config/env.ts";
 import { handleRequest } from "./router.ts";
 import { errorResponse } from "./http/responses.ts";
 import { textHeaders } from "./http/headers.ts";
-import { PROTOCOL } from "./config/constants.ts";
 import { newRequestId } from "./audit/logger.ts";
 
 // The Durable Object classes must be exported from the entrypoint so that the runtime can bind
@@ -57,4 +56,17 @@ export default {
   },
 };
 
-export { PROTOCOL };
+// The protocol identifier is NOT exported from here.
+//
+// The Workers runtime accepts a default handler, Durable Object classes and a short list of named
+// entry points (`scheduled`, `queue`, `tail`) from the entry module. Anything else is a startup
+// error, and the runtime's error is not about the export: it is
+//
+//     Incorrect type for map entry 'PROTOCOL': the provided value is not of type
+//     'function or ExportedHandler'
+//
+// which does not name the file, the line, or the reason. That was F0-071, and it meant the
+// gateway could not start at all: the tests import this module in Node, where a string export is
+// harmless, and the bundle dry run builds the bundle without starting the runtime.
+//
+// The protocol identifier lives in src/config/constants.ts, which is where it belongs.

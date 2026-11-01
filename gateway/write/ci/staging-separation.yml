@@ -1,0 +1,47 @@
+# ci/staging-separation.yml: the staging separation gate.
+#
+# STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
+# `write-gateway-staging-separation`, and it runs on every pull request and on every push to main.
+#
+# The gate is one command, `npm run check:staging`, and it checks the thing Stage 6.1 exists to
+# establish: that the write gateway's **staging** environment is separate from production, and
+# that it cannot be mistaken for it.
+#
+# It reads the committed `wrangler.toml` - the file that will actually be published - and refuses
+# a configuration in which:
+#
+#   1. `workers_dev` is a variable rather than a setting, so production would be exposed on a
+#      public `*.workers.dev` URL (this is F0-070, and the gate is what keeps it fixed);
+#   2. production is exposed on workers.dev at all (protocol section 12.5);
+#   3. staging and production are the same Worker, so they share a Durable Object namespace;
+#   4. staging and production declare the same key id, so a capability minted for one is answered
+#      by the other;
+#   5. staging and production write to the same repository or the same branch, so a staging
+#      submission is a production submission;
+#   6. staging does not declare the production submissions repository, so nothing stops it from
+#      being pointed at it.
+#
+# The gate holds no credential and publishes nothing. It is safe on every pull request.
+name: write gateway staging separation
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  write-gateway-staging-separation:
+    name: write gateway (staging is separate from production)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The staging environment is separate from production
+        run: npm run check:staging
