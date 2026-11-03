@@ -164,6 +164,7 @@ High-level design decisions (implementation later assigned as appropriate; for B
 | Contract status (original) | 2026-10-27 | APPROVED with listed amendments | Stage 1.1 exit criteria satisfied for design |
 | **Basic redesignation (D1)** | **2026-10-29** | **0.5.0 is Basic, Class A-only; deployed gateways not required; deferred to 0.6.0 Standard** | **Reverses the 2026-10-26 mandatory-gateway requirement for 0.5.0; Stage 1.3/1.4 decisions stand for Standard** |
 | **Class A delivery route (D2 / R0-011)** | **2026-10-29** | **`cbridge upload` sole Class A route; transfer path deferred to 0.6.0** | **Closes R0-011 for Basic** |
+| **0.6.0 Standard scope revision (ADR 0006)** | **2026-11-02** | **No 0.5.1. 0.6.0 Standard also carries the Android replacement of the Termux `cbridge` operator workflows and the Class B readiness claim, gated by ADR 0006 item 4** | **Revises the 0.6.0 Standard scope; 0.5.0 Basic unchanged** |
 
 ## Next steps after redesignation
 
