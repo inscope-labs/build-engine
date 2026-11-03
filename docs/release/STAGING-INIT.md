@@ -50,3 +50,12 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass file:bundle.key -in bundle.json.enc -o
 - It does not create GitHub tokens (GitHub offers no way to), does not touch production, and does not deploy the gateways.
 
 Authorized by the operator in conversation, 2026-11-03.
+
+## Deploying the write gateway to staging
+The workflow `deploy-write-gateway-staging` (Actions, Run workflow, from `main`, with a `reason`) publishes the write gateway to `ctxgate-write-staging`.
+
+- It runs the same gate as the production deploy (typecheck, the whole test suite, the contract check, the log-hygiene gate) plus the static staging-separation check, with no credentials.
+- It then runs in the `staging` environment: it builds the bundle, refuses to publish unless `SIGNING_KEYS`, `OPERATOR_TOKEN` and `GITHUB_TOKEN` are already set on the Worker (run `staging-init` first), runs `wrangler deploy --env staging`, and finally checks the published gateway with `check-staging-separation.py --base-url`, which asks `/healthz` what it is and compares the answer with the configuration.
+- The URL is read from the deploy output. If that fails, run it again with the optional `base_url` input.
+- It never runs from a pull request or from another branch, and it never touches the production Worker or the production secrets.
+

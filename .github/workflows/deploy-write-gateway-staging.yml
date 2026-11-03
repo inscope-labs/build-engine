@@ -1,0 +1,109 @@
+name: deploy-write-gateway-staging
+# Publishes the write gateway to the STAGING Worker (ctxgate-write-staging), by hand.
+#
+# This is the staging counterpart of deploy.yml, which publishes production. It is never
+# triggered by a pull request, it runs only from main, and it never touches production.
+# Run `staging-init` first: the Worker's secrets must exist before this will publish.
+#
+# The credentials come from the `staging` environment (CLOUDFLARE_API_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID), not from the repository's secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "why this deployment is happening"
+        required: true
+        type: string
+      base_url:
+        description: "optional: the staging URL, if it cannot be read from the deploy output"
+        required: false
+        type: string
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: deploy-write-staging
+  cancel-in-progress: false
+jobs:
+  gate:
+    name: the deploy gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - name: Only main may deploy
+        working-directory: .
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "this may only run from main, not from ${GITHUB_REF}"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: The whole test suite
+        run: npm test
+      - name: The contract documents agree
+        run: python3 scripts/check-contract-consistency.py
+      - name: The log hygiene and credential boundary gate
+        run: npm run verify:log-hygiene
+      - name: Staging is separate from production (static)
+        run: npm run check:staging
+  deploy:
+    name: deploy to staging
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: staging
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: The bundle builds
+        run: npm run check:bundle
+      - name: The staging Worker has its secrets
+        run: |
+          set -euo pipefail
+          listed="$(npx wrangler secret list --env staging 2>/dev/null || true)"
+          for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
+            printf '%s' "$listed" | grep -q "$s" || {
+              echo "staging is missing $s: run the staging-init workflow first"
+              exit 1
+            }
+          done
+          echo "SIGNING_KEYS, OPERATOR_TOKEN and GITHUB_TOKEN are set on the staging Worker"
+      - name: Deploy to staging
+        run: npx wrangler deploy --env staging 2>&1 | tee "$RUNNER_TEMP/deploy.txt"
+      - name: The published gateway is the staging one
+        env:
+          IN_BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          url="$IN_BASE_URL"
+          if [ -z "$url" ]; then
+            url="$(grep -o 'https://[^ ]*workers\.dev' "$RUNNER_TEMP/deploy.txt" | head -1 || true)"
+          fi
+          if [ -z "$url" ]; then
+            echo "the staging URL was not in the deploy output: run again with base_url set"
+            exit 1
+          fi
+          echo "checking $url"
+          python3 scripts/check-staging-separation.py --base-url "$url"
