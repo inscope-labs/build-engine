@@ -50,16 +50,18 @@
   "write_gateway": {
     "role": "the submissions branch the write gateway commits into during staging",
     "branch": "staging/submissions",
-    "task_folder": "plans/pilot-001/submissions/wo-10008/10008-1-001-01",
+    "task_folder": "plans/pilot-001/submissions/10008-S001/10008-1-201-01",
     "fixtures": "ops/staging-fixtures/submissions",
     "notes": [
       "The branch is an orphan branch: it has no history, and the production submissions branch is",
       "a branch of a different repository. A staging commit cannot be mistaken for a production",
       "submission, because it is not in the production repository and not on the production branch.",
-      "The task folder holds the .keep placeholder, because git does not store empty folders and",
-      "the folder has to exist before the work order is issued (protocol section 12.3). The",
-      "gateway never creates it; ops/staging-estate.py does, and so does the gateway's own",
-      "operator tool gateway/write/scripts/seed-test-repo.ts."
+      "The task folder holds the .keep placeholder, because git does not store empty folders and the",
+      "folder has to exist before the work order is issued (protocol section 12.3). The gateway never",
+      "creates it; ops/staging-estate.py does, and so does the gateway's own operator tool",
+      "gateway/write/scripts/seed-test-repo.ts. The path is the one the plan tooling and the write",
+      "gateway derive - plans/<plan>/submissions/<order>/<task> - and not a guess: this was F0-074,",
+      "and the pilot's first commit was refused with task-folder-missing until it was fixed."
     ]
   },
   "credential": {

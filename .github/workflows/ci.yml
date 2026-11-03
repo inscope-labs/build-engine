@@ -175,5 +175,7 @@ jobs:
           cache: npm
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
-      - name: The staging environment is separate from production
+      - name: The write gateway's staging environment is separate from production
         run: npm run check:staging
+      - name: The read gateway's staging environment is separate from production
+        run: npm run check:staging:read

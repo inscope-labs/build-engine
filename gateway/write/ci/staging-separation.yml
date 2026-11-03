@@ -3,9 +3,9 @@
 # STATUS: implemented. The job below is wired into `.github/workflows/ci.yml` as
 # `write-gateway-staging-separation`, and it runs on every pull request and on every push to main.
 #
-# The gate is one command, `npm run check:staging`, and it checks the thing Stage 6.1 exists to
-# establish: that the write gateway's **staging** environment is separate from production, and
-# that it cannot be mistaken for it.
+# The gate is two commands, `npm run check:staging` and `npm run check:staging:read`, and they
+# check the thing Stage 6.1 exists to establish: that both gateways' **staging** environments are
+# separate from production, and that they cannot be mistaken for it.
 #
 # It reads the committed `wrangler.toml` - the file that will actually be published - and refuses
 # a configuration in which:
@@ -20,6 +20,10 @@
 #      submission is a production submission;
 #   6. staging does not declare the production submissions repository, so nothing stops it from
 #      being pointed at it.
+#
+# The read gateway has no submissions repository, so its half of the gate checks the source it
+# reads instead: that staging reads a different repository than production, that the two declare
+# disjoint key ids, and that staging is a different Worker with its own Durable Object namespace.
 #
 # The gate holds no credential and publishes nothing. It is safe on every pull request.
 name: write gateway staging separation
@@ -43,5 +47,7 @@ jobs:
           cache: npm
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
-      - name: The staging environment is separate from production
+      - name: The write gateway's staging environment is separate from production
         run: npm run check:staging
+      - name: The read gateway's staging environment is separate from production
+        run: npm run check:staging:read
