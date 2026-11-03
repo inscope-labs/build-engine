@@ -17,6 +17,10 @@ Two modes:
     with the configuration. A deployment that succeeds is not a deployment that is correct: the
     gateway that answers may be serving the production keys from a file that says staging.
 
+`--kind read` checks the read gateway instead of the write gateway, against the read gateway's
+own committed configuration. The read gateway has no submissions repository: its separation is
+about the source it reads, its key ids and its own Durable Object namespace.
+
 What it checks, and why:
 
   1. `workers_dev` is a setting, not a variable. A `workers_dev = false` written after the
@@ -54,6 +58,12 @@ except ModuleNotFoundError:  # Python < 3.11
 HERE = os.path.dirname(os.path.abspath(__file__))
 WRITE = os.path.dirname(HERE)
 CONFIG = os.path.join(WRITE, "wrangler.toml")
+# The read gateway keeps its own configuration, one directory up the tree and across the
+# gateway directory. The read gateway has no write path, so its separation is about the
+# source it reads and its keys, not about a submissions repository.
+REPO = os.path.dirname(os.path.dirname(WRITE))
+READ_CONFIG = os.path.join(REPO, "gateway", "read", "production", "wrangler.toml")
+ENVIRONMENTS = os.path.join(REPO, "gateway", "read", "production", "ops", "environments.json")
 
 FAILURES = []
 
@@ -142,7 +152,9 @@ def check_live(base_url, config):
     """A published gateway, asked what it is."""
     base = base_url.rstrip("/")
     try:
-        with urllib.request.urlopen(base + "/healthz", timeout=20) as response:
+        # Cloudflare's managed rules refuse Python's default User-Agent with error 1010.
+        request = urllib.request.Request(base + "/healthz", headers={"User-Agent": "ctxgate-check/6.1"})
+        with urllib.request.urlopen(request, timeout=20) as response:
             status = response.status
             body = response.read()
     except urllib.error.HTTPError as e:
@@ -176,20 +188,115 @@ def check_live(base_url, config):
     check(health.get("protocol") == "ctxwrite-v1", "the published gateway speaks ctxwrite-v1")
 
 
+def check_static_read(config, environments):
+    """The read gateway's committed configuration."""
+    print("1. the production environment")
+    production = config.get("env", {}).get("production")
+    if production is None:
+        check(False, "there is a production environment")
+        return None
+    production_vars = production.get("vars", {})
+    check(production.get("workers_dev") is False,
+          "production is not exposed on workers.dev")
+    check(bool(production.get("routes")),
+          "production is reachable on one named host only (protocol section 12.5)")
+    check("workers_dev" not in production_vars,
+          "workers_dev is not an ordinary variable (F0-070: that setting did nothing)")
+
+    print("2. the staging environment")
+    staging = config.get("env", {}).get("staging")
+    if staging is None:
+        check(False, "there is a staging environment")
+        return None
+    staging_vars = staging.get("vars", {})
+    check(staging.get("workers_dev") is True,
+          "staging is reachable on workers.dev, so the pilot needs no domain")
+    check("routes" not in staging, "staging claims no route of its own")
+    check(staging.get("name") != production.get("name"),
+          "staging is a different Worker, so its Durable Object namespace is its own")
+    bindings = {b.get("name") for b in staging.get("durable_objects", {}).get("bindings", [])}
+    check("STATE" in bindings, "staging has its own Durable Object binding")
+    migrations = staging.get("migrations", [])
+    check(bool(migrations) and "GatewayState" in migrations[0].get("new_sqlite_classes", []),
+          "staging has its own Durable Object migrations")
+
+    print("3. the key ids are disjoint")
+    declared = {name: set(env.get("key_ids", [])) for name, env in environments.get("environments", {}).items()}
+    production_keys = declared.get("production", set())
+    staging_keys = declared.get("staging", set())
+    check(staging_keys and production_keys, "both deployments declare their key ids")
+    check(not (staging_keys & production_keys),
+          "staging and production share no key id (shared: %s)" % ", ".join(sorted(staging_keys & production_keys)))
+
+    print("4. the sources are different")
+    check(staging_vars.get("GITHUB_REPO") != production_vars.get("GITHUB_REPO"),
+          "staging reads a different repository than production")
+    check(staging_vars.get("ALLOW_PREFIXES") == production_vars.get("ALLOW_PREFIXES"),
+          "both deployments serve the same allowed prefixes")
+
+    return staging
+
+
+def check_live_read(base_url, environments):
+    """The published read gateway, asked what it is."""
+    base = base_url.rstrip("/")
+    try:
+        # Cloudflare's managed rules refuse Python's default User-Agent with error 1010.
+        request = urllib.request.Request(base + "/healthz", headers={"User-Agent": "ctxgate-check/6.1"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            status = response.status
+            body = response.read()
+    except urllib.error.HTTPError as e:
+        print("  FAIL the health endpoint answered %s" % e.code)
+        FAILURES.append("the health endpoint answered %s" % e.code)
+        return
+    except urllib.error.URLError:
+        print("  FAIL the health endpoint could not be reached")
+        FAILURES.append("the health endpoint could not be reached")
+        return
+    if status != 200:
+        check(False, "the health endpoint answered %s" % status)
+        return
+    health = json.loads(body.decode("utf-8"))
+
+    print("5. the published gateway is the one that was configured")
+    staging_keys = set(environments.get("environments", {}).get("staging", {}).get("key_ids", []))
+    check(health.get("status") == "ok", "the published gateway says it is ok")
+    check(sorted(health.get("key_ids", [])) == sorted(staging_keys),
+          "the published gateway serves exactly the declared key ids")
+    check(health.get("conformance_clock") is False,
+          "the conformance test clock is off in a published gateway")
+    check(health.get("scheme") == "ctxgate-v1", "the published gateway speaks ctxgate-v1")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-url", help="the published gateway to check, if it has been published")
+    parser.add_argument("--kind", choices=("write", "read"), default="write",
+                        help="which gateway to check: the write gateway (the default) or the read gateway")
     args = parser.parse_args(argv)
 
-    try:
-        config = load()
-    except (OSError, ValueError) as e:
-        print("could not read %s: %s" % (CONFIG, e), file=sys.stderr)
-        return 1
-
-    check_static(config)
-    if args.base_url:
-        check_live(args.base_url, config)
+    if args.kind == "read":
+        try:
+            with open(READ_CONFIG, "rb") as handle:
+                config = tomllib.load(handle)
+            with open(ENVIRONMENTS, "rb") as handle:
+                environments = json.load(handle)
+        except (OSError, ValueError) as e:
+            print("could not read the read gateway's configuration: %s" % e, file=sys.stderr)
+            return 1
+        check_static_read(config, environments)
+        if args.base_url:
+            check_live_read(args.base_url, environments)
+    else:
+        try:
+            config = load()
+        except (OSError, ValueError) as e:
+            print("could not read %s: %s" % (CONFIG, e), file=sys.stderr)
+            return 1
+        check_static(config)
+        if args.base_url:
+            check_live(args.base_url, config)
 
     print("")
     if FAILURES:
@@ -197,7 +304,7 @@ def main(argv=None):
         for failure in FAILURES:
             print("  - " + failure)
         return 1
-    print("OK: the staging environment is separate from production")
+    print("OK: the %s staging environment is separate from production" % args.kind)
     return 0
 
 

@@ -853,6 +853,8 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
 | F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
 | F0-070, F0-071, F0-072 | Phase 6 - **Stage 6.1** | Found and closed in Stage 6.1, by the rehearsal against the real provider: the write gateway's `workers_dev` was a variable and not a setting; the gateway could not start in the Workers runtime at all; and every provider call failed with "Illegal invocation" because `fetch` was called with the wrong receiver |
+| F0-073, F0-074 | Phase 6 - **Stage 6.2** | Found and closed in Stage 6.2, by executing the whole Class B workflow against the real provider: Cloudflare's managed rules refused Python's default `User-Agent` with error 1010, so every script that called a published gateway was answered with a 403 that looked like a credential problem; and the disposable estate's seeded task folder did not match the folder the plan tooling and the write gateway derive, so the pilot's first commit was refused with `task-folder-missing` |
+| R0-013 | Phase 6 - **Stage 6.2** | Open, and it is an operator action: the deployed signed leg needs the staging `SIGNING_KEYS` and `OPERATOR_TOKEN` for both gateways, which live in the operator's delivery bundle |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070); the `routes` half and the compatibility-date review still stand |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
@@ -1038,3 +1040,89 @@ found by execution, not by reading, and all three are closed in the same stage.
   mock". The rehearsal showed the sharper truth: the suite proved it against a mock, and the
   gateway did not work in the runtime at all. The lesson generalises: a mock does not reproduce
   the runtime's rules, and the runtime's rules include how `fetch` may be called.
+
+## Addendum A10 — Stage 6.2: the full Class B workflow (2026-11-03)
+
+Stage 6.2 executes the whole Class B workflow end to end, against the real provider, with the
+shipped tooling. Two findings came out of it. Both were found by execution, and both are closed
+in the same stage. The closeout is `docs/release/PHASE-6.2-CLOSEOUT.md`.
+
+### F0-073 — Cloudflare's managed rules refuse Python's default User-Agent, so every script that called a deployed gateway was answered with a 403
+- Severity: S2 for the operator's operations. Status: CONFIRMED. **Closed in Stage 6.2.**
+- Evidence: the deployed staging gateways were asked for `/healthz` with different clients and
+  different `User-Agent` strings. The rule is exact, and it is Cloudflare's, not the gateway's:
+
+      $ for ua in "Python-urllib/3.11" "python-urllib/3.11" "Python-requests/2.31.0" "Python-urllib/3.10"; do
+            printf "%-28s -> " "$ua"
+            curl -s -o /dev/null -w "%{http_code}\n" -A "$ua" \
+              https://ctxgate-read-staging.qnuralink.workers.dev/healthz
+        done
+      Python-urllib/3.11           -> 403
+      python-urllib/3.11           -> 200
+      Python-requests/2.31.0       -> 200
+      Python-urllib/3.10           -> 403
+
+  The refusal is Cloudflare's, and it says so:
+
+      $ python3 -c "import urllib.request, urllib.error; ..."
+      status 403
+      server: cloudflare
+      content-type: text/plain; charset=UTF-8
+      body: b'error code: 1010\n'
+
+  Error 1010 is the browser-integrity block: the request's signature was refused. The same
+  `User-Agent` sent by `curl` is served normally, and the same client with any other
+  `User-Agent` is served normally, so the trigger is the string `Python-urllib/3.x`.
+- Consequence: every script in this repository that called a published gateway without naming
+  itself was answered with a 403 and no body, and that refusal is indistinguishable at a glance
+  from "the gateway is not deployed" or "the credential is wrong". This is not hypothetical:
+  the Stage 6.1 staging deployment's own post-publish check failed on `/healthz` with exactly
+  this 403, from the GitHub Actions runner, and the failure was recorded as unexplained. The
+  deployment was correct; the checker's request was not.
+- Required resolution: the scripts that talk to a published gateway say who they are.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.2.
+- Closure evidence: `gateway/write/scripts/check-staging-separation.py` sends
+  `User-Agent: ctxgate-check/6.1`, and `ops/staging-pilot.py` sends
+  `User-Agent: ctxgate-pilot/6.2`. Both were re-run against both deployed staging gateways
+  afterwards and every check passed (the closeout, section 5.2). The deployed post-publish
+  check in `.github/workflows/deploy-write-gateway-staging.yml` uses the same script and is
+  fixed by the same change.
+
+### F0-074 — The disposable estate's task folder was a guess, and did not match the folder the tooling derives
+- Severity: S2 for the pilot. Status: CONFIRMED. **Closed in Stage 6.2.**
+- Evidence: Stage 6.1's estate seeded the placeholder file at
+
+      plans/pilot-001/submissions/wo-10008/10008-1-001-01/.keep
+
+  The plan tooling and the write gateway both derive the folder from the plan, the order and the
+  task: `plans/{plan}/submissions/{order}/{task}`. The pilot's first commit attempt was refused:
+
+      the commit landed: task-folder-missing
+
+  The refusal was correct and the estate was wrong: the gateway never creates the folder, because
+  a folder that does not exist is a claim the operator has to make, not the agent's (protocol
+  section 12.3).
+- Consequence: Stage 6.1's closeout called the estate ready for the pilot, and it was not. The
+  pilot failed at 6.2.7 — the commit — for a reason that had nothing to do with the agent's work,
+  and the failure would have looked like a gateway defect.
+- Required resolution: the estate's folder is the derived one, and the pilot states the folder it
+  computed before it asks the gateway to commit into it.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.2.
+- Closure evidence: `ops/staging-estate.json` records
+  `write_gateway.task_folder = plans/pilot-001/submissions/10008-S001/10008-1-201-01`; the
+  estate was re-seeded with it, and the pilot's run committed into that folder
+  (`dba07f0a24340434d29d2bd5c2e0c7e3f16a3edf`, file `deliverable.md`). The pilot also reads the
+  folder back from the gateway's own `index` operation, so the folder the gateway uses is
+  evidence, not an assumption.
+
+### R0-013 — The deployed pilot leg needs the operator's staging signing keys
+- Status: **OPEN; operator action.**
+- The full signed workflow against the *deployed* staging gateways needs four secrets that
+  exist only in the operator's delivery bundle: `SIGNING_KEYS` and `OPERATOR_TOKEN` for
+  `ctxgate-read-staging`, and `SIGNING_KEYS` and `OPERATOR_TOKEN` for `ctxgate-write-staging`.
+  Without them only the part of the workflow that needs no secret can be executed against the
+  deployed gateways, and that part is what Stage 6.2 proved (12 checks).
+- This is not a defect in the gateways or the tooling. It is the same class of item as R0-004:
+  a setting that cannot be applied from repository code. The operator can rotate the values at
+  any time with `staging-init --replace yes`; the pilot does not need the same values twice,
+  because it mints its own links against whatever the gateway holds.
