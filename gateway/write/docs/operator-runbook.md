@@ -371,6 +371,66 @@ Pinned in `wrangler.toml`, and checked by the contract (section 12.5):
 | secrets | `wrangler secret put` | never in `wrangler.toml` |
 | deployment credentials | the environment's, never the repository's | a pull request must not be able to reach them |
 
+`workers_dev` is a **setting**, not a variable, and a TOML setting belongs to the table it is
+written in. A `workers_dev = false` written after the `[vars]` table is an ordinary variable
+named `workers_dev`, the setting stays unset, and wrangler's default exposes the gateway on a
+public `*.workers.dev` URL anyway. That was F0-070. The gate
+`npm run check:staging` refuses that configuration, and it runs on every pull request.
+
+### 7.2 The staging environment
+
+Stage 6.1 established a **staging** environment: a separate Worker, with its own Durable Object
+namespaces, its own keys and its own destination, for the pilot and for operational rehearsal.
+It is disposable, and it holds nothing of the operator's.
+
+```sh
+cd gateway/write
+
+# the destination, the disposable branch, seeded by the operator
+python3 ../../ops/staging-estate.py create --i-understand-this-creates-real-branches
+
+# the gate, which publishes nothing
+npm run check:staging
+
+# the secrets, once
+npx wrangler secret put --env staging SIGNING_KEYS    # {"sk1": "<a fresh secret>"}
+npx wrangler secret put --env staging GITHUB_TOKEN     # scoped to the staging destination
+npx wrangler secret put --env staging OPERATOR_TOKEN  # a fresh bearer token
+
+# publish
+npx wrangler deploy --env staging
+
+# and check what was published
+npm run check:staging -- --base-url https://<the staging host>
+```
+
+The separation is a property of the configuration, and it is checked rather than assumed:
+
+| Rule | Checked by |
+|---|---|
+| a different Worker, so a different Durable Object namespace | `npm run check:staging` |
+| disjoint key ids, so a capability minted for one is refused by the other | `npm run check:staging` |
+| a different submissions repository and branch | `npm run check:staging` |
+| the staging deployment declares the production repository and refuses to start if it is pointed at it | the gateway itself, at startup |
+| the published gateway serves the key ids and the destination it was configured for | `npm run check:staging -- --base-url …` |
+
+**`/healthz` says which environment it is.** A pilot that cannot tell staging from production
+is not a pilot:
+
+```sh
+curl -s https://<the host>/healthz | python3 -m json.tool | grep deploy_env
+```
+
+### 7.3 Throwing the staging environment away
+
+```sh
+python3 ../../ops/staging-estate.py dispose --i-understand-this-deletes-branches
+npx wrangler delete --env staging
+```
+
+The estate is disposable, and disposing of it is part of the stage that used it, not a chore
+for later.
+
 ---
 
 ## 8. Respond to an incident

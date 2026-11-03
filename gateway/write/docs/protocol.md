@@ -1034,7 +1034,7 @@ capabilities.
 
 | Route | Method | Effect |
 |---|---|---|
-| `{base}/healthz` | GET | liveness, version, protocol version, effective policy, whether the test clock is on. No protected state. |
+| `{base}/healthz` | GET | liveness, version, protocol version, which environment it is, the effective policy, the key ids it serves and the ones it declares, whether the test clock is on. No protected state. |
 | `{base}/admin/revoke` | POST | revoke an order or a task: tear the session down and refuse its capability from then on |
 | `{base}/admin/close` | POST | close a work order: state `closed` |
 | `{base}/admin/reset-quota` | POST | reset a task's quota ledger after an eviction (section 13.2) |
@@ -1136,11 +1136,35 @@ The destination is entirely configuration. No request can influence any of it.
 | `SUBMISSIONS_BRANCH` | the isolated branch. Fixed at deployment. |
 | `SUBMISSIONS_FOLDER_TEMPLATE` | the folder template, e.g. `plans/{plan}/submissions/{order}/{task}` |
 | `GITHUB_TOKEN` | the credential. A secret. Never in `wrangler.toml`. |
+| `DEPLOY_ENV` | `staging` or `production`. Which environment this is. Reported by `/healthz`. |
+| `SIGNING_KEY_IDS` | the key ids this deployment serves, comma separated. A declaration, not a secret. |
+| `PRODUCTION_SUBMISSIONS_REPO` | the repository the **production** deployment writes to. Set in a staging deployment, and never in a production one. |
 
 The folder is `SUBMISSIONS_FOLDER_TEMPLATE` with `{plan}`, `{order}` and `{task}` filled from the **signed**
 capability. A template that does not contain a placeholder, or that contains an unknown one, is a
 configuration error and the gateway fails closed (503 `gateway-misconfigured`), exactly as the read gateway
 does.
+
+### 12.2.1 The environment, and the key ids it declares
+
+Three settings exist so that a deployment can say what it is, and so that two deployments cannot be
+confused with one another. None of them is a secret, and all three are reported by `/healthz`.
+
+| Setting | What it means | What the gateway refuses |
+|---|---|---|
+| `DEPLOY_ENV` | `staging` or `production` | any other value, and a missing value: a gateway that does not say which environment it is cannot be told apart from the other one |
+| `SIGNING_KEY_IDS` | the key ids this deployment serves | a secret holding a key id the declaration does not name: that key id belongs to another environment, and a deployment that serves it can answer that environment's capabilities |
+| `PRODUCTION_SUBMISSIONS_REPO` | the repository the production deployment writes to | a staging deployment without it, and a staging deployment pointed at it |
+
+The declaration is a **superset** of what the secret holds, and that direction is deliberate. A key id in the
+declaration that the secret does not have yet is a rotation in progress: the declaration is deployed first,
+the new secret follows, and the gateway serves both key ids throughout (runbook section 6.1). A key id in
+the secret that the declaration does not name is the case that matters, and it is refused.
+
+Together with the rule that two environments declare **disjoint** key ids, this gives a chain that needs no
+trust: the static gate (`scripts/check-staging-separation.py`) proves the declarations are disjoint, the
+gateway refuses to start if its secret holds a key id its declaration does not name, and therefore a staging
+deployment can never serve a production key id, whatever the operator pastes into it.
 
 ### 12.3 The placeholder file
 
@@ -1186,11 +1210,35 @@ The deployment is part of the credential boundary, and the defaults are pinned r
 
 | Setting | Required value | Why |
 |---|---|---|
-| `workers_dev` | `false` | a first deploy must not silently expose a public `*.workers.dev` URL |
+| `workers_dev` | `false` in production | a first deploy must not silently expose a public `*.workers.dev` URL |
 | `routes` | explicit, operator-named | the gateway must be on a host the operator controls |
 | `compatibility_date` | pinned, and reviewed on a deliberate bump | a pinned-but-stale date is its own risk |
 | secrets | `wrangler secret put`, never in `wrangler.toml` | G-08 |
 | deployment credentials | absent from pull-request jobs | deploy only from protected, reviewed refs (plan 5.4.6) |
+
+`workers_dev` is a **setting**, not a variable. A `workers_dev = false` written after the `[vars]` table is a
+variable named `workers_dev`, the setting stays unset, and wrangler's default exposes the gateway on a public
+`*.workers.dev` URL anyway. That was F0-070, and `scripts/check-staging-separation.py` refuses that
+configuration.
+
+### 12.5.1 The staging environment
+
+The staging environment exists so that the pilot (Stage 6) and the operational rehearsal can run against a real
+deployment that holds nothing of the operator's. It is a **separate Worker**, with its own Durable Object
+namespaces, its own keys and its own destination, and the rules that keep it apart are checked rather than
+assumed:
+
+| Rule | Checked by |
+|---|---|
+| a different Worker name, so a different Durable Object namespace | `scripts/check-staging-separation.py` |
+| disjoint key ids, so a capability minted for one is refused by the other | `scripts/check-staging-separation.py` |
+| a different submissions repository and branch, so a staging submission is not a production submission | `scripts/check-staging-separation.py` |
+| the staging deployment declares the production repository and refuses to start if it is pointed at it | the gateway itself, at startup |
+| the staging destination is disposable and is deleted with `ops/staging-estate.py dispose` | the operator |
+
+The staging deployment is reachable on `workers.dev`, because the pilot's agent has to reach it without a
+domain and the environment holds nothing worth protecting. Production is not: it is reachable on one named
+host, and on no other.
 
 The operator accepts the residual transport risk in section 10.1 in writing at deployment time. That is a
 process requirement, but it is the only honest way to discharge a risk this contract cannot remove.

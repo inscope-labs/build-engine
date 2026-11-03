@@ -102,7 +102,21 @@ export class GitHubClient {
     this.apiBase = options.apiBase.replace(/\/+$/, "");
     this.timeoutMs = options.timeoutMs;
     this.userAgent = options.userAgent;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // The fetch implementation is **bound to the global scope**, and that is not a detail.
+    //
+    // The Workers runtime's `fetch` refuses to be called with the wrong receiver:
+    //
+    //     TypeError: Illegal invocation: function called with incorrect `this` reference.
+    //
+    // `this.fetchImpl(url, init)` is a method call on this client, so the receiver would be the
+    // client, and every provider call would fail with a TypeError that the catch below turns
+    // into a "network" failure: `provider-unavailable`, for ever. The gateway would never have
+    // spoken to GitHub at all, and the failure would have looked like a provider outage.
+    //
+    // The test suite never saw it, because the tests replace the implementation with a mock that
+    // does not care who calls it. This was F0-072, and the rehearsal against the real provider
+    // in Stage 6.1 is what found it.
+    this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
   }
 
   /**

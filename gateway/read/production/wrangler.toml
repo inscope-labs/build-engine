@@ -56,10 +56,17 @@ new_sqlite_classes = ["GatewayState"]
 # ---------------------------------------------------------------------------
 # STAGING environment: staging: a disposable deployment used for the pilot and for operational rehearsal
 #
-# Staging reads a DISPOSABLE repository. It must never be pointed at the repository that
+# Staging reads a DISPOSABLE source. It must never be pointed at the repository that
 # staging is meant to rehearse against by accident, and its keys are not the production keys.
 # Staging is the environment where the pilot (Stage 6) runs, so it must be able to reach a
 # disposable copy of the source content.
+# The disposable source is the branch 'staging/source' of the repository below, seeded by
+# ops/staging-estate.py. The commit the pilot pins is the head of that branch; a capability
+# always pins a commit, so a moving branch never reaches the source adapter.
+# The fixture holds one file inside each allowed prefix and one file outside them
+# (plans/PILOT-001/private/notes.md), which is the negative case for Stage 6.2.4.
+# The staging key id is 's1' and is disjoint from production's, so a staging-minted link
+# cannot be replayed against production even if the two environments shared a worker name.
 #
 # Secrets for this environment (set once, per environment, never in this file):
 #   wrangler secret put --env staging SIGNING_KEYS
@@ -83,7 +90,7 @@ new_sqlite_classes = ["GatewayState"]
 
 [env.staging.vars]
   GITHUB_API_BASE = "https://api.github.com"
-  GITHUB_REPO = "OWNER/REPO-STAGING"
+  GITHUB_REPO = "inscope-labs/build-engine"
   ALLOW_PREFIXES = "amk/,plans/*/package/"
   DENY_PATTERNS = "[\"(^|/)\\\\.git(/|$)\",\"(^|/)\\\\.github/\",\"(^|/)\\\\.env\",\"(^|/)(secrets?|credentials?)(\\\\.|/|$)\",\"\\\\.(pem|key|p12)$\",\"(^|/)__pycache__(/|$)\",\"\\\\.pyc$\"]"
   MAX_BYTES = "1048576"

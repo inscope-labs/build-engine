@@ -186,6 +186,7 @@ test("the write-gateway gates are all wired", () => {
     "write-gateway-unit",
     "write-gateway-integration",
     "write-gateway-deploy-gate",
+    "write-gateway-staging-separation",
   ]) {
     assert.ok(jobNames(ci).includes(job), `ci.yml has the ${job} job`);
   }

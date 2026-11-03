@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "note": [
+    "The record of the DISPOSABLE staging estate that Stage 6.1 establishes.",
+    "",
+    "Everything named here is throwaway. The two branches exist to be read, written to and then",
+    "deleted; nothing in them is a consumer's content and nothing in them survives the pilot.",
+    "This file holds no secret: it names resources, and a credential is never written to it.",
+    "",
+    "The estate is created, seeded, inspected and disposed of by ops/staging-estate.py."
+  ],
+  "topology": {
+    "repository": "inscope-labs/build-engine",
+    "why_branches": [
+      "The protocol wants the write gateway's destination to be a DEDICATED submissions repository",
+      "with a credential scoped to that repository alone (protocol section 12.1). The staging",
+      "estate does not have that topology, and the reason is a credential, not a preference.",
+      "",
+      "The only credential available while Stage 6.1 was executed is a fine-grained token whose",
+      "repository selection covers the build-engine repository alone. It can CREATE a repository",
+      "and it can READ a public one, and it can WRITE to neither of those: the two disposable",
+      "repositories it created answered 404 to every read and write, and a public one answered 403",
+      "'Resource not accessible by personal access token'. The transcript is in",
+      "docs/release/PHASE-6.1-CLOSEOUT.md.",
+      "",
+      "So the staging estate is ISOLATED BRANCHES of the build-engine repository, which is the",
+      "other thing plan task 6.1.1 allows ('a dedicated test repository OR isolated test",
+      "branch/folder'). The branches are disposable, they are not the production branch, and the",
+      "production submissions repository remains a separate repository that this stage does not",
+      "provision.",
+      "",
+      "To move the estate to dedicated repositories: create them, add them to the staging",
+      "credential's repository selection, change 'repository' and the two branches below, and",
+      "re-run 'ops/staging-estate.py create'. Nothing else in the configuration changes, because",
+      "both gateways name their destination in configuration only."
+    ]
+  },
+  "read_gateway": {
+    "role": "the source the read gateway serves staging from",
+    "branch": "staging/source",
+    "fixtures": "ops/staging-fixtures/source",
+    "notes": [
+      "A COPY of the shape of a consumer repository, not the consumer repository.",
+      "The read gateway's staging ALLOW_PREFIXES are amk/ and plans/*/package/, so the fixture",
+      "holds one file inside each of them, and one file outside them: the file outside the",
+      "allowed prefixes is the negative fixture for Stage 6.2.4 (an unlisted path is denied).",
+      "A capability pins a COMMIT, so the pilot pins the commit this branch is seeded at."
+    ]
+  },
+  "write_gateway": {
+    "role": "the submissions branch the write gateway commits into during staging",
+    "branch": "staging/submissions",
+    "task_folder": "plans/pilot-001/submissions/wo-10008/10008-1-001-01",
+    "fixtures": "ops/staging-fixtures/submissions",
+    "notes": [
+      "The branch is an orphan branch: it has no history, and the production submissions branch is",
+      "a branch of a different repository. A staging commit cannot be mistaken for a production",
+      "submission, because it is not in the production repository and not on the production branch.",
+      "The task folder holds the .keep placeholder, because git does not store empty folders and",
+      "the folder has to exist before the work order is issued (protocol section 12.3). The",
+      "gateway never creates it; ops/staging-estate.py does, and so does the gateway's own",
+      "operator tool gateway/write/scripts/seed-test-repo.ts."
+    ]
+  },
+  "credential": {
+    "environment_variable": "GITHUB_TOKEN",
+    "notes": [
+      "The token is read from the environment and never from an argument, so it cannot end up in",
+      "a shell history, a process listing or a log.",
+      "The credential the DEPLOYED staging gateway holds must be restricted to the estate's",
+      "destination. The operator mints it; gateway/write/scripts/check-token-scope.ts is the",
+      "check that says whether a credential is inside that scope."
+    ]
+  }
+}

@@ -220,6 +220,10 @@ export function testEnv(namespace: MemoryNamespace, overrides: Record<string, un
     OPERATOR_TOKEN: "test-operator-token",
     MAX_TTL_SECONDS: "604800",
     LEASE_SECONDS: "300",
+    // Which environment this is, and which key ids it declares. The test suite drives the
+    // production-shaped configuration; the staging rules are exercised by their own tests.
+    DEPLOY_ENV: "production",
+    SIGNING_KEY_IDS: TEST_KID,
     CTXGATE_TEST_CLOCK: String(TEST_NOW),
     TASK_SESSION: namespace,
     AUDIT_STREAM: namespace.audit ?? namespace,

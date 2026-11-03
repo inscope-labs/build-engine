@@ -18,7 +18,8 @@
     "check:bundle": "wrangler deploy --dry-run --outdir .wrangler-dryrun",
     "verify:log-hygiene": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/verify-log-hygiene.ts",
     "check:token-scope": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/check-token-scope.ts",
-    "check:contract": "python3 scripts/check-contract-consistency.py"
+    "check:contract": "python3 scripts/check-contract-consistency.py",
+    "check:staging": "python3 scripts/check-staging-separation.py"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261011.1",

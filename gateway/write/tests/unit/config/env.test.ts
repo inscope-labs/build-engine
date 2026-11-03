@@ -16,6 +16,8 @@ function env(overrides: Partial<Env> = {}): Env {
     SUBMISSIONS_FOLDER_TEMPLATE: "plans/{plan}/submissions/{order}/{task}",
     GITHUB_TOKEN: "github-token",
     OPERATOR_TOKEN: "operator-token",
+    DEPLOY_ENV: "production",
+    SIGNING_KEY_IDS: TEST_KID,
     TASK_SESSION: {} as unknown as DurableObjectNamespace,
     AUDIT_STREAM: {} as unknown as DurableObjectNamespace,
     ...overrides,
@@ -116,4 +118,60 @@ test("the optional numbers must be positive integers", () => {
   assert.match(failureFor({ MAX_TTL_SECONDS: "1.5" }), /MAX_TTL_SECONDS/);
   assert.match(failureFor({ LEASE_SECONDS: "nope" }), /LEASE_SECONDS/);
   assert.equal(loadConfig(env({ MAX_TTL_SECONDS: "60" })).maxTtlSeconds, 60);
+});
+
+// ---------------------------------------------------------------------------
+// The environment name and the key ids (Stage 6.1, plan tasks 6.1.2 and 6.1.3)
+// ---------------------------------------------------------------------------
+
+test("the deployment has to say which environment it is", () => {
+  assert.equal(loadConfig(env({ DEPLOY_ENV: "staging", PRODUCTION_SUBMISSIONS_REPO: "owner/production" })).deployEnv, "staging");
+  assert.equal(loadConfig(env()).deployEnv, "production");
+
+  // A gateway that does not say which environment it is cannot be told apart from the other
+  // one, and a pilot that cannot tell them apart is not a pilot.
+  assert.match(failureFor({ DEPLOY_ENV: "" }), /DEPLOY_ENV/);
+  assert.match(failureFor({ DEPLOY_ENV: "preprod" }), /DEPLOY_ENV/);
+});
+
+test("the declared key ids must cover the ones the secret has", () => {
+  assert.deepEqual(loadConfig(env({ SIGNING_KEY_IDS: TEST_KID })).signingKeyIds, [TEST_KID]);
+  // A declaration that names more key ids than the secret holds is a rotation in progress: the
+  // declaration is deployed first and the new secret follows.
+  assert.deepEqual(loadConfig(env({ SIGNING_KEY_IDS: `${TEST_KID},k2` })).signingKeyIds, [TEST_KID, "k2"]);
+
+  // A key id the declaration does not name belongs to another environment, and a deployment that
+  // serves it can answer that environment's capabilities.
+  assert.match(failureFor({ SIGNING_KEY_IDS: "other" }), /SIGNING_KEY_IDS/);
+  assert.match(failureFor({ SIGNING_KEY_IDS: "" }), /SIGNING_KEY_IDS/);
+  assert.match(failureFor({ SIGNING_KEY_IDS: "not a kid" }), /SIGNING_KEY_IDS/);
+  assert.match(failureFor({ SIGNING_KEY_IDS: `${TEST_KID},${TEST_KID}` }), /SIGNING_KEY_IDS/);
+});
+
+test("a staging deployment may not be pointed at the production repository", () => {
+  // The rule that makes "staging data can never be mistaken for a production submission" a
+  // property of the configuration rather than a matter of care.
+  const message = failureFor({
+    DEPLOY_ENV: "staging",
+    PRODUCTION_SUBMISSIONS_REPO: "owner/repo",
+    SUBMISSIONS_REPO: "owner/repo",
+  });
+  assert.match(message, /SUBMISSIONS_REPO/);
+  assert.match(message, /production/);
+});
+
+test("a staging deployment without its guard does not start", () => {
+  // Without the declaration there is nothing to refuse, and a staging deployment that has been
+  // pointed at production by mistake would otherwise serve perfectly well.
+  assert.match(failureFor({ DEPLOY_ENV: "staging" }), /PRODUCTION_SUBMISSIONS_REPO/);
+  assert.match(
+    failureFor({ DEPLOY_ENV: "staging", PRODUCTION_SUBMISSIONS_REPO: "", SUBMISSIONS_REPO: "owner/other" }),
+    /PRODUCTION_SUBMISSIONS_REPO/,
+  );
+});
+
+test("the production deployment does not declare the staging guard", () => {
+  // One setting, one meaning. A production deployment that named its own repository in the
+  // staging guard would be saying nothing.
+  assert.match(failureFor({ PRODUCTION_SUBMISSIONS_REPO: "owner/repo" }), /PRODUCTION_SUBMISSIONS_REPO/);
 });

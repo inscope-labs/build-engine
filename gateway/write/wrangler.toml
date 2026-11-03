@@ -11,6 +11,19 @@ main = "src/index.ts"
 # read gateway runs with, so the two gateways behave the same way.
 compatibility_date = "2025-09-01"
 
+# ---------------------------------------------------------------------------
+# The deployment defaults the contract requires (protocol section 12.5).
+#
+# `workers_dev` is a SETTING, not a variable, and a TOML setting belongs to the table it is
+# written in: a `workers_dev = false` written after `[vars]` becomes an ordinary variable named
+# workers_dev, and the deployment is exposed on a public *.workers.dev URL anyway. That was
+# F0-070, and the gate that catches it is scripts/check-staging-separation.py.
+#
+# The setting is false, so the first deploy has no public route at all, which is the fail-closed
+# posture; the operator's own routes are added when the deployment decision is made.
+# ---------------------------------------------------------------------------
+workers_dev = false
+
 # The gateway's state: one Durable Object per task, holding the writer lease, the session state,
 # the file inventory, the quota ledger, the idempotency store and the commit record. The staged
 # file contents are deliberately NOT here: they are ephemeral, and live in the instance's memory
@@ -50,6 +63,14 @@ SUBMISSIONS_BRANCH = "build-engine"
 # Where a task's files go, relative to the repository root. The placeholders are filled from the
 # SIGNED capability, so no request can influence the destination.
 SUBMISSIONS_FOLDER_TEMPLATE = "plans/{plan}/submissions/{order}/{task}"
+# Which environment this is. It is reported by /healthz, so that a pilot can prove which
+# gateway it is talking to, and it is what makes the staging rules below apply.
+DEPLOY_ENV = "production"
+# The key ids this deployment serves, comma separated. A declaration, not a secret: it says which
+# key ids belong to this environment, so that two environments can be checked to be disjoint
+# without reading either secret. The deployment refuses to start if SIGNING_KEYS does not have
+# every key id declared here.
+SIGNING_KEY_IDS = "k1"
 # Longest lifetime a capability may have.
 MAX_TTL_SECONDS = "604800"
 # How long a writer's lease lasts before another writer may take it.
@@ -58,8 +79,54 @@ LEASE_SECONDS = "300"
 # audit log is a disk-filling denial of service. The default is 86400 (one day).
 AUDIT_RETENTION_SECONDS = "86400"
 
-# The deployment defaults the contract requires (protocol section 12.5): a first deploy must not
-# silently expose a public *.workers.dev URL. The operator's own routes are added in Stage
-# 5.4.6, when the deployment decision is made; until then the Worker has no public route at all,
-# which is the fail-closed posture.
-workers_dev = false
+# ---------------------------------------------------------------------------
+# STAGING environment: the disposable deployment the Stage 6 pilot runs against.
+#
+# It is a SEPARATE Worker with SEPARATE Durable Object namespaces, SEPARATE keys and a SEPARATE
+# destination. Nothing in it is a consumer's content: the destination is a disposable branch,
+# and the gateway refuses to start if it is ever pointed at the production repository.
+#
+# Secrets for this environment (set once, per environment, never in this file):
+#   wrangler secret put --env staging SIGNING_KEYS
+#   wrangler secret put --env staging GITHUB_TOKEN
+#   wrangler secret put --env staging OPERATOR_TOKEN
+# ---------------------------------------------------------------------------
+[env.staging]
+name = "ctxgate-write-staging"
+
+# Staging is reachable on workers.dev, so that the pilot's agent can reach it without a domain.
+# It holds no real content, and it is deleted when the pilot is over.
+workers_dev = true
+
+[[env.staging.durable_objects.bindings]]
+name = "TASK_SESSION"
+class_name = "TaskSession"
+
+[[env.staging.durable_objects.bindings]]
+name = "AUDIT_STREAM"
+class_name = "AuditStream"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["TaskSession", "AuditStream"]
+
+[env.staging.vars]
+# The disposable destination: the staging submissions branch of the disposable estate. The
+# task folder is plans/{plan}/submissions/{order}/{task}, and the pilot's is
+# plans/pilot-001/submissions/wo-10008/10008-1-001-01.
+SUBMISSIONS_REPO = "inscope-labs/build-engine"
+SUBMISSIONS_BRANCH = "staging/submissions"
+SUBMISSIONS_FOLDER_TEMPLATE = "plans/{plan}/submissions/{order}/{task}"
+DEPLOY_ENV = "staging"
+# The staging key id. It is disjoint from production's, so a capability minted for one
+# environment is refused by the other.
+SIGNING_KEY_IDS = "sk1"
+# The production destination. The staging deployment refuses to start if it is pointed at it.
+# The operator replaces this with the real production repository when there is one.
+PRODUCTION_SUBMISSIONS_REPO = "OWNER/REPO"
+MAX_TTL_SECONDS = "604800"
+LEASE_SECONDS = "300"
+AUDIT_RETENTION_SECONDS = "86400"
+# The commit's author says where it came from, so that a staging commit in a log is not read as
+# a production one.
+GITHUB_COMMIT_AUTHOR = "build-engine write gateway (staging) <ctxwrite-staging@users.noreply.github.com>"
