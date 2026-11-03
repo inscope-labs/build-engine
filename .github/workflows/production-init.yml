@@ -1,0 +1,110 @@
+# Initialise the PRODUCTION Workers' secrets, by hand, from the operator's own account.
+#
+# The production counterpart of staging-init. It sets SIGNING_KEYS, OPERATOR_TOKEN and
+# GITHUB_TOKEN on the production Worker(s). It never touches staging, never runs from a pull
+# request, runs only from main, and refuses to run while the production configuration still has a
+# placeholder (see ops/production-init.sh). It creates a Worker that does not exist yet only when
+# create_if_missing is yes.
+#
+# The `production` environment must hold CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
+# READ_GH_TOKEN and WRITE_GH_TOKEN (production's own credentials, distinct from staging's) and the
+# variable DELIVERY_PUBLIC_KEY. Give that environment a required reviewer: then every run of this
+# workflow is a decision someone makes (ADR 0008).
+#
+# The generated values are not printed: they go into an encrypted artifact that only the holder
+# of the delivery private key can read. See docs/release/PRODUCTION-WORKFLOWS.md.
+name: production-init
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "which production Worker to initialise"
+        type: choice
+        options:
+          - both
+          - read
+          - write
+        default: both
+      reason:
+        description: "why (recorded in the run summary)"
+        type: string
+        required: true
+      replace:
+        description: "yes = replace secrets that already exist (invalidates every production link and token)"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+        default: "no"
+      create_if_missing:
+        description: "yes = create a Worker that does not exist yet, with one production deploy"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+        default: "no"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-init
+  cancel-in-progress: false
+
+jobs:
+  init:
+    name: initialise the production Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Only main may run this
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "this may only run from main, not from ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set the production secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          READ_GH_TOKEN: ${{ secrets.READ_GH_TOKEN }}
+          WRITE_GH_TOKEN: ${{ secrets.WRITE_GH_TOKEN }}
+          DELIVERY_PUBLIC_KEY: ${{ vars.DELIVERY_PUBLIC_KEY }}
+          WRANGLER_SEND_METRICS: "false"
+          IN_TARGET: ${{ inputs.target }}
+          IN_REASON: ${{ inputs.reason }}
+          IN_REPLACE: ${{ inputs.replace }}
+          IN_CREATE: ${{ inputs.create_if_missing }}
+          OUT_DIR: ${{ runner.temp }}/production-init-out
+        run: bash ops/production-init.sh --target "$IN_TARGET" --reason "$IN_REASON" --replace "$IN_REPLACE" --create-if-missing "$IN_CREATE"
+
+      - name: Run summary
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/production-init-out/summary.md" ]; then
+            cat "${RUNNER_TEMP}/production-init-out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Encrypted delivery bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-secrets-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/production-init-out/bundle.key.enc
+            ${{ runner.temp }}/production-init-out/bundle.json.enc
+          retention-days: 1
+          if-no-files-found: error

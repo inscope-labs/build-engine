@@ -9,15 +9,36 @@ name: deploy
 # The credentials come from the `production` **environment**, not from the repository's
 # secrets: an environment can be given required reviewers, so a deployment is a decision
 # someone makes rather than a side effect of a merge.
+#
+# **It runs by hand only.** It used to run on every push to main, which meant that once the
+# production credentials existed, merging any pull request would publish the write gateway
+# (ADR 0008: explicit operator approval for every production deploy). It now runs only from
+# the Actions tab, only from main, and only after the production configuration passes
+# `check-production.py` (no placeholder destination, separate from staging).
+#
+# Before it publishes, the production Worker must already have its three secrets, unless this
+# is the very first deploy (`first_deploy: yes`): a Worker without SIGNING_KEYS refuses to
+# start, so the first deploy is safe, and `production-init` then sets the secrets. After it
+# publishes, and when `base_url` is given, the published gateway is asked what it is.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       reason:
         description: "why this deployment is happening"
         required: true
         type: string
+      first_deploy:
+        description: "yes = the Worker does not exist yet, so skip the check that its secrets are set"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+        default: "no"
+      base_url:
+        description: "the production gateway's URL, to check it after publishing (empty = the check is skipped and the summary says so)"
+        required: false
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
@@ -35,6 +56,13 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
+      - name: Only main may deploy
+        working-directory: .
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "this may only run from main, not from ${GITHUB_REF}"
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -49,6 +77,8 @@ jobs:
         run: python3 scripts/check-contract-consistency.py
       - name: The log hygiene and credential boundary gate
         run: npm run verify:log-hygiene
+      - name: The production configuration is deployable
+        run: python3 scripts/check-production.py
   deploy:
     name: deploy
     needs: gate
@@ -71,15 +101,35 @@ jobs:
       # is not deployed, and a bundle whose size has moved a long way is worth a second look.
       - name: Build the bundle, without deploying it
         run: npm run check:bundle
+      - name: The production Worker has its secrets
+        if: inputs.first_deploy != 'yes'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          listed="$(npx wrangler secret list 2>/dev/null || true)"
+          for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
+            printf '%s' "$listed" | grep -q "$s" || {
+              echo "production is missing $s: run production-init first (or first_deploy=yes for the very first deploy)"
+              exit 1
+            }
+          done
+          echo "SIGNING_KEYS, OPERATOR_TOKEN and GITHUB_TOKEN are set on the production Worker"
       - name: Deploy
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: The deployed gateway answers
+      - name: The published gateway is the production one
+        env:
+          IN_BASE_URL: ${{ inputs.base_url }}
         run: |
-          echo "the gateway is deployed; check it with:"
-          echo "  curl -sS -H 'Authorization: Bearer \$OPERATOR_TOKEN' https://<the gateway's host>/healthz"
-        # The health check needs the operator token, which is a secret of the environment, and the
-        # operator's own host, which the operator names. The first deployment is therefore
-        # checked by hand, and the runbook says how.
+          set -euo pipefail
+          if [ -z "$IN_BASE_URL" ]; then
+            echo "base_url was not given: the published gateway was NOT checked" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$IN_BASE_URL" | grep -Eq '^https://' || { echo "base_url must be https"; exit 1; }
+          echo "checking $IN_BASE_URL"
+          python3 scripts/check-production.py --base-url "$IN_BASE_URL"
