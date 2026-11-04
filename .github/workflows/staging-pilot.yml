@@ -1,0 +1,177 @@
+# Run the Class B pilot (ops/staging-pilot.py) against the DEPLOYED staging gateways, by hand.
+#
+# Stage 6.2 proved the signed workflow on the local runtime only. This workflow closes that gap
+# (register entry R0-013) without the operator's secrets ever leaving GitHub: the four values
+# live in the `staging` environment, and the run prints none of them.
+#
+# Two modes:
+#   probes-only  the checks that need no secret (reachability, environment identity, refusals).
+#                Repeatable.
+#   signed       the whole workflow against the deployed Workers. SINGLE USE per plan number:
+#                a seal and a revocation are durable, so a second run needs a fresh plan number
+#                and a re-seeded estate (see docs/release/STAGING-PILOT.md).
+#
+# It runs only from main, only against *-staging hosts, and never touches production.
+#
+# Secrets (environment `staging`): CTXGATE_SECRET, CTXGATE_OPERATOR_TOKEN (read gateway),
+# CTXGATE_WRITE_SECRET, CTXGATE_WRITE_OPERATOR_TOKEN (write gateway), WRITE_GH_TOKEN (already
+# there; used only so the audit scan can prove the provider credential is not in the audit).
+name: staging-pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "why this run is happening (recorded in the run summary)"
+        required: true
+        type: string
+      mode:
+        description: "probes-only needs no secret; signed is the full workflow and is single use"
+        type: choice
+        options:
+          - probes-only
+          - signed
+        default: probes-only
+      acknowledge_single_use:
+        description: "signed only: yes = I understand this seals and revokes the pilot's task and work order for good"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+        default: "no"
+      read_base:
+        description: "the staging read gateway"
+        type: string
+        default: "https://ctxgate-read-staging.qnuralink.workers.dev"
+      write_base:
+        description: "the staging write gateway"
+        type: string
+        default: "https://ctxgate-write-staging.qnuralink.workers.dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    name: the staging pilot
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    steps:
+      - name: Only main may run the pilot
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "this may only run from main, not from ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: A signed run is acknowledged
+        env:
+          MODE: ${{ inputs.mode }}
+          ACK: ${{ inputs.acknowledge_single_use }}
+        run: |
+          if [ "$MODE" = "signed" ] && [ "$ACK" != "yes" ]; then
+            echo "a signed run is single use: set acknowledge_single_use to yes to proceed"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: The targets are staging, and nothing else
+        env:
+          READ_BASE: ${{ inputs.read_base }}
+          WRITE_BASE: ${{ inputs.write_base }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$READ_BASE"  | grep -Eq '^https://ctxgate-read-staging\.[A-Za-z0-9.-]+$'  || { echo "read_base is not a ctxgate-read-staging host"; exit 1; }
+          printf '%s' "$WRITE_BASE" | grep -Eq '^https://ctxgate-write-staging\.[A-Za-z0-9.-]+$' || { echo "write_base is not a ctxgate-write-staging host"; exit 1; }
+          echo "read  $READ_BASE"
+          echo "write $WRITE_BASE"
+
+      - name: The pilot, without secrets
+        if: inputs.mode == 'probes-only'
+        env:
+          READ_BASE: ${{ inputs.read_base }}
+          WRITE_BASE: ${{ inputs.write_base }}
+        run: |
+          set -euo pipefail
+          python3 ops/staging-pilot.py --probes-only \
+            --read-base "$READ_BASE" --write-base "$WRITE_BASE" 2>&1 | tee "$RUNNER_TEMP/pilot.txt"
+
+      - name: The pilot, signed, against the deployed gateways
+        if: inputs.mode == 'signed'
+        env:
+          READ_BASE: ${{ inputs.read_base }}
+          WRITE_BASE: ${{ inputs.write_base }}
+          CTXGATE_SECRET: ${{ secrets.CTXGATE_SECRET }}
+          CTXGATE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_OPERATOR_TOKEN }}
+          CTXGATE_WRITE_SECRET: ${{ secrets.CTXGATE_WRITE_SECRET }}
+          CTXGATE_WRITE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_WRITE_OPERATOR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.WRITE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for v in CTXGATE_SECRET CTXGATE_OPERATOR_TOKEN CTXGATE_WRITE_SECRET CTXGATE_WRITE_OPERATOR_TOKEN; do
+            if [ -z "${!v}" ]; then
+              echo "the staging environment has no $v secret: see docs/release/STAGING-PILOT.md"
+              exit 1
+            fi
+          done
+          python3 ops/staging-pilot.py --target deployed \
+            --read-base "$READ_BASE" --write-base "$WRITE_BASE" 2>&1 | tee "$RUNNER_TEMP/pilot.txt"
+
+      - name: No secret is in the output
+        if: always()
+        env:
+          CTXGATE_SECRET: ${{ secrets.CTXGATE_SECRET }}
+          CTXGATE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_OPERATOR_TOKEN }}
+          CTXGATE_WRITE_SECRET: ${{ secrets.CTXGATE_WRITE_SECRET }}
+          CTXGATE_WRITE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_WRITE_OPERATOR_TOKEN }}
+          WRITE_GH_TOKEN: ${{ secrets.WRITE_GH_TOKEN }}
+        run: |
+          set -u
+          out="$RUNNER_TEMP/pilot.txt"
+          [ -f "$out" ] || exit 0
+          for v in CTXGATE_SECRET CTXGATE_OPERATOR_TOKEN CTXGATE_WRITE_SECRET CTXGATE_WRITE_OPERATOR_TOKEN WRITE_GH_TOKEN; do
+            val="${!v}"
+            [ -n "$val" ] || continue
+            if grep -qF -- "$val" "$out"; then
+              rm -f "$out"
+              echo "the output contained the value of $v: it was discarded and is not published"
+              exit 1
+            fi
+          done
+          echo "no secret value appears in the output"
+
+      - name: The run summary
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## staging-pilot ($MODE)"
+            echo
+            echo "Source commit: \`${GITHUB_SHA}\`"
+            echo
+            printf 'Reason: %s\n\n' "$REASON"
+            if [ -f "$RUNNER_TEMP/pilot.txt" ]; then
+              echo '```'
+              tail -n 40 "$RUNNER_TEMP/pilot.txt" | sed 's/\x1b\[[0-9;]*m//g'
+              echo '```'
+            else
+              echo "No output was kept."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-pilot-${{ github.run_id }}
+          path: ${{ runner.temp }}/pilot.txt
+          if-no-files-found: ignore
+          retention-days: 30
