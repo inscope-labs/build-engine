@@ -34,8 +34,17 @@ MAX_TTL_CEILING = 259200
 CLOCK_SKEW_CEILING = 120
 
 
+# Cloudflare's managed rules refuse Python's default User-Agent (error 1010, an HTTP 403), so a
+# request that does not name itself is refused before it reaches the Worker. That is what made
+# the post-deploy check answer 403 for a gateway that had just been published correctly
+# (F0-073, already fixed for the pilot and the staging estate). Name the check.
+USER_AGENT = "ctxgate-verify-deployment/1"
+
+
 def get(url, headers=None, timeout=20):
-    request = urllib.request.Request(url, headers=headers or {})
+    headers = dict(headers or {})
+    headers.setdefault("User-Agent", USER_AGENT)
+    request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, response.read(), dict(response.headers)
