@@ -223,6 +223,7 @@ class HttpGateway:
         """The audit trail, as a list of records."""
         if self.audit_url:
             req = urllib.request.Request(self.audit_url)
+            req.add_header("User-Agent", USER_AGENT)
             if self.admin_token:
                 req.add_header("Authorization", "Bearer " + self.admin_token)
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -252,8 +253,15 @@ class Report:
         return [r for r in self.results if not r["ok"]]
 
 
+# Cloudflare's managed rules refuse Python's default User-Agent (error 1010, an HTTP 403), so a
+# harness that does not name itself cannot be pointed at a gateway published on Cloudflare
+# (F0-073). The name carries no meaning for the gateway; it only has to be there.
+USER_AGENT = "ctxgate-conformance/1"
+
+
 def http_request(base_url, path, method, now=None, timeout=15):
     req = urllib.request.Request(base_url + path, method=method)
+    req.add_header("User-Agent", USER_AGENT)
     if now is not None:
         req.add_header("X-Conformance-Now", str(int(now)))
     try:
