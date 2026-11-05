@@ -114,7 +114,7 @@ and each one says what to do next.
 | <a id="file-count-exceeded"></a>`file-count-exceeded` | 409 | no | the task already holds the maximum number of live files | `delete` a file you do not need; a tombstone frees its slot |
 | <a id="expected-sha-conflict"></a>`expected-sha-conflict` | 409 | no | the submissions branch has moved since the capability was minted | **stop**; a commit happened. Ask the operator to re-mint against the new head |
 | <a id="seal-requires-commit"></a>`seal-requires-commit` | 409 | no | `seal` was called before any successful commit | commit first, then seal |
-| <a id="reconcile-required"></a>`reconcile-required` | 409 | no | the gateway cannot determine whether an earlier commit succeeded | **stop**; ask the operator. Do not retry: a retry could produce a second commit |
+| <a id="reconcile-required"></a>`reconcile-required` | 409 | no | the gateway cannot determine whether an earlier commit succeeded: the branch moved to a commit it does not know, or the branch could not be read | **stop**; ask the operator. Do not retry: a retry could produce a second commit. A provider failure that leaves the branch exactly where it was is **not** this code — it is `503 provider-unavailable`, which is retryable (protocol section 8.1) |
 | <a id="not-implemented"></a>`not-implemented` | 501 | no | a route that is specified but not yet implemented | **not currently produced**: every route the contract defines is implemented. It stays in the catalogue so that a 501 is never confused with a protocol error |
 
 ### 410 — the task's write path is closed

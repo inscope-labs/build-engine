@@ -181,6 +181,11 @@ the expected head, it did not, and the update is repeated. If the branch is some
 be told apart, and the gateway answers `409 reconcile-required` — a human, not a retry, resolves it. The gateway
 never issues a second commit to find out.
 
+The branch is read again after the second attempt, and that reading is what separates the three answers. The
+branch at the commit means it landed. The branch still at the expected head means it demonstrably did not, and
+the answer is `503 provider-unavailable` — retryable, and the retry delivers the same commit. The branch
+somewhere else, or unreadable, means the outcome cannot be told, and the answer is `409 reconcile-required`.
+
 ## 4. Module map
 
 The source tree is 52 files, and none of them is a stub. This is which module owns which part of the

@@ -59,7 +59,7 @@ The delivery. These are the requirements the commit path owns.
 | 20 | no response body contains the capability, the query, the payload or the credential | implemented: the provider's status and body are never read, and the gateway's own codes replace them |
 | 22 | the audit record is built field by field from a fixed schema | implemented: the commit's sha and the digest of its selection are two named fields; the selected **paths** are not in the audit record, only in the session's commit record |
 | 29 | the gateway never echoes a provider's error body | implemented and tested: the provider's body is never read, and the client asserts that its error message does not quote it |
-| — | the gateway never guesses whether a commit happened | implemented and tested: a delivery whose outcome is unknown is resolved by **looking at the branch**, and the answer is `409 reconcile-required` — never a second commit |
+| — | the gateway never guesses whether a commit happened | implemented and tested: a delivery whose outcome is unknown is resolved by **looking at the branch** — twice, before and after the second attempt — and the answer is `409 reconcile-required` only when the branch moved somewhere the gateway cannot account for; a branch that is demonstrably where it was is `503 provider-unavailable`, which is retryable. Never a second commit |
 | — | the commit writes only the selected files | implemented and tested: the tree is the base tree plus the selected files, and the rest of the repository is carried over untouched |
 | — | the folder is not created by the gateway | implemented and tested: the commit walks the tree to the task folder first, and refuses with `404 task-folder-missing` when it is not there |
 

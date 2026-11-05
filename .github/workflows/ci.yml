@@ -33,6 +33,8 @@ jobs:
           for f in gateway/read/production/ops/*.py gateway/read/production/test/*.py gateway/write/scripts/*.py ops/*.py; do
             python3 -m py_compile "$f"
           done
+      - name: The fault injector's own tests (the Stage 6.3 failure pilot's dependency)
+        run: python3 -m unittest discover -s ops -p 'test_*.py' -v
       - name: Release machinery self-test
         run: release/test-release.sh
       - name: Consumer install and update flow
