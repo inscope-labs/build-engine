@@ -261,6 +261,33 @@ THE FAILURE PILOT PASSED (120 checks)
 rc=0
 ```
 
+### 4.1 The finding, as it was observed
+
+The transcript above is the **re-run**, after the remediation of section 5. The run before it
+is here, because the whole point of this stage is the difference between the two. The
+provider did not answer the branch update at all; the gateway read the branch before the
+attempt and after it, and the branch was exactly where it was, twice over:
+
+```
+== 6.3.1  the commit, interrupted with the outcome unknown ==
+   ok   the file was staged (200)
+   ok   the gateway says the outcome is unknown (409 reconcile-required)
+   ok   the branch did not move: nothing was committed
+   ok   exactly one commit object was created (1)
+   ok   the branch update was attempted twice, and neither was answered (2)
+   --- the operator retries: the same commit object must be delivered, not a new one ---
+   ok   the retry landed the commit (82acfa5f8736ca610baa418d6fd937b176a2d8c8)
+   ok   the branch head is the commit
+   ok   no second commit object was created (1)
+   ok   exactly one commit was added to the branch (1)
+```
+
+Read the first line of the second block against the third: the gateway says the outcome is
+**unknown**, and the third line says the branch **did not move**. Both are true, and together
+they are the finding: the gateway could tell, and it did not. And the block's own last four
+lines say what the situation actually needed — **no operator at all**, just the same commit
+again.
+
 Two details in that transcript are worth naming, because both are contract behaviour rather
 than accident:
 
