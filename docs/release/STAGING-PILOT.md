@@ -4,6 +4,13 @@ Workflow: `.github/workflows/staging-pilot.yml` (Actions tab, Run workflow). It 
 `main`, only against `ctxgate-*-staging` hosts, and never touches production. It closes the
 "deployed signed leg" gap of Stage 6.2 (register entry R0-013).
 
+There is a second pilot, and it is a different thing: **the failure and recovery pilot**
+(Stage 6.3), `ops/staging-failure-pilot.py`, run by
+`.github/workflows/staging-failure-pilot.yml`. It interrupts the workflow — it stops the
+gateway and starts it again, and it puts a fault injector between the gateway and GitHub — so
+it runs against the **local** Workers runtime and the **real** provider, and it is repeatable.
+Its closeout is `docs/release/PHASE-6.3-CLOSEOUT.md`.
+
 ## One-time setup: four secrets in the `staging` environment
 
 | Secret | Value |

@@ -860,6 +860,23 @@ The commit is made in two steps, and the split is what makes the failure modes a
    a human. The gateway never guesses, and never issues a second commit to find out (section
    13.3).
 
+**The second attempt is where the three answers are separated.** The branch is read again after
+it, and each of the three outcomes has its own answer:
+
+| After the second attempt | The commit | The agent gets |
+|---|---|---|
+| the branch is at the commit | it landed | `200`, the commit |
+| the branch is still at the expected head | it demonstrably did not land | `503 provider-unavailable` — the provider did not do its job, and the agent may retry |
+| the branch is somewhere else, or could not be read | it cannot be told | `409 reconcile-required`, and a human |
+
+The middle row is the one that is easy to get wrong. A provider that fails at the branch move
+is a **retryable** failure, and the gateway can prove it: it read the branch before the attempt
+and after it, and the branch is exactly where it was. The retry is safe, because the in-flight
+entry kept the commit's sha, so the retry moves the branch to *that* commit and cannot produce a
+second one. `reconcile-required` is for the case the gateway cannot resolve, and answering it
+for a provider outage would send the agent to an operator for something the gateway resolves by
+itself — and would spend the one code that means "a human is needed" on a transient fault.
+
 **What the agent sees when the provider fails.** The provider's own status and body are never
 passed through; they become the gateway's codes.
 
@@ -1311,6 +1328,13 @@ recorded in the audit as an operator action.
 `reconcile-required` is the honest answer to "I cannot tell whether the commit happened". The gateway MUST NOT
 guess, and MUST NOT issue a second commit to find out. It is the state register entry R0-007 asks for, and it
 is the one state that needs a human.
+
+It is also **narrow**, and the narrowness is the point. The gateway can only tell when it can
+read the branch: if the branch is at a commit the gateway does not know, or if the branch cannot
+be read at all, the outcome is unknown and `reconcile-required` is the answer. A provider that
+fails at the branch move and leaves the branch exactly where it was is **not** an unknown
+outcome — the gateway looked, twice, and the commit demonstrably did not land — so the answer
+is `503 provider-unavailable`, and the retry delivers the same commit (section 8.1).
 
 ---
 

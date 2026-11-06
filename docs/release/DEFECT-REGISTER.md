@@ -5,7 +5,7 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed). Stage 6.1 added F0-070, F0-071 and F0-072 (all closed)**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed). Stage 6.1 added F0-070, F0-071 and F0-072 (all closed). Stage 6.2 added F0-073 and F0-074 (both closed). Stage 6.3 added F0-075 (closed) and R0-014 (operator decision)**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
 - Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
@@ -15,6 +15,8 @@
 - Stage 5.4 addendum: 2026-10-27; F0-035, found by the sentinel injection and closed in it
 - Stage 5.5 addendum: 2026-10-27; F0-063, found by the adversarial input suite of Stage 5.5 and closed in it; F0-064, `main`'s release manifest, found when the Stage 5.5 branch merged `main` and closed in it
 - Stage 6.1 addendum: 2026-11-01; F0-070, F0-071 and F0-072, found by the rehearsal of the disposable staging environment against the real provider, and closed in it
+- Stage 6.2 addendum: 2026-11-03; F0-073 and F0-074, found by executing the whole Class B workflow against the real provider, and closed in it
+- Stage 6.3 addendum: 2026-11-05; F0-075, found by interrupting the workflow against the real provider, and closed in it; R0-014, the operator's decision on the deployed fault-injection switch
 
 ## Status and evidence rules
 
@@ -854,6 +856,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
 | F0-070, F0-071, F0-072 | Phase 6 - **Stage 6.1** | Found and closed in Stage 6.1, by the rehearsal against the real provider: the write gateway's `workers_dev` was a variable and not a setting; the gateway could not start in the Workers runtime at all; and every provider call failed with "Illegal invocation" because `fetch` was called with the wrong receiver |
 | F0-073, F0-074 | Phase 6 - **Stage 6.2** | Found and closed in Stage 6.2, by executing the whole Class B workflow against the real provider: Cloudflare's managed rules refused Python's default `User-Agent` with error 1010, so every script that called a published gateway was answered with a 403 that looked like a credential problem; and the disposable estate's seeded task folder did not match the folder the plan tooling and the write gateway derive, so the pilot's first commit was refused with `task-folder-missing` |
+| F0-075 | Phase 6 - **Stage 6.3** | Found and closed in Stage 6.3, by interrupting the workflow against the real provider: a provider failure at the branch move left the branch demonstrably where it was, and the gateway answered `409 reconcile-required` — a human — where the contract says `503 provider-unavailable`, which the agent may retry |
 | R0-013 | Phase 6 - **Stage 6.2** | Open, and it is an operator action: the deployed signed leg needs the staging `SIGNING_KEYS` and `OPERATOR_TOKEN` for both gateways, which live in the operator's delivery bundle |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070); the `routes` half and the compatibility-date review still stand |
 
@@ -1126,3 +1129,87 @@ in the same stage. The closeout is `docs/release/PHASE-6.2-CLOSEOUT.md`.
   a setting that cannot be applied from repository code. The operator can rotate the values at
   any time with `staging-init --replace yes`; the pilot does not need the same values twice,
   because it mints its own links against whatever the gateway holds.
+
+## Addendum A11 — Stage 6.3: the failure and recovery pilot (2026-11-05)
+
+Stage 6.3 interrupts the workflow and simulates the faults the provider and the runtime
+produce. One finding came out of it, and it is closed in the same stage. The closeout is
+`docs/release/PHASE-6.3-CLOSEOUT.md`.
+
+### F0-075 — A provider failure at the branch move was answered `reconcile-required`, so a retryable outage sent the agent to a human
+- Severity: S2. Status: CONFIRMED (executed against the real provider). **Closed in Stage 6.3.**
+- Evidence: the write gateway's delivery step, `gateway/write/src/commit/commit.ts`
+  (`deliverCommit`). The branch is moved in one call, and when that call fails in a way that
+  leaves the outcome unknown the gateway looks at the branch and decides from what it finds:
+  the branch is at the commit, so it landed; the branch is still at the expected head, so it did
+  not, and **the call is repeated**; the branch is somewhere else, so the gateway **cannot
+  tell**, and the answer is `409 reconcile-required` and a human. That is the contract
+  (protocol section 8.1), and the code implemented it — with one exception. When the repeated
+  call also failed, the code read the branch a second time, found that it was **not** at the
+  commit, and answered `409 reconcile-required` without noticing that it was still at the
+  expected head. The "cannot tell" case is the branch being somewhere else; a branch that is
+  demonstrably where it was is not a case the gateway cannot resolve.
+
+  The contract's own table says what the agent should be told when the provider fails:
+
+  > | fail or time out (5xx, a timeout, a network failure) | `503 provider-unavailable` | yes, with backoff |
+
+  Every other step of the commit honours that row — the head read, the tree walk, the blob,
+  the tree and the commit object all map a provider failure to `503 provider-unavailable`.
+  The branch move was the only step that did not, and it was the step where the answer matters
+  most to the agent.
+
+  The Stage 6.3 failure pilot produced the case on the real provider. The provider did not
+  answer the branch update at all; the gateway read the branch before the attempt and after
+  it, and the branch was exactly where it was, twice over. The answer was:
+
+      409 reconcile-required
+
+  and the pilot then showed that the situation needed no human at all: the same commit, with
+  the same idempotency key, landed on the retry, and **one** commit was on the branch. The
+  gateway could resolve it; it sent the agent to an operator instead, and it spent the one
+  code the contract reserves for "a human is needed" on a transient fault.
+- Consequence: a provider outage during a commit turned a retryable, self-resolving condition
+  into an operator escalation. Nothing was corrupted and nothing was duplicated — the
+  gateway's own recovery is safe, and the pilot proved it — but the agent's contract said
+  "retry, with backoff" and the gateway said "stop, and ask a human", and the agent that
+  follows the contract stops. Every provider hiccup at the branch move became a ticket.
+- Required resolution: the gateway reads the branch after the second attempt, and the three
+  outcomes are answered separately — the branch at the commit means it landed (`200`); the
+  branch still at the expected head means it demonstrably did not land
+  (`503 provider-unavailable`, retryable, and the retry delivers the same commit because the
+  in-flight entry kept its sha); the branch somewhere else, or unreadable, means it cannot be
+  told (`409 reconcile-required`). A refusal at the second attempt is also a refusal and not an
+  unknown outcome, so it maps to its own code (`409 expected-sha-conflict`) the same way the
+  first attempt does.
+- Owner: implementation. Planned phase: Phase 6 — Stage 6.3.
+- Closure evidence: `gateway/write/src/commit/commit.ts` (`deliverCommit`) reads the branch
+  after the second attempt and answers the three cases separately; the contract's decision
+  procedure and its table were made explicit in `gateway/write/docs/protocol.md` (sections 8.1
+  and 13.3), and `gateway/write/docs/error-catalog.md`, `docs/architecture.md`,
+  `docs/operator-runbook.md` and `docs/security-checklist.md` were made to agree. Three tests
+  in `gateway/write/tests/chaos/provider-status-mapping.test.ts` cover the new behaviour: the
+  5xx at the branch move is now `503 provider-unavailable` and retryable; the retry after it
+  delivers **the same** commit (one commit object, not two); and a refusal at the second
+  attempt is `409 expected-sha-conflict` and not `reconcile-required`. The write gateway's
+  suite is **372 tests, all passing**, and the Stage 6.3 failure pilot was re-run after the
+  change and passed **every** check.
+
+### R0-014 — The failure pilot is repeatable against the local runtime, and the disposable branch is its only residue
+- Status: **OPEN; operator decision.**
+- The Stage 6.3 pilot is repeatable: the local Durable Object state is cleared before the run
+  (a seal and a revocation are durable by design, so the previous run's would still be
+  there), and the task folders it needs are seeded only if they are not on the branch yet.
+  The residue is the disposable `staging/submissions` branch, which keeps what every run
+  committed — which is what a pilot wants, and what disposing of the estate removes.
+- The pilot runs against the **local** Workers runtime, because it interrupts the gateway: it
+  stops the process and starts it again, and it points the gateway at a fault injector
+  (`ops/provider-fault-proxy.py`) on loopback. A deployed Worker cannot be interrupted by a
+  script, so the failure scenarios are local by construction, and the deployed staging
+  gateways are covered by the no-secret probes the pilot runs at the end.
+- What this leaves open: the failure scenarios have **not** been run against the deployed
+  staging gateways, and cannot be, because they require interrupting the Worker. What closes
+  the gap is the operator's decision on whether the deployed gateways need a fault-injection
+  switch — a configuration setting that makes the deployed gateway point at a fault injector
+  for one run. That is a deployment change with a blast radius, and it is not this stage's to
+  make.

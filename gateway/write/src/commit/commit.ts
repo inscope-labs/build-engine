@@ -31,6 +31,12 @@
  *   - the branch points somewhere else — **we cannot tell**, and the answer is
  *     `409 reconcile-required`, never a second commit.
  *
+ * The branch is read again after the repeated update, and that reading separates the last two
+ * answers: a branch that is still exactly where it was means the commit demonstrably did not
+ * land, which is a **provider failure** (`503 provider-unavailable`, retryable) and not an
+ * unknown outcome; only a branch that moved somewhere the gateway cannot account for — or one
+ * it cannot read — is `reconcile-required`.
+ *
  * That last case is the one the contract insists on (section 13.3): "the gateway MUST NOT guess,
  * and MUST NOT issue a second commit to find out."
  */
@@ -224,11 +230,38 @@ export async function deliverCommit(
         const code = providerCode(e);
         return { ok: false, code, message: providerMessage(code) };
       }
+      if (!isIndeterminate(e)) {
+        // The provider answered, and the answer says the request was refused. A refusal is not
+        // an unknown outcome: the catalogue has a code for it, and it is never
+        // `reconcile-required`. This is the same rule the first attempt follows.
+        const code = providerCode(e);
+        return { ok: false, code, message: providerMessage(code) };
+      }
+      // The provider failed again. Look at the branch a second time.
+      let again: string | null = null;
       try {
-        const again = await client.getBranchHead();
-        if (again === sha) return { ok: true };
+        again = await client.getBranchHead();
       } catch {
         // The branch could not be read. The outcome is still unknown.
+      }
+      if (again === sha) return { ok: true };
+      if (again === expectedHead) {
+        // The branch is exactly where it was, before the call and after it, and the provider
+        // did not complete the request either time. So the commit demonstrably **did not
+        // land**, and this is not an unknown outcome: it is a provider that did not do its
+        // job. The contract's answer for that is `503 provider-unavailable`, and it is
+        // retryable — and the retry is safe, because the in-flight entry keeps this sha, so
+        // the retry moves the branch to *this* commit and cannot produce a second one.
+        //
+        // Answering `reconcile-required` here would send the agent to an operator for
+        // something the gateway resolves by itself, and it would spend the one code the
+        // contract reserves for the case it cannot resolve (protocol section 8.1: "the
+        // branch is somewhere else, so the gateway cannot tell").
+        return {
+          ok: false,
+          code: "provider-unavailable",
+          message: providerMessage("provider-unavailable"),
+        };
       }
       return {
         ok: false,

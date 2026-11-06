@@ -114,7 +114,7 @@ test("the provider's status becomes the gateway's code, at the branch move", asy
   }
 });
 
-test("a 5xx at the branch move is an unknown outcome, and the gateway does not guess", async () => {
+test("a 5xx at the branch move leaves the branch where it was, and the agent is told to retry", async () => {
   const github = await testRepo();
   try {
     const d = await commitDriver(github);
@@ -123,12 +123,66 @@ test("a 5xx at the branch move is an unknown outcome, and the gateway does not g
 
     // A 5xx at the branch move is **indeterminate**: the provider may have acted before it
     // failed. The gateway looks at the branch, sees that it did not move, tries once more, and
-    // still cannot tell — so it asks for a human rather than issuing a second commit.
+    // looks again — and the branch is still exactly where it was. So the commit demonstrably
+    // did not land, twice over, and this is not the unknown outcome: it is a provider that did
+    // not do its job. The contract's answer for that is `503 provider-unavailable`, and the
+    // agent may retry it (protocol section 8.1).
     github.fail("PATCH", REFS, { status: 500, persistent: true });
     const { response, body } = await d.get("commit", { files: "intro.md" });
 
+    assert.equal(response.status, 503);
+    assert.equal((body.error as { code: string }).code, "provider-unavailable");
+    assert.equal((body.error as { retryable: boolean }).retryable, true);
+    assert.equal(github.branchHead("build-engine"), head, "the branch must not have moved");
+  } finally {
+    await github.stop();
+  }
+});
+
+test("the retry after a provider failure at the branch move delivers the same commit, not a second one", async () => {
+  const github = await testRepo();
+  try {
+    const d = await commitDriver(github);
+    await d.stage("intro.md", "hello\n");
+    const head = github.branchHead("build-engine");
+
+    github.fail("PATCH", REFS, { status: 500, persistent: true });
+    const first = await d.get("commit", { files: "intro.md" });
+    assert.equal((first.body.error as { code: string }).code, "provider-unavailable");
+    assert.equal(github.branchHead("build-engine"), head, "the branch must not have moved");
+
+    // The provider comes back. The retry has to deliver **this** commit: the in-flight entry
+    // kept its sha, so the retry cannot produce a second commit object.
+    github.clearFailures();
+    const retry = await d.get("commit", { files: "intro.md" });
+
+    assert.equal(retry.response.status, 200);
+    const sha = (retry.body.result as { commit: string }).commit;
+    assert.equal(github.branchHead("build-engine"), sha);
+    assert.equal(github.branchCommit("build-engine")!.parents[0], head);
+    assert.equal(github.commitCount, 2, "the seed commit and one delivery — not two");
+  } finally {
+    await github.stop();
+  }
+});
+
+test("a refusal at the second attempt is the refusal's own code, not reconcile-required", async () => {
+  const github = await testRepo();
+  try {
+    const d = await commitDriver(github);
+    await d.stage("intro.md", "hello\n");
+    const head = github.branchHead("build-engine");
+
+    // The first attempt is indeterminate, so the gateway looks at the branch, sees that it did
+    // not move, and tries once more. The second attempt is **refused**, and a refusal is not
+    // an unknown outcome: the catalogue has a code for it. `reconcile-required` is for the
+    // case the gateway cannot resolve, and this is not it.
+    github.fail("PATCH", REFS, { status: 503 });
+    github.fail("PATCH", REFS, { status: 422 });
+    const { response, body } = await d.get("commit", { files: "intro.md" });
+
     assert.equal(response.status, 409);
-    assert.equal((body.error as { code: string }).code, "reconcile-required");
+    assert.equal((body.error as { code: string }).code, "expected-sha-conflict");
     assert.equal(github.branchHead("build-engine"), head, "the branch must not have moved");
   } finally {
     await github.stop();
