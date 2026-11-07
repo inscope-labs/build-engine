@@ -66,8 +66,9 @@ def check_static(config):
           "the production submissions repository is named (not a placeholder)")
     check(bool(vars_.get("SUBMISSIONS_BRANCH")), "the production submissions branch is named")
     check(bool(key_ids(vars_.get("SIGNING_KEY_IDS"))), "the production key ids are declared")
-    check("workers_dev" in config and config.get("workers_dev") is False,
-          "workers_dev is a top-level setting and is false (the gate in force; ADR 0008 changes it only on a separate authorisation)")
+    check("workers_dev" in config and config.get("workers_dev") is True,
+          "workers_dev is a top-level setting and is true: the operator chose workers.dev for "
+          "production as well as staging (ADR 0008, decision 2)")
     check("workers_dev" not in vars_, "workers_dev is not an ordinary variable (F0-070)")
     check("PRODUCTION_SUBMISSIONS_REPO" not in vars_, "production does not declare the staging guard")
 

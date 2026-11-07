@@ -365,17 +365,22 @@ Pinned in `wrangler.toml`, and checked by the contract (section 12.5):
 
 | Setting | Value | Why |
 |---|---|---|
-| `workers_dev` | `false` | a first deploy must not silently expose a public `*.workers.dev` URL |
-| `routes` | explicit, operator-named | the gateway must be on a host the operator controls |
+| `workers_dev` | `true` | the operator chose `workers.dev` for production as well as staging (ADR 0008, decision 2); the setting is pinned so the choice is recorded, not accidental |
+| the host | `ctxgate-write.<account-subdomain>.workers.dev` | the worker's own host; it is part of the work-order contract (ADR 0002) and the work order names it |
 | `compatibility_date` | pinned | a pinned-but-stale date is its own risk; bump it deliberately |
 | secrets | `wrangler secret put` | never in `wrangler.toml` |
 | deployment credentials | the environment's, never the repository's | a pull request must not be able to reach them |
 
 `workers_dev` is a **setting**, not a variable, and a TOML setting belongs to the table it is
-written in. A `workers_dev = false` written after the `[vars]` table is an ordinary variable
+written in. A `workers_dev = true` written after the `[vars]` table is an ordinary variable
 named `workers_dev`, the setting stays unset, and wrangler's default exposes the gateway on a
 public `*.workers.dev` URL anyway. That was F0-070. The gate
 `npm run check:staging` refuses that configuration, and it runs on every pull request.
+
+**What keeps production and staging apart, now that they share a zone** (ADR 0008, item 4): distinct
+Worker names, and therefore distinct hosts and Durable Object namespaces; distinct signing keys, and
+therefore disjoint key ids; distinct GitHub credentials; distinct destinations; no wildcard routes; and
+an explicit operator approval for every production deploy. The gate checks the first four.
 
 ### 7.2 The staging environment
 

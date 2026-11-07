@@ -10,9 +10,12 @@
 # It reads the committed `wrangler.toml` - the file that will actually be published - and refuses
 # a configuration in which:
 #
-#   1. `workers_dev` is a variable rather than a setting, so production would be exposed on a
-#      public `*.workers.dev` URL (this is F0-070, and the gate is what keeps it fixed);
-#   2. production is exposed on workers.dev at all (protocol section 12.5);
+#   1. `workers_dev` is a variable rather than a setting, so the setting stays unset and the
+#      exposure is whatever wrangler's default is (this is F0-070, and the gate is what keeps it
+#      fixed);
+#   2. production's `workers_dev` does not say what the operator decided: production is exposed on
+#      workers.dev (ADR 0008, decision 2), and the setting has to say so rather than leave it to a
+#      default (protocol section 12.5);
 #   3. staging and production are the same Worker, so they share a Durable Object namespace;
 #   4. staging and production declare the same key id, so a capability minted for one is answered
 #      by the other;

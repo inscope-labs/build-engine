@@ -49,10 +49,12 @@ refusal, secrets check, post-deploy `verify-deployment.py`). It is unchanged.
 - **Production destinations are placeholders**: the write gateway's `SUBMISSIONS_REPO`, the read
   gateway's host and `GITHUB_REPO`. Until they are named (DX-1, DX-2), the production gates and
   `production-init` refuse to run. That is intended.
-- **Production on `workers.dev`** (ADR 0008 decision D-6.1): the gates still require
-  `workers_dev = false`, so the write gateway has no public route in production. Changing that is a
-  separate authorisation. Until then `base_url` has nothing to point at, and the post-deploy check
-  cannot run.
+- **Production on `workers.dev`** (ADR 0008 decision D-6.1): **changed by BE-0.** The gates no longer
+  require `workers_dev = false`; production is exposed on `workers.dev` for both gateways, on each
+  Worker's own host, and the shared-zone mitigations (distinct Worker names, distinct key ids,
+  distinct credentials, distinct destinations, no wildcard routes, explicit operator approval for
+  every production deploy) are what keep the zone safe. `base_url` still has nothing to point at,
+  because the production destinations are still placeholders.
 - **Not run against Cloudflare.** `production-init.sh` was exercised with a fake `wrangler`
   (placeholder refusal, secrets-exist refusal, replace, create-if-missing, per-environment token
   routing, bundle decryption, no secret in output). The workflows have not run on GitHub Actions.

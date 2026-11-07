@@ -15,14 +15,22 @@ compatibility_date = "2025-09-01"
 # The deployment defaults the contract requires (protocol section 12.5).
 #
 # `workers_dev` is a SETTING, not a variable, and a TOML setting belongs to the table it is
-# written in: a `workers_dev = false` written after `[vars]` becomes an ordinary variable named
-# workers_dev, and the deployment is exposed on a public *.workers.dev URL anyway. That was
-# F0-070, and the gate that catches it is scripts/check-staging-separation.py.
+# written in: a `workers_dev = true` written after `[vars]` becomes an ordinary variable named
+# workers_dev, the setting stays unset, and wrangler's default exposes the gateway on a
+# public *.workers.dev URL anyway. That was F0-070, and the gate that catches it is
+# scripts/check-staging-separation.py.
 #
-# The setting is false, so the first deploy has no public route at all, which is the fail-closed
-# posture; the operator's own routes are added when the deployment decision is made.
+# The setting is TRUE. The operator chose workers.dev for production as well as for staging
+# (ADR 0008, decision 2), so the host is this worker's own:
+# ctxgate-write.<account-subdomain>.workers.dev. The host is part of the work-order contract
+# (ADR 0002) and a capability minted for staging is refused by this gateway, because the two
+# environments have disjoint key ids.
+#
+# What keeps a shared zone safe is the separation, not the host: distinct Worker names,
+# distinct signing keys, distinct GitHub credentials, distinct destinations, no wildcard
+# routes, and an explicit operator approval for every production deploy.
 # ---------------------------------------------------------------------------
-workers_dev = false
+workers_dev = true
 
 # The gateway's state: one Durable Object per task, holding the writer lease, the session state,
 # the file inventory, the quota ledger, the idempotency store and the commit record. The staged
