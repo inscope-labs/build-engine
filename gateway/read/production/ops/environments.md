@@ -12,12 +12,14 @@ running.
 | What it is | the local environment: CI, the conformance suite, the operator's laptop | a disposable deployment, used for the pilot and for rehearsing an incident | the gateway the operator's own tasks are served by |
 | Deployed | no | yes | yes |
 | Worker name | `ctxgate-read` | `ctxgate-read-staging` | `ctxgate-read` |
-| Reachable on | nothing | `workers.dev` | one named host, and nothing else |
+| Reachable on | nothing | `workers.dev` | `workers.dev` — the worker's own host, `ctxgate-read.<account-subdomain>.workers.dev` |
 | Key ids | `k1` | `s1` | `p1` |
 | Repository | whatever the test points at | a disposable copy | the real one |
 | Secrets | test-only values, in `.dev.vars` | its own | its own |
 
-They are separated in three ways, and all three are checked:
+They are separated in three ways, and all three are checked. **Staging and production share one
+`workers.dev` zone** — the operator chose that for production as well as staging (ADR 0008, decision 2) —
+so what keeps them apart is the separation below, not the host:
 
 - **by name.** They are different Workers, so they have different Durable Object namespaces:
   a revocation in staging is not a revocation in production, and the audit trails are not
@@ -30,6 +32,17 @@ They are separated in three ways, and all three are checked:
   own repository credential. The values are never in the repository, and they are never the
   same across environments. `wrangler secret list` shows the names; the values are the
   operator's business.
+
+And two more, from ADR 0008 item 4, because the zone is shared:
+
+- **by host.** A Worker is served at `<worker-name>.<account-subdomain>.workers.dev`, so distinct Worker
+  names mean distinct hosts: `ctxgate-read-staging.<zone>.workers.dev` and `ctxgate-read.<zone>.workers.dev`.
+- **by destination.** Production reads the operator's repository; staging reads a disposable copy of it.
+
+**What the shared zone does not do:** it does not make one link work in two environments. The key id sets
+are disjoint, so a staging-minted link is refused by production with `unknown-key` before production looks
+at anything else — and the host is part of the work-order contract (`docs/decisions/0002`), so the work order
+names the host the agent's proxy is allowed to reach.
 
 ## The configuration has one source
 
@@ -57,19 +70,24 @@ The renderer refuses to render a configuration that breaks one of these rules:
 | `MAX_TTL` may not exceed 259200 (72 h) | the operator's approved ceiling (`docs/decisions/0003`). The gateway refuses to start with a larger value |
 | `CLOCK_SKEW_TOLERANCE` may not exceed 120 seconds | the same decision |
 | the key id sets of the deployed environments must be disjoint | otherwise a link minted for one is accepted by the other |
-| production may not be exposed on `workers.dev` | production is reachable on one named host, and that host is part of the work-order contract (`docs/decisions/0002`) |
+| every environment declares how it is exposed (`none`, `workers_dev` or `route`) | an undeclared exposure is whatever the platform defaults to, and the platform's default is a public URL |
+| a `route` exposure has a route, and **no route is a wildcard** | a wildcard on a shared zone would serve one environment's gateway on another environment's host (ADR 0008 item 4) |
 | the secrets may not appear as plain variables | a secret in a file is a secret in the repository |
 
 ## What the operator has to fill in
 
-Two things in `ops/environments.json` are placeholders, and they are the operator's to
+One thing in `ops/environments.json` is still a placeholder, and it is the operator's to
 replace:
 
 - the production `GITHUB_REPO` — the repository the gateway may read. One repository, one
   credential. It is the consumer's repository, and it is still `OWNER/REPO`.
-- the production `routes` pattern — the host the gateway is served on. It is not a free
-  choice: it is the host the Class B agent's proxy is allowed to contact for a work order
-  (`docs/decisions/0002`), so it is part of the contract with the agent.
+
+The production **host** is not a placeholder any more: it is the worker's own
+`ctxgate-read.<account-subdomain>.workers.dev`. The operator chose `workers.dev` for production
+as well as staging (ADR 0008, decision 2), so the host is fixed by the Worker's name and the
+account's subdomain. The host is still part of the contract with the agent — a work order names
+the host the Class B agent's proxy is allowed to contact (`docs/decisions/0002`) — but it is not
+a free-text field the operator has to type.
 
 **The staging entry is no longer a placeholder.** Stage 6.1 filled it in: staging reads
 `inscope-labs/build-engine`, and the disposable content it serves is the branch
@@ -163,10 +181,14 @@ that an unsigned link is refused.
 
 ## What is not done here
 
-No environment has been published. The gateway has never run on Cloudflare: the checks in
-this directory run it on the local Cloudflare Workers runtime, which is the same runtime and
-the same code, but it is not a deployment and nothing here is evidence about a running
-Cloudflare environment. The pilot (Stage 6) is what will be.
+**The staging environment is published.** The disposable staging read gateway was deployed and
+exercised against the real provider on 2026-11-01, and the full signed Class B workflow ran
+against the deployed staging gateways on 2026-11-05 — 44 checks, including revocation and the
+audit-hygiene scan. See the register entry R0-013 for the run evidence.
+
+**The production environment is not published.** The production `GITHUB_REPO` is still the
+operator's placeholder, and the deploy gate refuses to publish an environment that still has a
+placeholder in it — so production cannot go out until the operator names the repository.
 
 The credentials for a Cloudflare account are not in this repository, and the deploy gate
 needs them to publish: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, in the

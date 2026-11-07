@@ -105,21 +105,21 @@
       "label": "production: the gateway the operator's own tasks are served by",
       "deployed": true,
       "worker_name": "ctxgate-read",
-      "exposure": "route",
+      "exposure": "workers_dev",
       "key_ids": ["p1"],
       "secrets": ["SIGNING_KEYS", "OPERATOR_TOKEN", "GITHUB_TOKEN"],
-      "routes": [
-        {
-          "pattern": "REPLACE-WITH-THE-GATEWAY-HOST.example.com",
-          "custom_domain": true
-        }
-      ],
       "notes": [
         "The host is part of the work-order contract: docs/decisions/0002 requires the host to be",
         "one the Class B agent's proxy is allowed to contact. It is not a free choice.",
-        "Production has no workers.dev exposure. The gateway is reachable on one named host only.",
-        "The key id is 'p1' and is disjoint from staging's, so a staging-minted link cannot be",
-        "replayed against production even if the two environments shared a worker name."
+        "Production is reachable on workers.dev: the operator chose it for production as well as",
+        "staging (ADR 0008, decision 2). The host is the worker's own -",
+        "ctxgate-read.<account-subdomain>.workers.dev - and no other.",
+        "The shared zone is held safe by the separation, not by the host: distinct Worker names,",
+        "distinct key ids, distinct repositories, and no wildcard routes. A link minted for staging",
+        "carries the key id 's1', which production does not serve, so production refuses it with",
+        "'unknown-key' before it looks at anything else. The key id here is 'p1' and is disjoint",
+        "from staging's, so a staging-minted link cannot be replayed against production even if the",
+        "two environments shared a worker name."
       ],
       "vars": {
         "GITHUB_API_BASE": "https://api.github.com",

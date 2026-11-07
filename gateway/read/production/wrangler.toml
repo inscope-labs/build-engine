@@ -76,8 +76,9 @@ new_sqlite_classes = ["GatewayState"]
 [env.staging]
 name = "ctxgate-read-staging"
 
-# Staging is reachable on workers.dev, so that a pilot agent can reach it
-# without a domain. It is a disposable environment and it holds no real content.
+# STAGING is reachable on workers.dev. Its host is the worker's own -
+# <worker-name>.<account-subdomain>.workers.dev - and that host is part of the
+# work-order contract (docs/decisions/0002).
 workers_dev = true
 
 [[env.staging.durable_objects.bindings]]
@@ -109,9 +110,15 @@ new_sqlite_classes = ["GatewayState"]
 #
 # The host is part of the work-order contract: docs/decisions/0002 requires the host to be
 # one the Class B agent's proxy is allowed to contact. It is not a free choice.
-# Production has no workers.dev exposure. The gateway is reachable on one named host only.
-# The key id is 'p1' and is disjoint from staging's, so a staging-minted link cannot be
-# replayed against production even if the two environments shared a worker name.
+# Production is reachable on workers.dev: the operator chose it for production as well as
+# staging (ADR 0008, decision 2). The host is the worker's own -
+# ctxgate-read.<account-subdomain>.workers.dev - and no other.
+# The shared zone is held safe by the separation, not by the host: distinct Worker names,
+# distinct key ids, distinct repositories, and no wildcard routes. A link minted for staging
+# carries the key id 's1', which production does not serve, so production refuses it with
+# 'unknown-key' before it looks at anything else. The key id here is 'p1' and is disjoint
+# from staging's, so a staging-minted link cannot be replayed against production even if the
+# two environments shared a worker name.
 #
 # Secrets for this environment (set once, per environment, never in this file):
 #   wrangler secret put --env production SIGNING_KEYS
@@ -121,10 +128,10 @@ new_sqlite_classes = ["GatewayState"]
 [env.production]
 name = "ctxgate-read"
 
-# Production is NOT exposed on workers.dev. It is reachable on one named
-# host only, and that host is part of the work-order contract
-# (docs/decisions/0002).
-workers_dev = false
+# PRODUCTION is reachable on workers.dev. Its host is the worker's own -
+# <worker-name>.<account-subdomain>.workers.dev - and that host is part of the
+# work-order contract (docs/decisions/0002).
+workers_dev = true
 
 [[env.production.durable_objects.bindings]]
 name = "STATE"
@@ -133,10 +140,6 @@ class_name = "GatewayState"
 [[env.production.migrations]]
 tag = "v1"
 new_sqlite_classes = ["GatewayState"]
-
-[[env.production.routes]]
-pattern = "REPLACE-WITH-THE-GATEWAY-HOST.example.com"
-custom_domain = true
 
 [env.production.vars]
   GITHUB_API_BASE = "https://api.github.com"

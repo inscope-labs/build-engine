@@ -22,7 +22,10 @@ one of the operator's rules:
     (docs/decisions/0003). The gateway refuses to start with a larger value.
   - The key id sets of the deployed environments must be disjoint, so a link minted for one
     environment is refused with 'unknown-key' by the other.
-  - Production may not be exposed on workers.dev: it is reachable on one named host only.
+  - Every environment declares how it is exposed, and no route is a wildcard. Production is
+    exposed on workers.dev (ADR 0008, decision 2), and the shared zone is held safe by the
+    separation - distinct Worker names, distinct key ids, distinct repositories, no wildcard
+    routes - and not by the host.
   - Every environment must name the three secrets it needs, and no secret value may appear in
     the file.
 
@@ -137,13 +140,26 @@ def validate(config):
             if not kid.replace("_", "").isalnum() or not 1 <= len(kid) <= 16:
                 problems.append("%s declares the key id %r, which is not a valid kid" % (name, kid))
 
-        # Production is reachable on one named host only.
-        if name == "production":
-            if env.get("exposure") == "workers_dev":
-                problems.append("production may not be exposed on workers.dev")
-            routes = env.get("routes", [])
-            if not routes:
-                problems.append("production declares no route: it would have no host to serve on")
+        # How the environment is exposed. Production is exposed on workers.dev by the
+        # operator's decision (ADR 0008, decision 2), so the renderer no longer forbids it.
+        # What it does check is the separation that makes a shared zone safe.
+        exposure = env.get("exposure")
+        if exposure not in ("none", "workers_dev", "route"):
+            problems.append("%s does not declare how it is exposed "
+                            "(one of none, workers_dev, route)" % name)
+        routes = env.get("routes", [])
+        if exposure == "route" and not routes:
+            problems.append("%s declares a route exposure and no route" % name)
+        if exposure == "workers_dev" and routes:
+            problems.append("%s is exposed on workers.dev and declares a route as well: an "
+                            "environment has exactly one host, and the host is part of the "
+                            "work-order contract" % name)
+        # ADR 0008 item 4: no wildcard routes. A wildcard on a shared zone would serve one
+        # environment's gateway on another environment's host.
+        for route in routes:
+            pattern = route.get("pattern", "")
+            if "*" in pattern:
+                problems.append("%s declares a wildcard route: %r" % (name, pattern))
 
     # The deployed environments must not share a key id.
     staging = set(environments.get("staging", {}).get("key_ids", []))
@@ -295,12 +311,13 @@ def render(config):
         out.append('name = "%s"' % env["worker_name"])
         out.append("")
         if env.get("exposure") == "workers_dev":
-            out.append("# Staging is reachable on workers.dev, so that a pilot agent can reach it")
-            out.append("# without a domain. It is a disposable environment and it holds no real content.")
+            out.append("# %s is reachable on workers.dev. Its host is the worker's own -" % name.upper())
+            out.append("# <worker-name>.<account-subdomain>.workers.dev - and that host is part of the")
+            out.append("# work-order contract (docs/decisions/0002).")
             out.append("workers_dev = true")
         else:
-            out.append("# Production is NOT exposed on workers.dev. It is reachable on one named")
-            out.append("# host only, and that host is part of the work-order contract")
+            out.append("# %s is NOT exposed on workers.dev. It is reachable on one named host" % name.upper())
+            out.append("# only, and that host is part of the work-order contract")
             out.append("# (docs/decisions/0002).")
             out.append("workers_dev = false")
         out.append("")

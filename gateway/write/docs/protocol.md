@@ -1227,16 +1227,23 @@ The deployment is part of the credential boundary, and the defaults are pinned r
 
 | Setting | Required value | Why |
 |---|---|---|
-| `workers_dev` | `false` in production | a first deploy must not silently expose a public `*.workers.dev` URL |
-| `routes` | explicit, operator-named | the gateway must be on a host the operator controls |
+| `workers_dev` | `true` in production | the operator chose `workers.dev` for production as well as staging (ADR 0008, decision 2); the setting is pinned so the choice is recorded rather than accidental |
+| the host | the worker's own `ctxgate-write.<account-subdomain>.workers.dev` | it is part of the work-order contract (ADR 0002); it is named in the work order, so the agent's proxy is allowed to reach it |
 | `compatibility_date` | pinned, and reviewed on a deliberate bump | a pinned-but-stale date is its own risk |
 | secrets | `wrangler secret put`, never in `wrangler.toml` | G-08 |
 | deployment credentials | absent from pull-request jobs | deploy only from protected, reviewed refs (plan 5.4.6) |
 
-`workers_dev` is a **setting**, not a variable. A `workers_dev = false` written after the `[vars]` table is a
+`workers_dev` is a **setting**, not a variable. A `workers_dev = true` written after the `[vars]` table is a
 variable named `workers_dev`, the setting stays unset, and wrangler's default exposes the gateway on a public
 `*.workers.dev` URL anyway. That was F0-070, and `scripts/check-staging-separation.py` refuses that
 configuration.
+
+**A shared zone is held safe by the separation, not by the host.** Production and staging share the
+`workers.dev` zone, so the things that keep them apart are checked rather than assumed (ADR 0008, item 4):
+distinct Worker names, and therefore distinct hosts and distinct Durable Object namespaces; distinct signing
+keys, and therefore disjoint key ids, so a capability minted for one environment is refused by the other;
+distinct GitHub credentials; distinct destinations; no wildcard routes; and an explicit operator approval for
+every production deploy.
 
 ### 12.5.1 The staging environment
 
@@ -1254,8 +1261,10 @@ assumed:
 | the staging destination is disposable and is deleted with `ops/staging-estate.py dispose` | the operator |
 
 The staging deployment is reachable on `workers.dev`, because the pilot's agent has to reach it without a
-domain and the environment holds nothing worth protecting. Production is not: it is reachable on one named
-host, and on no other.
+domain and the environment holds nothing worth protecting. **Production is reachable on `workers.dev` too**
+(ADR 0008, decision 2), on the worker's own host — `ctxgate-write.<account-subdomain>.workers.dev` — and the
+host is part of the work-order contract, so a work order names the host the agent's proxy may reach. The two
+environments share a zone and nothing else.
 
 The operator accepts the residual transport risk in section 10.1 in writing at deployment time. That is a
 process requirement, but it is the only honest way to discharge a risk this contract cannot remove.
