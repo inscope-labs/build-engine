@@ -27,11 +27,61 @@ must_pass() { local name="$1"; shift; if "$@" >"$T/o" 2>&1; then ok "$name"; els
 # put a line in the manifest and commit it, so the build reaches the manifest rules
 manifest_line() { printf '%s\n' "$1" >> "$R/release/manifest.txt"; plant; }
 
+# --- the release gate's fixtures ------------------------------------------------------
+#
+# The release gate (verify.sh --release) checks, in this order: the protocol is present, the
+# protocol has the right shape, the protocol MATCHES the repository's VERSION, COMPATIBILITY.md
+# has a row for that version and that protocol, and the CHANGELOG has a dated entry for it.
+#
+# So a fixture that wants to reach a later check has to make the earlier one pass, and a fixture
+# that wants to fail a later check has to make the earlier one pass deliberately. Both need the
+# protocol that matches VERSION, and that protocol MOVES: the version is 0.5.0 today and becomes
+# 0.6.0 at release-candidate time. A hard-coded "build-engine/0.5" would therefore be a fixture
+# that silently stops testing anything the moment the version moves. These helpers derive it.
+#
+# the protocol that matches the repository's current VERSION
+proto_for_version() { local v; v="$(tr -d ' \n' < "$R/VERSION")"; echo "build-engine/$(printf '%s' "$v" | cut -d. -f1,2)"; }
+# a protocol that disagrees with the repository's VERSION, and is never the one the repository
+# carries: two minors away, so it cannot coincide with the matching one and cannot coincide with
+# the value the tree happens to hold
+disagreeing_protocol() { local v; v="$(tr -d ' \n' < "$R/VERSION")"; echo "build-engine/$(printf '%s' "$v" | cut -d. -f1).$(( $(printf '%s' "$v" | cut -d. -f2) + 2 ))"; }
+# set the shipped protocol to a given value
+set_protocol() { python3 - "$R" "$1" <<'PY'
+import json, sys
+p = sys.argv[1] + "/template/engine/release.json"
+d = json.load(open(p)); d["protocol"] = sys.argv[2]
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
+PY
+}
+# a protocol of the wrong SHAPE: the right identifier with the separator missing
+malformed_protocol() { local v; v="$(tr -d ' \n' < "$R/VERSION")"; echo "build-engine-$(printf '%s' "$v" | cut -d. -f1,2)"; }
+# set the shipped protocol to the one that matches the repository's VERSION
+set_matching_protocol() { set_protocol "$(proto_for_version)"; }
+# remove the COMPATIBILITY.md row for the repository's current VERSION
+drop_compat_row() { sed -i "/^| $(tr -d ' \n' < "$R/VERSION") /d" "$R/COMPATIBILITY.md"; }
+# rewrite the protocol cell of the COMPATIBILITY.md row for the repository's current VERSION
+set_compat_row_protocol() { python3 - "$R" "$1" <<'PY'
+import re, sys
+root, proto = sys.argv[1], sys.argv[2]
+v = open(root + "/VERSION").read().strip()
+p = root + "/COMPATIBILITY.md"
+lines = open(p).read().split("\n")
+row = re.compile(r"^\|\s*" + re.escape(v) + r"( \(unreleased\))?\s*\|[^|]*\|")
+for i, l in enumerate(lines):
+    if row.match(l):
+        lines[i] = re.sub(r"^(\|\s*" + re.escape(v) + r"(?: \(unreleased\))?\s*\|)[^|]*(\|)", r"\1 " + proto + r" \2", l)
+        break
+else:
+    raise SystemExit("no COMPATIBILITY.md row for version " + v)
+open(p, "w").write("\n".join(lines))
+PY
+}
+
 echo "release machinery self-test"
 fresh; must_pass "clean tree packages" build
 must_pass "clean artifact verifies" "$R/release/verify.sh" "$(ART)"
 a="$(sha256sum "$(ART)" | cut -d' ' -f1)"; build; [[ "$a" == "$(sha256sum "$(ART)" | cut -d' ' -f1)" ]] && ok "packaging is reproducible" || bad "packaging is not reproducible"
-fresh; sed -i -E "s/^## ([0-9.]+) - [0-9]{4}-[0-9]{2}-[0-9]{2}\$/## \1 - unreleased/" "$R/CHANGELOG.md"; plant; build
+fresh; sed -i -E "s/^## ([0-9.]+) - [0-9]{4}-[0-9]{2}-[0-9]{2}\$/## \1 - unreleased/" "$R/CHANGELOG.md"; set_matching_protocol; plant; build
 must_fail "release gate refuses an undated changelog entry" "no dated" "$R/release/verify.sh" "$(ART)" --release
 [[ -z "$(tar -tzf "$(ART)" | grep -E '(^|/)(gateway/|ctxgate\.py|test_ctxgate\.py)')" ]] && ok "clean artifact has no gateway file" || bad "clean artifact contains gateway files"
 
@@ -286,12 +336,7 @@ must_fail "a payload module that does not compile is caught" "does not compile" 
 fresh; printf 'import unittest\nclass T(unittest.TestCase):\n    def test_x(self): self.fail("boom")\n' > "$R/template/engine/tools/test_broken.py"; plant; build
 must_fail "a payload that fails its own tests is caught" "payload tests fail" "$R/release/verify.sh" "$(ART)" --test-payload
 
-fresh; python3 - "$R" <<'PY'
-import json, sys
-p = sys.argv[1] + "/template/engine/release.json"; d = json.load(open(p)); d["protocol"] = "build-engine/0.5"
-open(p, "w").write(json.dumps(d, indent=2) + "\n")
-PY
-plant; v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build
+fresh; set_matching_protocol; plant; v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; build
 must_pass "release gate passes once the compatibility protocol version and a dated changelog entry exist" "$R/release/verify.sh" "$(ART)" --release
 
 # ---------------------------------------------------------------- Stage 1.2: compatibility protocol gate
@@ -304,22 +349,22 @@ open(p, "w").write(json.dumps(d, indent=2) + "\n")
 PY
   local v; v="$(tr -d ' \n' < "$R/VERSION")"; sed -i "s/^## $v - unreleased\$/## $v - 2026-01-01/" "$R/CHANGELOG.md"; plant; build; }
 
-fresh; relprep '{"implements_abstract": "build-engine/0.5"}'
+fresh; relprep "{\"implements_abstract\": \"$(proto_for_version)\"}"
 must_fail "the retired implements_abstract key is rejected" "retired key implements_abstract" "$R/release/verify.sh" "$(ART)"
 
-fresh; relprep '{"protocol": null, "implements_abstract": "build-engine/0.5"}'
+fresh; relprep "{\"protocol\": null, \"implements_abstract\": \"$(proto_for_version)\"}"
 must_fail "the retired key no longer satisfies the release gate" "retired key implements_abstract" "$R/release/verify.sh" "$(ART)" --release
 
-fresh; relprep '{"protocol": "build-engine-0.5"}'
+fresh; relprep "{\"protocol\": \"$(malformed_protocol)\"}"
 must_fail "a malformed protocol value is refused" "not of the form build-engine/<major>.<minor>" "$R/release/verify.sh" "$(ART)" --release
 
-fresh; relprep '{"protocol": "build-engine/0.6"}'
+fresh; relprep "{\"protocol\": \"$(disagreeing_protocol)\"}"
 must_fail "a protocol that disagrees with the release version is refused" "does not match release version" "$R/release/verify.sh" "$(ART)" --release
 
-fresh; sed -i '/^| 0\.5\.0/d' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
+fresh; drop_compat_row; relprep "{\"protocol\": \"$(proto_for_version)\"}"
 must_fail "a missing COMPATIBILITY.md row is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
 
-fresh; sed -i -E 's#^\| 0\.5\.0( \(unreleased\))? \| build-engine/0\.5 \|#| 0.5.0\1 | build-engine/0.4 |#' "$R/COMPATIBILITY.md"; relprep '{"protocol": "build-engine/0.5"}'
+fresh; set_compat_row_protocol "$(disagreeing_protocol)"; relprep "{\"protocol\": \"$(proto_for_version)\"}"
 must_fail "a COMPATIBILITY.md row with a different protocol is refused" "COMPATIBILITY.md has no row" "$R/release/verify.sh" "$(ART)" --release
 
 # set-version.sh keeps every compatibility record in step, and running it twice changes nothing more
