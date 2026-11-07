@@ -768,10 +768,23 @@ transcript, not a narrative.
 - **Accepted (ADR 0007).** The operator signed the acceptance for **staging and production**: the current design is retained and the ambiguity is resolved by operator reconcile. The recovery model this entry asked for **is** implemented and tested — the write gateway's contract defines the states and their outcomes (`gateway/write/docs/protocol.md` §13, "Recovery: what can be lost, and what happens then"), the ambiguous branch move answers `409 reconcile-required` rather than guessing (F0-075, closed in Stage 6.3), and the idempotency store returns the recorded outcome with `result.replayed = true` for a repeated request. The residual risk that is accepted is the *unresolved* one: an ambiguity that reaches the operator as a reconcile requirement, rather than a protocol that can settle it by itself. Closure evidence: `docs/decisions/0007-class-b-residual-risk-acceptance.md`; the recovery model in `gateway/write/docs/protocol.md` §13; the executed evidence is the Stage 6.3 failure pilot (`ops/staging-failure-pilot.py`, 120 checks, 2026-11-05) and the deployed signed pilot of 2026-11-05, which recorded "the retry was a replay, not a second commit".
 
 ### R0-008 — Worker deployment defaults not pinned
-- Severity: S2; Status: RISK TO TEST (source only).
+- Severity: S2; Status: **PARTLY CLOSED** (see below); the compatibility-date half is still open.
 - Evidence: `wrangler.toml` leaves `routes`/`workers_dev` unset ("intentionally unset until a deployment decision") and pins `compatibility_date = "2025-09-01"`. A first deploy could expose a public `workers.dev` URL by default, and the runtime date is over a year old.
 - Required action: set `workers_dev` and routes explicitly per the staging/production decision; review and bump the compatibility date deliberately; test the dry-run output.
 - Planned phase: Phase 4/5 deployment stages (5.4.6, 5.1.6).
+- **Closed in Stage 4.3 (read gateway) and Stage 6.1 (write gateway).** `ops/environments.json` is the
+  single source for the read gateway's three environments, `wrangler.toml` is generated from it, and the
+  renderer's `--check` refuses a drifted configuration. The write gateway's `workers_dev` is a **setting**
+  and not a variable (F0-070), so the exposure is the configured one and not wrangler's default.
+- **Changed in BE-0 (2026-11-07), under ADR 0008 decision 2.** The exposure is now pinned the other way:
+  **production is on `workers.dev`** for both gateways, on each Worker's own host, because the operator
+  chose it (the hostnames are `ctxgate-read.qnuralink.workers.dev` and
+  `ctxgate-write.qnuralink.workers.dev`). What replaces the old "production is not on workers.dev" rule
+  is the shared-zone rule of ADR 0008 item 4, which the gates now check: distinct Worker names (and so
+  distinct hosts and Durable Object namespaces), disjoint key ids, distinct repositories and destinations,
+  no wildcard routes, and an explicit operator approval for every production deploy.
+- **Still open:** the `compatibility_date` review. Both gateways still pin `2025-09-01`, and a deliberate
+  bump belongs to the deployment stages (BE-4, BE-5).
 
 ### R0-009 — Updater can silently downgrade
 - Severity: S3; Status: RISK TO TEST (source only).
@@ -862,7 +875,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-075 | Phase 6 - **Stage 6.3** | Found and closed in Stage 6.3, by interrupting the workflow against the real provider: a provider failure at the branch move left the branch demonstrably where it was, and the gateway answered `409 reconcile-required` — a human — where the contract says `503 provider-unavailable`, which the agent may retry |
 | R0-013 | Phase 6 - **Stage 6.2**, closed 2026-11-05 | **CLOSED.** The `staging-pilot` workflow runs the signed leg against the deployed staging Workers with the secrets held in GitHub; run `41964576712` passed 44 checks on 2026-11-05 |
 | R0-014 | Phase 6 - **Stage 6.3**, decided 2026-11-07 | **ACCEPTED.** The failure scenarios run against the local runtime and the deployed no-secret probes; the deployed gateways do **not** get a fault-injection switch. The gap is documented, not closed |
-| R0-008 | Stage 4.3 (partly closed) + Stage 6.1 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070); the `routes` half and the compatibility-date review still stand |
+| R0-008 | Stage 4.3 (partly closed) + Stage 6.1 + **BE-0** | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070). **BE-0 changed the exposure rule** under ADR 0008 decision 2: production is on `workers.dev` for both gateways, and the shared-zone mitigations (distinct names, disjoint key ids, distinct destinations, no wildcard routes) are what the gates check instead. The compatibility-date review still stands |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
 

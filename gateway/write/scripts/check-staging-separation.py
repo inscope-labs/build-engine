@@ -23,17 +23,24 @@ about the source it reads, its key ids and its own Durable Object namespace.
 
 What it checks, and why:
 
-  1. `workers_dev` is a setting, not a variable. A `workers_dev = false` written after the
+  1. `workers_dev` is a setting, not a variable. A `workers_dev = true` written after the
      `[vars]` table becomes an ordinary variable, the setting stays unset, and wrangler's default
      exposes the gateway on a public `*.workers.dev` URL. This was F0-070.
-  2. production is not exposed on workers.dev (protocol section 12.5).
+  2. production is exposed on workers.dev, because the operator chose it for production as well
+     as staging (ADR 0008, decision 2). The setting is pinned so that the choice is a recorded
+     one and not a default, and it is pinned in the right table: a setting that lands in
+     `[vars]` does nothing (F0-070).
   3. staging and production are different Workers, so their Durable Object namespaces are
-     different: a revocation in one is not a revocation in the other.
+     different: a revocation in one is not a revocation in the other, and their hosts are
+     different, because a Worker is served at `<worker-name>.<subdomain>.workers.dev`.
   4. their key ids are disjoint, so a capability minted for one is refused by the other.
   5. their destinations are different, so a staging submission is not a production submission.
   6. staging declares the production destination and refuses to be pointed at it (protocol
      section 12.5): the gateway itself fails closed, and this script keeps the declaration true.
   7. staging has its own Durable Object bindings and its own migrations.
+
+The shared zone (ADR 0008, item 4) is what checks 2 to 7 are about. The host is shared; the
+separation is not, and it is checked rather than assumed.
 
 Usage:
     python3 gateway/write/scripts/check-staging-separation.py
@@ -88,7 +95,8 @@ def check_static(config):
     print("1. the deployment defaults are settings, not variables")
     root = config
     check("workers_dev" in root, "workers_dev is set at the top level of wrangler.toml")
-    check(root.get("workers_dev") is False, "production is not exposed on workers.dev")
+    check(root.get("workers_dev") is True,
+          "production is exposed on workers.dev (ADR 0008, decision 2), and the setting says so")
     check("workers_dev" not in root.get("vars", {}),
           "workers_dev is not an ordinary variable (F0-070: that setting did nothing)")
 
@@ -196,10 +204,10 @@ def check_static_read(config, environments):
         check(False, "there is a production environment")
         return None
     production_vars = production.get("vars", {})
-    check(production.get("workers_dev") is False,
-          "production is not exposed on workers.dev")
-    check(bool(production.get("routes")),
-          "production is reachable on one named host only (protocol section 12.5)")
+    check(production.get("workers_dev") is True,
+          "production is exposed on workers.dev (ADR 0008, decision 2)")
+    check("routes" not in production,
+          "production declares no route of its own: it has exactly one host")
     check("workers_dev" not in production_vars,
           "workers_dev is not an ordinary variable (F0-070: that setting did nothing)")
 

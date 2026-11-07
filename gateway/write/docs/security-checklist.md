@@ -35,7 +35,7 @@ the section of the contract that states the rule, and the contract is where the 
 | 24 | The operator channel has its own credential, separate from the signing keys | 10.4 |
 | 25 | The state channel fails **closed**: if the Durable Object cannot be read, the gateway serves nothing | 13, 9 |
 | 26 | Quotas count live state, so an eviction cannot be used to inflate the deliverable | 7.1 |
-| 27 | Deployment defaults are pinned: no `workers.dev`, explicit routes, secrets out of the repository | 12.5 |
+| 27 | Deployment defaults are pinned: `workers_dev` is a setting and says true for production (ADR 0008), the host is the worker's own and is named in the work order, secrets are out of the repository, and the shared zone is held safe by distinct names, keys and destinations | 12.5 |
 | 28 | Deployment credentials are absent from pull-request jobs | 12.5 |
 | 29 | The gateway never echoes a provider's error body | 10.3 |
 | 30 | The gateway's own health and admin routes are not reachable by the agent | 10.4 |
