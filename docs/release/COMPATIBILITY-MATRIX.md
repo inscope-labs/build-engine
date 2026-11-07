@@ -29,9 +29,8 @@ the reason.
 
 **The protocol identifier of the release is `build-engine/0.6`** (ADR 0006, decision 3). The rule the
 identifier follows is in `COMPATIBILITY.md`: `build-engine/<major.minor>` must equal the release's
-major.minor, and `release/verify.sh --release` fails the build when it does not. The identifier currently
-carried in the tree is `build-engine/0.5`; section 4 inventories every place that carries it, and the change
-itself is a separate pull request (see section 4.2).
+major.minor, and `release/verify.sh --release` fails the build when it does not. Section 4 inventories every
+place that carries the identifier, and records the change that moved it (see section 4.2).
 
 **The operator's release-note claim** (ADR 0006, decision 4) may be published only when *all* of these hold:
 operator-console OC-1 to OC-8 pass; build-engine BE-4 to BE-7 pass; staging is deployed and the pilot has
@@ -224,6 +223,33 @@ The identifier change must therefore land **immediately before** BE-8's version 
 > recommendation is (c)**, because (a) makes a release claim that has not been verified and (b) leaves a
 > red gate on `main` for as long as the operator takes to merge. The agent has not chosen: the identifier
 > change is held until the operator answers.
+
+**Resolution (2026-11-07, PR `feature/be-0-protocol-identifier`).** The operator's stage brief settles the
+scope: *"the protocol identifier change to `build-engine/0.6` across code, templates and tests"*, in its own
+pull request, with `release/set-version.sh` belonging to **BE-8**. ADR 0006's consequences settle the rest:
+*"No metadata change (`engine/VERSION`, `set-version`, tags, release notes) happens before the conditions in
+item 4 hold."* Two independent sources agree, so the agent did not choose silently:
+
+- **the identifier changes** — `template/engine/release.json` → `build-engine/0.6`, and the tooling that
+  names it;
+- **the version does not change** — `VERSION` stays `0.5.0` and `release/set-version.sh` is **not** run.
+  BE-8 runs it, and it will set the version, the `COMPATIBILITY.md` row and the changelog heading together.
+
+**The consequence, stated plainly: `release/verify.sh --release` is red on `main` between this change and
+BE-8's version step.** That is the release gate doing its job — it refuses to describe a release whose
+identifier and version disagree — and it is the *only* gate that goes red. CI does not run
+`verify.sh --release` (it runs the default verification), so the pull request is green, and the published
+0.5.0 asset is untouched.
+
+**What BE-8 must do to close it:** run `release/set-version.sh 0.6.0`, which sets `VERSION`,
+`template/engine/VERSION`, `release.json`'s `engine_version` **and** `protocol`, the `COMPATIBILITY.md` row
+and the `CHANGELOG.md` heading — and then date the changelog entry at release-candidate time.
+
+**A trap this change exposed, and removed.** The release-gate fixtures in `release/test-release.sh`
+hard-coded the version `0.5.0` in eight places. With the identifier moved but the version not, one fixture
+failed outright; with the version moved to `0.6.0` (BE-8), four would have failed. The fixtures now derive
+the protocol from the repository's `VERSION`, so they test the rule instead of the number. The measurements
+are in the agent report for that pull request.
 
 ### 4.3 What the identifier does *not* cover
 
