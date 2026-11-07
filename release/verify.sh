@@ -157,7 +157,7 @@ grep -qx "# version $AV" "$RM" || die "release manifest version header disagrees
 
 # 6b. the retired compatibility key must be gone (Stage 1.2): readers and gates use `protocol` only
 python3 -c 'import json,sys; sys.exit(1 if "implements_abstract" in json.load(open(sys.argv[1])) else 0)' "$X/engine/release.json" \
-  || die "engine/release.json still carries the retired key implements_abstract: use protocol (e.g. build-engine/0.5)"
+  || die "engine/release.json still carries the retired key implements_abstract: use protocol (e.g. build-engine/0.6)"
 
 # 10. the payload is sound on its own: the shell scripts parse and the python compiles
 bash -n "$X/operator/cbridge" || die "operator/cbridge does not parse"
@@ -181,7 +181,7 @@ if [[ "$MODE" == "--release" ]]; then
   RJV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine_version"])' "$ROOT/template/engine/release.json")"
   [[ "$RJV" == "$AV" ]] || die "the repository's engine/release.json differs from the artifact version"
   PROTO="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("protocol",""))' "$X/engine/release.json")"
-  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the compatibility protocol version this release implements (e.g. build-engine/0.5)"
+  [[ -n "$PROTO" && "$PROTO" != UNSET ]] || die "engine/release.json protocol is missing or UNSET: record the compatibility protocol version this release implements (e.g. build-engine/0.6)"
   [[ "$PROTO" =~ ^build-engine/([0-9]+)\.([0-9]+)$ ]] || die "engine/release.json protocol '$PROTO' is not of the form build-engine/<major>.<minor>"
   [[ "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" == "${AV%.*}" ]] || die "protocol $PROTO does not match release version $AV (expected build-engine/${AV%.*})"
   grep -Eq "^\| ${AV//./\\.}( \(unreleased\))? \| ${PROTO//./\\.} \|" "$ROOT/COMPATIBILITY.md" || die "COMPATIBILITY.md has no row recording engine $AV with protocol $PROTO"
