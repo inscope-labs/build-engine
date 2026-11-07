@@ -15,7 +15,8 @@ planning a release; update it in the same pull request that changes an item's st
    Everything else is analysis and may be corrected; the request is not edited, only superseded by a new entry.
 3. **Status words:** `OPEN` (accepted, not started), `IN PROGRESS` (a branch or PR exists; link it), `BLOCKED`
    (waiting on a decision or another item; say which), `DONE` (merged and, where relevant, released; give the PR and
-   release), `DROPPED` (operator decision; give the date and reason).
+   release), `DROPPED` (operator decision; give the date and reason), `CANCELLED` (the entry was **entered in
+   error**: the work it describes is not to be done, and the reason is given).
 4. **Priority and target release are set by the operator.** `unassigned` means nobody has decided. Do not infer one.
 5. **Published releases are immutable.** Work that changes shipped content lands in a later release.
 6. **Done needs evidence:** PR number, the commit or release that carries it, and the check that proves the
@@ -25,15 +26,25 @@ planning a release; update it in the same pull request that changes an item's st
 
 | ID | Title | Status | Priority | Target release | Origin |
 |---|---|---|---|---|---|
-| P-001 | Remove all references and constraints about the host repository's visibility | OPEN | unassigned | unassigned | Operator, 2026-10-29 |
+| P-001 | Remove all references and constraints about the host repository's visibility | CANCELLED | unassigned | unassigned | Operator, 2026-10-29 — cancelled 2026-11-07, entered in error |
 
 ## Open entries
+
+None. The only entry this register has ever held was cancelled; see Closed entries.
+
+## Closed entries
 
 ### P-001 — Remove all references and constraints about the host repository's visibility
 
 - **Request (operator, 2026-10-29):** "Remove all references / constraints to the visibility of the host repository."
-- **Status:** OPEN
+- **Status:** CANCELLED
+- **Cancelled (operator, 2026-11-07):** the entry was **entered in error**. The work it describes is not to be
+  done, and none of the inventory, the scope or the acceptance criteria below applies. The entry is kept, as
+  the register's rules require, so that the record shows what was asked for and why it was not done.
 - **Priority / target release:** unassigned / unassigned
+- **What follows this line is the record of what was asked for on 2026-10-29.** It is kept verbatim, and it is
+  **not** a work plan: the entry was cancelled, so the scope, the inventory, the acceptance criteria and the
+  open questions below describe work that is not to be done.
 - **Type:** change to shipped content (engine, operator script, documentation, prompts) and to tests
 - **Why it matters:** release 0.5.0 assumes the engine is hosted in a **private** repository next to a **public**
   upstream, and enforces it. A repository that hosts the engine in any other arrangement (for example a single public
@@ -105,12 +116,9 @@ documents today's limitation; `docs/decisions/0005-class-a-access.md`.
 
 **Owner:** operator decides scope and release; implementation owner not yet assigned.
 
-## Closed entries
-
-None yet.
-
 ## Change log
 
 | Date | Change |
 |---|---|
 | 2026-10-29 | Register created with P-001 (operator request). |
+| 2026-11-07 | P-001 cancelled by the operator: entered in error. The entry is kept and moved to Closed entries; nothing else changed. |
