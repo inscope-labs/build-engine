@@ -5,7 +5,7 @@
 - Inspected baseline commit: `b45e8008adcaa179165abf24880e8eda0eb7c515` (remote review); local command baseline run at `ee654cddeb9bd00043230942d89c8df955ea3afc` (adds only `RELEASE-PLAN.md`; see `PHASE-0-BASELINE.md`)
 - Version: `0.5.0`
 - Baseline date: 2026-10-26
-- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed). Stage 6.1 added F0-070, F0-071 and F0-072 (all closed). Stage 6.2 added F0-073 and F0-074 (both closed). Stage 6.3 added F0-075 (closed) and R0-014 (operator decision)**
+- Status: **Addendum A2 (extended audit) submitted for operator review; the original register was merged in PR #1. Stage 4.3 added F0-030 to F0-032 and Stage 5.2 added F0-033, Stage 5.3 added F0-034 and Stage 5.4 added F0-035 and Stage 5.5 added F0-063 and F0-064 (closed). Stage 6.1 added F0-070, F0-071 and F0-072 (all closed). Stage 6.2 added F0-073 and F0-074 (both closed). Stage 6.3 added F0-075 (closed) and R0-014. Addendum A12 (BE-0, 2026-11-07) closes R0-013 and records the operator's acceptance of R0-005, R0-007 and R0-014 under ADR 0007**
 - Addendum date: 2026-10-26; audited commit `35172ab` (main after Phase 1 PRs #2-#5)
 - Addendum A5 (Stage 3.1, allowlist packaging), 2026-10-27: F0-036 to F0-039 found and closed; F0-011, F0-012, F0-013 and F0-018 closed. Baseline commit `99a5a73` (main after Stage 2.3).
 - Addendum A6 (Stage 3.2, independent verification), 2026-10-27: F0-065 to F0-069 found and closed; F0-010, F0-013 (verification half) and F0-016 closed. Baseline commit `3149df0` (Stage 3.1).
@@ -17,6 +17,7 @@
 - Stage 6.1 addendum: 2026-11-01; F0-070, F0-071 and F0-072, found by the rehearsal of the disposable staging environment against the real provider, and closed in it
 - Stage 6.2 addendum: 2026-11-03; F0-073 and F0-074, found by executing the whole Class B workflow against the real provider, and closed in it
 - Stage 6.3 addendum: 2026-11-05; F0-075, found by interrupting the workflow against the real provider, and closed in it; R0-014, the operator's decision on the deployed fault-injection switch
+- Addendum A12 (BE-0, 2026-11-07): R0-013 closed (the deployed signed pilot ran and passed on 2026-11-05); R0-005, R0-007 and R0-014 recorded as **accepted residual risks** under ADR 0007, with the conditions that stay mandatory and tested. No new defect was found in this stage.
 
 ## Status and evidence rules
 
@@ -740,10 +741,11 @@ transcript, not a narrative.
 - Owner: repository administrator. Planned phase: Phase 3 (3.3.7); may be done earlier.
 
 ### R0-005 — GET-based mutation may expose payloads or trigger unintended side effects
-- Severity: S1 for production write-gateway acceptance; Status: DESIGN DECISION.
+- Severity: S1 for production write-gateway acceptance; Status: **ACCEPTED** (ADR 0007, 2026-11-02).
 - Risk: query strings can be captured by logs, history, caches, prefetchers, and observability systems; GET semantics may be replayed or triggered unexpectedly.
 - Required action: explicitly accept a documented residual risk with mitigations or redesign the protocol before production deployment.
 - Planned phase: Phase 1 decision; Phase 5 implementation.
+- **Accepted (ADR 0007).** The operator signed the acceptance for **staging and production**: the GET-only design is retained and the residual risk is carried deliberately. The acceptance is conditional, and the conditions stay mandatory and tested: (1) no-store and no-prefetch controls on the write route; (2) log hygiene — the gateway never retains a query string, and the sentinel-secret tests stay in the suite; (3) platform request logs and traces for the write gateway stay disabled (ADR 0001 closure). This acceptance does **not** waive any other entry in this register, and any later change that weakens one of the three conditions needs a new decision. Closure evidence: `docs/decisions/0007-class-b-residual-risk-acceptance.md`, and the gate that keeps the conditions tested is `gateway/write/scripts/verify-log-hygiene.ts` (CI job `write-gateway-deploy-gate`).
 
 ### R0-006 — Repository credential is not inherently folder-scoped
 - Severity: S1 for production write-gateway threat model; Status: DESIGN RISK.
@@ -759,10 +761,11 @@ transcript, not a narrative.
 - Owner: operator (plan change), implementation. Planned phase: Stage 5.1 and 2.3 (to be added), 6.2.
 
 ### R0-007 — Ephemeral staging and ambiguous commit outcomes need a recovery model
-- Severity: S2; Status: DESIGN RISK.
+- Severity: S2; Status: **ACCEPTED** (ADR 0007, 2026-11-02).
 - Risk: staging may disappear on isolate eviction; a timeout can occur after a provider commit succeeds but before the response arrives.
 - Required action: define and test recovery states including not committed, committed-but-response-lost, sealed, revoked, and unknown/reconcile-required.
 - Planned phase: Phase 5/6.
+- **Accepted (ADR 0007).** The operator signed the acceptance for **staging and production**: the current design is retained and the ambiguity is resolved by operator reconcile. The recovery model this entry asked for **is** implemented and tested — the write gateway's contract defines the states and their outcomes (`gateway/write/docs/protocol.md` §13, "Recovery: what can be lost, and what happens then"), the ambiguous branch move answers `409 reconcile-required` rather than guessing (F0-075, closed in Stage 6.3), and the idempotency store returns the recorded outcome with `result.replayed = true` for a repeated request. The residual risk that is accepted is the *unresolved* one: an ambiguity that reaches the operator as a reconcile requirement, rather than a protocol that can settle it by itself. Closure evidence: `docs/decisions/0007-class-b-residual-risk-acceptance.md`; the recovery model in `gateway/write/docs/protocol.md` §13; the executed evidence is the Stage 6.3 failure pilot (`ops/staging-failure-pilot.py`, 120 checks, 2026-11-05) and the deployed signed pilot of 2026-11-05, which recorded "the retry was a replay, not a second commit".
 
 ### R0-008 — Worker deployment defaults not pinned
 - Severity: S2; Status: RISK TO TEST (source only).
@@ -851,13 +854,14 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-030, F0-031, F0-032 | Stage 4.3 (closed 2026-10-27) | The state channel failed open and a revoke could be reported that had not happened; the test harness left the runtime running |
 | R0-002 | Phase 3.2.1, 3.2.3, 3.4.1 | Remaining adversarial cases |
 | R0-004 | Phase 3.3.7 (or earlier by operator) | Branch/tag protection absent |
-| R0-005 to R0-007 | Phase 1.4 (decided) + 5 | Implementation and tests |
+| R0-005 to R0-007 | Phase 1.4 (decided) + 5 + **ADR 0007** | R0-005 and R0-007 are **accepted residual risks** for staging and production (ADR 0007, 2026-11-02). The implementation and the recovery model are in place; the three conditions of ADR 0007 stay mandatory and tested |
 | R0-011 | Stage 5.1 and 2.3 (to be added to the plan), 6.2 | Needs operator approval of the plan change |
 | F0-050 to F0-059, F0-061, F0-062 | Phase 2.2 (PR #10 plus this follow-up) | Closed; F0-060 and R0-020 belong to Phase 4 |
 | F0-070, F0-071, F0-072 | Phase 6 - **Stage 6.1** | Found and closed in Stage 6.1, by the rehearsal against the real provider: the write gateway's `workers_dev` was a variable and not a setting; the gateway could not start in the Workers runtime at all; and every provider call failed with "Illegal invocation" because `fetch` was called with the wrong receiver |
 | F0-073, F0-074 | Phase 6 - **Stage 6.2** | Found and closed in Stage 6.2, by executing the whole Class B workflow against the real provider: Cloudflare's managed rules refused Python's default `User-Agent` with error 1010, so every script that called a published gateway was answered with a 403 that looked like a credential problem; and the disposable estate's seeded task folder did not match the folder the plan tooling and the write gateway derive, so the pilot's first commit was refused with `task-folder-missing` |
 | F0-075 | Phase 6 - **Stage 6.3** | Found and closed in Stage 6.3, by interrupting the workflow against the real provider: a provider failure at the branch move left the branch demonstrably where it was, and the gateway answered `409 reconcile-required` — a human — where the contract says `503 provider-unavailable`, which the agent may retry |
-| R0-013 | Phase 6 - **Stage 6.2** | Open, and it is an operator action: the deployed signed leg needs the staging `SIGNING_KEYS` and `OPERATOR_TOKEN` for both gateways, which live in the operator's delivery bundle |
+| R0-013 | Phase 6 - **Stage 6.2**, closed 2026-11-05 | **CLOSED.** The `staging-pilot` workflow runs the signed leg against the deployed staging Workers with the secrets held in GitHub; run `41964576712` passed 44 checks on 2026-11-05 |
+| R0-014 | Phase 6 - **Stage 6.3**, decided 2026-11-07 | **ACCEPTED.** The failure scenarios run against the local runtime and the deployed no-secret probes; the deployed gateways do **not** get a fault-injection switch. The gap is documented, not closed |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, production is not exposed on workers.dev, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070); the `routes` half and the compatibility-date review still stand |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
@@ -1119,7 +1123,7 @@ in the same stage. The closeout is `docs/release/PHASE-6.2-CLOSEOUT.md`.
   evidence, not an assumption.
 
 ### R0-013 — The deployed pilot leg needs the operator's staging signing keys
-- Status: **OPEN; operator action.**
+- Status: **CLOSED (2026-11-05).** The deployed signed pilot ran and passed.
 - The full signed workflow against the *deployed* staging gateways needs four secrets that
   exist only in the operator's delivery bundle: `SIGNING_KEYS` and `OPERATOR_TOKEN` for
   `ctxgate-read-staging`, and `SIGNING_KEYS` and `OPERATOR_TOKEN` for `ctxgate-write-staging`.
@@ -1129,6 +1133,34 @@ in the same stage. The closeout is `docs/release/PHASE-6.2-CLOSEOUT.md`.
   a setting that cannot be applied from repository code. The operator can rotate the values at
   any time with `staging-init --replace yes`; the pilot does not need the same values twice,
   because it mints its own links against whatever the gateway holds.
+- **Closure.** The secrets do not have to leave GitHub. The `staging-pilot` workflow
+  (`.github/workflows/staging-pilot.yml`, merged in PR #40) runs `ops/staging-pilot.py` against
+  the **deployed** staging Workers with the four values held in the `staging` environment, and
+  the run prints none of them. It is dispatched by hand, only from `main`, only against
+  `*-staging` hosts, and a `signed` run has to be acknowledged as single-use.
+- **Evidence (executed, 2026-11-05):**
+  - Run `41964576712`, `staging-pilot`, `signed` mode, `main` @ `3028b7d` — **"THE PILOT PASSED
+    (44 checks)"**. The checks cover the read leg (the authorised file served; a file outside the
+    allowed prefixes, a forged signature, an expired link, a bad signature and a link for an
+    order that was never issued all refused), the write leg (a capability minted and bound to the
+    task and order; the task folder derived from the capability; the file scaffolded, the chunk
+    staged and read back byte for byte; a denied file type, a path outside the task folder and an
+    oversized file refused; **the commit landed, and the retry was a replay and not a second
+    commit**; the task sealed; a write after the seal refused), revocation (the read gateway
+    revoked the order and the capability stopped working; the write gateway revoked the task and
+    the capability answered `410 task-revoked`), and audit hygiene (no signing secret, no operator
+    token, no deliverable content, no provider credential and no signature in the audit records;
+    the audit channel refuses an unauthenticated caller). The workflow's own last step confirms
+    that no secret value appears in the published output.
+  - Run `41964198047`, `staging-pilot`, `probes-only` mode — "THE PROBES PASSED (12 checks)".
+- **What this closes and what it does not.** It closes the *evidence* gap: the signed workflow has
+  now run against the deployed gateways, and its result is archived in the run logs. It does not
+  close the production deployment (no production gateway exists yet) and it does not close the
+  cross-system pilot with the Android console, which is BE-7 and operator-console OC-8.
+- **Residue.** The signed run is single-use per plan number, because a seal and a revocation are
+  durable by design: a second signed run needs a fresh plan number and a re-seeded estate (see
+  `docs/release/STAGING-PILOT.md`). The disposable `staging/submissions` branch keeps what the run
+  committed.
 
 ## Addendum A11 — Stage 6.3: the failure and recovery pilot (2026-11-05)
 
@@ -1196,7 +1228,7 @@ produce. One finding came out of it, and it is closed in the same stage. The clo
   change and passed **every** check.
 
 ### R0-014 — The failure pilot is repeatable against the local runtime, and the disposable branch is its only residue
-- Status: **OPEN; operator decision.**
+- Status: **ACCEPTED (2026-11-07), by the operator.** The gap below is documented, not closed.
 - The Stage 6.3 pilot is repeatable: the local Durable Object state is cleared before the run
   (a seal and a revocation are durable by design, so the previous run's would still be
   there), and the task folders it needs are seeded only if they are not on the branch yet.
@@ -1213,3 +1245,60 @@ produce. One finding came out of it, and it is closed in the same stage. The clo
   switch — a configuration setting that makes the deployed gateway point at a fault injector
   for one run. That is a deployment change with a blast radius, and it is not this stage's to
   make.
+- **The operator's decision (2026-11-07):** the failure scenarios run against the local runtime,
+  plus the deployed no-secret probes. **The deployed gateways do NOT get a fault-injection
+  switch.** The gap is documented rather than closed, and this entry is carried into 0.6.0 as an
+  accepted residual risk.
+- **What the acceptance covers, exactly.** The following are exercised against the real provider
+  and the real gateway: the provider's failure modes (a scripted status, a persistent status, a
+  delay, a hang before the request is applied, a hang **after** it is applied, and a connection
+  reset), the Durable Object's eviction of staged bytes, the worker's restart, and the recovery
+  protocol's outcomes — including the ambiguous branch move, which answers `409
+  reconcile-required` rather than guessing (F0-075). The deployed staging gateways are exercised
+  by the pilot's no-secret probes and by the 44-check signed run of 2026-11-05 (R0-013).
+- **What the acceptance does NOT cover, stated plainly:** the failure scenarios have never been
+  run against a **deployed** Worker. A deployed gateway's behaviour under an interrupted request,
+  a killed isolate or a provider outage is therefore **not evidenced**. If a production incident
+  is traced to one of those states, this acceptance is not a defence.
+- **The switch that was not built, and why that is a decision rather than an omission.** A
+  fault-injection setting on a deployed gateway is a configuration change with a blast radius: it
+  is a production setting that points a production gateway at a proxy. Not building it is the
+  fail-closed choice — a deployed gateway cannot be made to talk to anything but the provider.
+
+---
+
+## Addendum A12 — BE-0: the operator's residual-risk decisions (2026-11-07)
+
+Stage BE-0 of `docs/release/V0.6.0-BUILD-PLAN.md` is the contract-reconciliation stage. It found **no new
+defect**: it closed one entry and recorded three acceptances. The authority for the acceptances is
+`docs/decisions/0007-class-b-residual-risk-acceptance.md` (decided 2026-11-02) and the operator's decisions
+of 2026-11-07, which are binding.
+
+### What changed in this addendum
+
+| Entry | Before | After | Authority |
+|---|---|---|---|
+| R0-005 — GET-based mutation | DESIGN DECISION | **ACCEPTED** (staging and production), with three conditions that stay mandatory and tested | ADR 0007 |
+| R0-007 — ephemeral staging and ambiguous commit outcomes | DESIGN RISK | **ACCEPTED** (staging and production); the recovery model it asked for is implemented and tested | ADR 0007 |
+| R0-013 — the deployed pilot leg needs the operator's staging signing keys | OPEN; operator action | **CLOSED** — the deployed signed pilot ran and passed 44 checks on 2026-11-05 | The `staging-pilot` workflow, runs `41964198047` and `41964576712` |
+| R0-014 — the failure pilot runs against the local runtime | OPEN; operator decision | **ACCEPTED** — the deployed gateways do not get a fault-injection switch; the gap is documented, not closed | The operator's decision of 2026-11-07 |
+
+### What was **not** changed, and why
+
+- **No finding was deleted, downgraded in severity, or re-worded to look better.** An acceptance changes a
+  *status*, and it says plainly what it does not cover. R0-014's entry now names the states that have never
+  been exercised against a deployed Worker.
+- **No entry other than these four was touched.** The register's audit method (section G) records what was
+  examined; this addendum examined the four entries above and the documents they depend on.
+- **The accepted risks are not waived risks.** ADR 0007 accepts R0-005 and R0-007 *for staging and
+  production* and explicitly does not accept any other entry in this register. R0-014 is accepted as a
+  documented gap for 0.6.0.
+
+### What this addendum does not establish
+
+- **No production gateway is deployed.** The evidence in R0-013's closure is the **staging** deployment.
+  Production is BE-4 and BE-5, and the operator's production approval is required at run time.
+- **No cross-system pilot has run.** The Android console against the deployed gateways is BE-7 and
+  operator-console OC-8.
+- **The release claim is not made.** ADR 0006 decision 4's conditions are unmet, and no document in this
+  repository may claim 0.6.0 is "production ready, deployed, and supported" until they are.

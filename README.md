@@ -4,7 +4,7 @@
 
 This repository is the single source of the build-engine: the plan/implementation system comprising plans, work orders, operator tooling, prompts, and related infrastructure. Private `<project>-dev` repositories (for example, `inscope-labs/PROJECT-dev`) consume verified **release artifacts**. Consumers never clone or copy from this repository by hand; they install or update via `engine/bin/update.sh`.
 
-Current version: **0.5.0** (unreleased) — **Basic, Class A-only** (operator redesignation 2026-10-29).
+Current version: **0.5.0** (released 2026-10-29) — **Basic, Class A-only** (operator redesignation 2026-10-29). The next release is **0.6.0 Standard** (ADR 0006).
 
 ---
 
@@ -201,7 +201,7 @@ Release isolation is enforced by three independent layers:
 
 | Engine | Protocol | Notes |
 |--------|----------|-------|
-| 0.5.0 (unreleased) | build-engine/0.5 | Recorded in `template/engine/release.json` (`protocol`) |
+| 0.5.0 (released 2026-10-29) | build-engine/0.5 | Recorded in `template/engine/release.json` (`protocol`) |
 
 A release build (`release/verify.sh --release`) refuses to publish while `protocol` is missing or `UNSET`. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
 
@@ -209,12 +209,12 @@ A release build (`release/verify.sh --release`) refuses to publish while `protoc
 
 ## Current status and known gaps
 
-Version 0.5.0 is unreleased and nothing has been published. The first release requires both Class B gateways, so it cannot be tagged until they exist and pass the staging pilot. Known gaps, ordered by priority; the complete list with evidence is `docs/release/DEFECT-REGISTER.md`:
+Version 0.5.0 is published — <https://github.com/inscope-labs/build-engine/releases/tag/v0.5.0> — and it is **Basic, Class A-only**: the Class B gateways are not in it. The next release is **0.6.0 Standard** (ADR 0006). Its "production ready, deployed, and supported" wording is gated on operator-console OC-1 to OC-8 and build-engine BE-4 to BE-7 passing; none of them has passed yet, so this document does not make that claim. Known gaps, ordered by priority; the complete list with evidence is `docs/release/DEFECT-REGISTER.md`:
 
-1. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook, but **it has not been deployed**: no environment has been published. The write gateway (`gateway/write`) has its core session lifecycle, GitHub delivery and audit/privacy/operations implemented and tested (Stages 5.2 to 5.4), and is likewise **not deployed**. See `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
-2. No end-to-end pilot has run (Phase 6).
-3. `CHANGELOG.md` still reads `0.5.0 - unreleased`; the dated entry is written at release-candidate time only.
-4. GitHub branch protection on `main` and tag protection for `v*` are not configured; they are needed before any tag (Stage 3.3.7).
+1. The production read gateway is implemented and proven against the shared conformance suite, with its deployment surface, deploy gate and runbook. A **disposable staging deployment** of both gateways is live and was exercised on 2026-11-05, when the full signed Class B workflow passed **44 checks** against the deployed Workers; the **production** deployments are not published, and the operator's production repository and host are still to be supplied. The write gateway (`gateway/write`) has its core session lifecycle, GitHub delivery and audit/privacy/operations implemented and tested (Stages 5.2 to 5.5; 372 tests). See `gateway/read/production/ops/runbook.md` and `gateway/write/README.md`.
+2. The cross-system pilot — the Android console against the deployed gateways — **has not run** (build-engine BE-7, operator-console OC-8). The submissions-to-consumer transfer path is also not built (BE-6).
+3. `CHANGELOG.md` records `0.5.0` with its dated entry (2026-10-29); the 0.6.0 entry is written at release-candidate time only.
+4. `main` is protected: a pull request and the `test` check are required and force-push is blocked. The residual exposure — no required reviews, administrators not enforced, and no `v*` tag restriction — is accepted by ADR 0009.
 5. Release tooling and the updater have confirmed hardening items (reproducible archives, packaging from tracked files only, transactional update); see the register, Phases 2 and 3.
 6. Prose in `template/docs/`, `engine/AGENTS.md`, and `engine/prompts/` still uses a worked example from one project. Machine-readable configuration already uses placeholders.
 
