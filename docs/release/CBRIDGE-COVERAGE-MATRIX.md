@@ -1,15 +1,18 @@
 # CBridge coverage matrix — every `cbridge` command, and what replaces it
 
-**Status:** DRAFT for the operator's review (BE-0). **The matrix is complete; most rows are unverified.** That
-is the finding, not an omission — see section 4.
+**Status:** **approved** (2026-11-08, ADR 0013 item 9). The three questions this matrix raised are closed by
+**ADR 0011**. **The matrix is complete; most rows are unverified.** That is the finding, not an omission — see
+section 4, and it is not changed by the approval.
 
-**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07).
+**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07). Updated by Stage S0 on
+2026-11-08; the operator's decisions are recorded in ADR 0011.
 
 **Authority:** ADR 0006 decision 5 (D-3: local `init`, `bootstrap`, `verify` and shell stay out of the Android
 app, and **each operator workflow gets a documented alternative** in this file); ADR 0006 decision 6 (D-3b:
 the Termux `cbridge` is declared retired only after OC-8 and BE-7 pass and the operator signs);
 operator-console ADR 0008 (the same D-3/C-3 decision, and the statement that this file is where the
-alternatives live).
+alternatives live); `docs/decisions/0011` (task-state ownership, OC-7 acceptance, the upload route, the
+divergence report).
 
 ---
 
@@ -137,10 +140,12 @@ Two consequences the operator should weigh before OC-7 is planned:
 
 ---
 
-## 5. Open questions for the operator
+## 5. Decisions this matrix raised, and where each was answered
 
-| # | Question |
-|---|---|
-| **Q-CB-1** | The plan's OC-7 acceptance says "each native feature has a named test". Today six of the eleven commands have a native feature with **no** test, because the feature is a placeholder. Does OC-7's acceptance become "each native feature has a named test **and** the gateway route is not a stub", which makes OC-7 depend on OC-1 and OC-4? The agent's recommendation is **yes**: a matrix that says "covered by native feature" while the endpoint answers 501 is a matrix that is wrong in the dangerous direction. |
-| **Q-CB-2** | `cbridge upload` and Gateway C's staging are two routes to the same submission. Which is the supported one in 0.6.0 — both (Class A through `cbridge`, Class B through Gateway C), or is `cbridge upload` retired in favour of Gateway C the moment the console's upload lands? This decides whether the write gateway's contract needs a Class A path at all. |
-| **Q-CB-3** | `verify-main`'s alternative (branch-head comparison) answers "has the head moved?" but not "has the private main diverged?". Is the divergence report required in the console, or is "the head moved" the whole of the guarantee the operator needs? |
+All three are closed, by ADR 0011 (2026-11-08).
+
+| # | Question | The operator's answer | What it requires |
+|---|---|---|---|
+| **Q-CB-1** | Does OC-7's acceptance require the gateway route to be non-stub, as well as a named test? | **Yes.** OC-7 passes only when each native feature has a named test **and** its gateway route is not a stub. OC-7 therefore depends on OC-1 and OC-4. | **S7** requires the console's acceptance evidence under the stricter rule |
+| **Q-CB-2** | `cbridge upload` and Gateway C's staging — which is the supported route in 0.6.0? | **Both.** Class A through `cbridge upload`, Class B through Gateway C. `cbridge upload` is retired only after the console's real upload passes OC-8, and the 0.6.0 artifact **keeps it until then**. | **S6** keeps `cbridge upload` working and records the console-upload sequencing constraint; **S8** ships the artifact with `cbridge` in it |
+| **Q-CB-3** | Does the console need a divergence report, or is "the head moved" enough? | **"The head moved" is the whole guarantee.** The console is **not** required to report divergence of the private `main`. | The `verify-main` row in section 2.1 stands as written: the branch-head comparison is the documented alternative |

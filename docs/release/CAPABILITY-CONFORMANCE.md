@@ -1,13 +1,17 @@
 # Capability conformance — the three capability formats
 
-**Status:** DRAFT for the operator's review (BE-0). **Two gaps in this document need an operator decision
-before the release can claim the capability set is conformant** (section 5).
+**Status:** **approved** (2026-11-08, ADR 0013 item 9). The open questions this document raised are closed by
+**ADR 0010** (Q-A, Q-C, Q-D, Q-E) and **ADR 0011** (Q-B, the state set, and the cbridge scope). The two replay
+gaps are **accepted gaps with a citation**, not open questions (section 5).
 
-**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07).
+**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07). Updated by Stage S0 on
+2026-11-08; the operator's decisions are recorded in ADR 0010 and ADR 0011.
 
 **Authority:** `docs/release/V0.6.0-BUILD-PLAN.md` §1.3 (three capability formats, each with explicit
 cross-system conformance for signing, scope, expiry, revocation and replay),
-`docs/decisions/0006` (D-3, D-4), `docs/decisions/0007` (R0-005, R0-007 acceptance).
+`docs/decisions/0006` (D-3, D-4), `docs/decisions/0007` (R0-005, R0-007 acceptance),
+`docs/decisions/0010` (cross-system conformance, GAP R-1, GAP R-2, per-capability revocation),
+`docs/decisions/0011` (task-state ownership, the authoritative state set, the cbridge scope).
 
 **How to read the status words in this document.** They are the same words `docs/STATUS.md` uses:
 
@@ -150,9 +154,17 @@ indistinguishable from the original writer."
 
 ## 5. The gap register: replay protection
 
-The plan requires replay protection for **every** capability format (this stage's binding decision). Two of
-the three formats do not meet it at the capability level. Both gaps are recorded here with their evidence and
-with options. **Neither is described as satisfied, and the choice is the operator's.**
+The plan requires replay protection for **every** capability format. Two of the three formats do not meet it at
+the capability level, and **neither is described as satisfied**. The operator has now **accepted both gaps in
+writing** (ADR 0010, 2026-11-08) and chosen what is done about each:
+
+| Gap | The operator's decision | What is still to be built | Where |
+|---|---|---|---|
+| **GAP R-1** — the read link is reusable until it expires | **Accepted** (option R-1.a) **plus observable replay** (option R-1.d). No scheme change; no regenerated signing vectors. | Each presentation of a read link is recorded in the audit stream, with a threshold alert. | **S2** |
+| **GAP R-2** — the write root capability is a bearer credential | **Accepted** (option R-2.a) for 0.6.0. | Option R-2.c (bind the root capability to an agent identity) is recorded as a **later cross-system stage** and is **not** part of 0.6.0. | not in 0.6.0 |
+
+The evidence for both gaps is unchanged and is kept below, because an accepted gap is still a gap and the
+reader has to be able to see what was accepted.
 
 ### GAP R-1 — the read link is reusable until it expires
 
@@ -175,12 +187,20 @@ with options. **Neither is described as satisfied, and the choice is the operato
 | **R-1.c** | **Bounded reuse.** Allow *N* uses per link (N configured, e.g. 3), recorded durably. | The same scheme change as R-1.b, plus a counter and its expiry rules. | A link survives a retry but not an unbounded harvest. |
 | **R-1.d** | **Leave the scheme alone, make the replay observable.** Record each presentation of a link in the audit stream (the record already has `order` and `path`), and alert on a count above a threshold. | No scheme change. The audit stream grows with a field or two and a threshold rule. | A replay is detectable and auditable, but not prevented. |
 
-**The agent's recommendation is R-1.a**, with R-1.d as a cheap addition. The reasons are specific: the
-content served is pinned to an immutable commit, so a replay returns identical bytes; the link is scoped to
-one file; expiry and revocation bound the window; and the consumer of a read link is a Class B agent that
-legitimately re-fetches (a retry after a timeout is a normal event, and R-1.b would turn a transient failure
-into a lost task). R-1.b and R-1.c are the right answer **if** the operator decides that read-once is worth a
-scheme version bump and a re-mint flow — and that is a product decision, not a technical one.
+**The agent's recommendation was R-1.a**, with R-1.d as a cheap addition, and **the operator adopted it**
+(ADR 0010 item 2). The reasons are specific: the content served is pinned to an immutable commit, so a replay
+returns identical bytes; the link is scoped to one file; expiry and revocation bound the window; and the
+consumer of a read link is a Class B agent that legitimately re-fetches (a retry after a timeout is a normal
+event, and R-1.b would turn a transient failure into a lost task). R-1.b and R-1.c are the right answer **if**
+the operator decides that read-once is worth a scheme version bump and a re-mint flow — and that is a product
+decision, not a technical one.
+
+**What R-1.d means in practice (to be built at S2).** Every presentation of a read link is written to the
+audit stream with its order, path, request id and timestamp — the record already carries those fields — and
+the gateway alerts when the count of presentations for one order exceeds a configured threshold. The audit
+record's schema does not change; a presentation that is already recorded is simply *counted*. The gap is
+**not closed** by this: the replay still succeeds. What changes is that it is **visible**, and the threshold
+is the operator's tripwire.
 
 ### GAP R-2 — the write root capability is a bearer credential
 
@@ -203,10 +223,15 @@ scheme version bump and a re-mint flow — and that is a product decision, not a
 | **R-2.b** | **Single-use root.** The root may be redeemed once and exchanged for a per-operation credential. | A new operation, a new route, a new conformance surface, and a change to the agent's tool prompt. | A stolen root is redeemable once. |
 | **R-2.c** | **Bind the root to a device or an agent identity** — the `writer` segment becomes a proof rather than a label. | The write gateway would need the agent's enrolment (the operator console's enrolment registry), and the agent would need a key. | A stolen root is not enough; the thief needs the agent's key. |
 
-**The agent's recommendation is R-2.a.** The write gateway's capability is short-lived, task-scoped, folder-scoped
-and revocable, and the operations under it are idempotent and precondition-guarded; the residual risk is that a
-stolen root lets the thief *be* the writer, which the writer lease cannot detect. R-2.c is the only option that
-closes it properly, and it is a cross-system change that belongs to a later stage, not to BE-0.
+**The agent's recommendation was R-2.a**, and **the operator adopted it** for 0.6.0 (ADR 0010 item 3). The
+write gateway's capability is short-lived, task-scoped, folder-scoped and revocable, and the operations under
+it are idempotent and precondition-guarded; the residual risk is that a stolen root lets the thief *be* the
+writer, which the writer lease cannot detect.
+
+**Option R-2.c — bind the root capability to an agent identity — is recorded as a later cross-system stage**
+(ADR 0010 item 3) and is **not part of 0.6.0**. It is the only option that closes the gap properly: it requires
+the agent to hold an enrolled key, so a stolen root is not enough on its own. It is a cross-system change that
+touches the console's enrolment model and the write gateway's verification, and it does not block 0.6.0.
 
 ### 5.1 One gap that is not about replay
 
@@ -224,25 +249,46 @@ defines a wire behaviour rather than describing one.
 
 ### 6.1 The states
 
-The task states are the engine's own. `template/engine/schemas/task.schema.json` and the plan tooling are the
-authority for the set; the gateway does not invent states.
+**The authoritative state set is the shipped schema** `template/engine/schemas/task.schema.json`, field
+`status` (ADR 0011 item 2: *"The shipped schema … is the authority. Section 6.1 of
+`CAPABILITY-CONFORMANCE.md` is reconciled to it, and any difference is reported. The shipped schema does not
+change."*). The gateway does not invent a state, and this document does not add one.
 
 | State | Meaning | Who sets it |
 |---|---|---|
-| `pending` | the task is in the plan and has no work order | the engine (the plan tooling) |
-| `ordered` | a work order exists for it | the engine / Gateway A |
+| `planned` | the task is in the plan and has no work order | the engine (the plan tooling) |
 | `in_progress` | a writer holds it | Gateway C (the writer lease) and Gateway A |
-| `done` | the deliverable is accepted and sealed | Gateway C (seal), confirmed by Gateway A |
-| `blocked` | it cannot proceed, with a recorded reason | Gateway A |
-| `cancelled` | it will not proceed | Gateway A |
+| `pr_open` | a pull request is open for the task branch | Gateway A (the operator opens it) |
+| `done` | the deliverable is accepted and sealed | Gateway C (the seal), confirmed by Gateway A |
+| `dropped` | it will not proceed | Gateway A |
+| `superseded` | it has been replaced by another task | Gateway A |
+
+**The differences this section previously carried, reported as ADR 0011 item 2 requires.** The earlier draft of
+this section proposed a set of its own; it is reconciled to the schema here, and the differences are listed so
+that the change is visible rather than silent.
+
+| The earlier draft proposed | The schema says | What changed here |
+|---|---|---|
+| `pending` | `planned` | renamed to the schema's word |
+| `ordered` | — | **dropped.** The schema has no "ordered" status. A work order exists without changing the task's status; the order is the engine's own record |
+| `in_progress` | `in_progress` | unchanged |
+| — | `pr_open` | **added.** The schema has a pull-request-open state; the earlier draft did not |
+| `done` | `done` | unchanged |
+| `blocked` | — | **dropped as a status.** The schema carries `blocked_by` as a *field* (a list of `{type, ref}` with an optional `resolved`), so a blocked task is a task with a recorded blocker, not a status |
+| `cancelled` | `dropped` | renamed to the schema's word |
+| — | `superseded` | **added.** The schema has a superseded state; the earlier draft did not |
 
 **The transition rule (D-4).** A transition is a request carrying a `ctxop-v1` capability whose `op` is one
-of the three status operations (`SET_IN_PROGRESS`, `SET_DONE`, and — by decision — the operator's `DECIDE` for
-`blocked`/`cancelled`). The capability's `task` segment names the task, its `branch` segment names the task
+of the status operations (`SET_IN_PROGRESS`, `SET_DONE`, and the operator's `DECIDE` for the terminal
+outcomes). The capability's `task` segment names the task, its `branch` segment names the task
 branch, and its `head` segment names the branch head the operator saw. **The gateway refuses any transition
 whose `head` no longer matches the branch**, so a transition cannot be applied to a branch that moved since
 the operator decided. The nonce gives the transition its replay protection, exactly as it gives every other
 `ctxop-v1` operation.
+
+**Who owns which state (ADR 0011 item 1).** Gateway A owns task state; Gateway C owns the seal. `SET_DONE` is
+accepted **only against a sealed task**, and the gateway cross-checks the seal before recording `done`. A
+transition that arrives for an unsealed task is refused, not silently ignored.
 
 ### 6.2 What "never refuses silently" means
 
@@ -294,12 +340,16 @@ claim any of its tests pass. The two documents that carry the operator's own sig
 
 ---
 
-## 8. Decisions this document needs from the operator
+## 8. Decisions this document raised, and where each was answered
 
-| # | Question | The agent's recommendation | Why it cannot be defaulted |
+**All five are closed.** The operator's answers are recorded in ADR 0010 (Q-A, Q-C, Q-D, Q-E) and ADR 0011
+(Q-B and the state set). The right-hand column says what each answer *requires*, because an answer that
+requires work is not the same as an answer that closes something.
+
+| # | Question | The operator's answer | What it requires |
 |---|---|---|---|
-| **Q-A** | What does "cross-system conformance" mean — one shared suite, three per-format suites plus this document, or a shared suite for the shared properties only? | (c), shared suite for the shared properties only. | It decides whether build-engine gains a cross-repository test harness. |
-| **Q-B** | Which gateway owns the task state, and how do Gateway A's state and Gateway C's seal stay consistent? (§6.3) | Gateway A owns the state, Gateway C owns the seal, and `SET_DONE` is accepted only against a sealed task. | Two gateways, one fact, two owners — the operator must pick. |
-| **Q-C** | **GAP R-1**: the read link is reusable until it expires. Accept, or change the scheme to single-use (R-1.b), bounded reuse (R-1.c), or observable replay (R-1.d)? | R-1.a plus R-1.d. | This changes the security posture of a shipped protocol, and R-1.b/R-1.c are a scheme version bump. |
-| **Q-D** | **GAP R-2**: the write root capability is a bearer credential. Accept (R-2.a), redeem once (R-2.b), or bind it to the agent's identity (R-2.c)? | R-2.a now; R-2.c as a later cross-system stage. | Same reason: it changes a shipped protocol's security posture. |
-| **Q-E** | Is `ctxop-v1`'s per-capability revocation (currently a 501 stub in Gateway A) required for 0.6.0, or is key retirement enough? | Per-capability revocation is required: an operator who revokes one action must not have to rotate the device key to stop it. | It is an operator-console scope decision (OC-1/OC-4). |
+| **Q-A** | What does "cross-system conformance" mean? | **A shared executable suite covers the shared properties only** (signing discipline, expiry bound, revocation semantics). Each format's own suite owns the rest. This document remains the cross-system statement. | **S2** builds the shared-property suite; **S7** runs it |
+| **Q-B** | Which gateway owns the task state, and how do Gateway A's state and Gateway C's seal stay consistent? | **Gateway A owns task state; Gateway C owns the seal.** `SET_DONE` is accepted only against a sealed task, and the gateway cross-checks the seal before recording `done`. Gateway C gains a guarded status-transition operation (D-4). | **S2** implements the operation, with refusal tests (unsealed task, wrong state, replayed transition) |
+| **Q-C** | **GAP R-1**: the read link is reusable until it expires. | **Accept the residual risk in writing, and add observable replay** (option R-1.a plus R-1.d). No scheme change. | **S2** records every presentation in the audit stream, with a threshold alert |
+| **Q-D** | **GAP R-2**: the write root capability is a bearer credential. | **Accept** (option R-2.a) for 0.6.0. **Option R-2.c — bind the root to an agent identity — is a later cross-system stage**, not part of 0.6.0. | Nothing in 0.6.0; the document states the operation-level protections that do apply |
+| **Q-E** | Is `ctxop-v1`'s per-capability revocation required for 0.6.0, or is key retirement enough? | **Required.** Revoking one action must not need a device-key rotation. | Gateway A is in operator-console; build-engine verifies the condition through the console's acceptance evidence at **S7** |

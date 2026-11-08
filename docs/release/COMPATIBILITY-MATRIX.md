@@ -1,11 +1,14 @@
 # Compatibility matrix — build-engine 0.6.0 Standard
 
-**Status:** DRAFT for the operator's review (BE-0). Nothing here is approved until the operator signs the
-decisions listed in section 8.
+**Status:** **approved** (2026-11-08, ADR 0013 item 9). The decisions this matrix raised are closed by
+**ADR 0012** (Q-4, the compatibility-record schema, Q-5, DX-1, DX-2) and by the protocol-identifier resolution
+recorded in section 4.2.
 
-**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07).
+**Baseline:** `main` at `d6b6bda11e16801445432e671920cd61695c39d9` (2026-11-07). Updated by Stage S0 on
+2026-11-08; the operator's decisions are recorded in ADR 0012.
 **Authority:** `docs/release/V0.6.0-BUILD-PLAN.md` (BE-0), `docs/decisions/0006` (the 0.6.0 Standard contract),
-`docs/decisions/0008` (hosting, hostnames and repositories), `docs/decisions/0009` (repository protection).
+`docs/decisions/0008` (hosting, hostnames and repositories), `docs/decisions/0009` (repository protection),
+`docs/decisions/0012` (the compatibility record, the hostnames, the repositories and the credential model).
 
 This document is the **cross-system** compatibility record for the 0.6.0 release. It is not the
 consumer-facing compatibility table: that one is `COMPATIBILITY.md` at the repository root, and it is
@@ -62,14 +65,15 @@ combination in section 1 checkable rather than asserted: it names each component
 version and checksum, the commit each gateway was built from, and the evidence that the combination was
 tested.
 
-### 3.1 Proposed schema (for the operator's approval — implemented in BE-8)
+### 3.1 The schema (approved — implemented in S8)
 
-The schema is proposed here and **not yet implemented**. The validator lands in `release/` in BE-8, together
-with the record itself.
+**The schema below is approved** (ADR 0012 item 2: *"Approved as proposed in `COMPATIBILITY-MATRIX.md`
+section 3, including its six validation rules."*). It is **not yet implemented**: the schema file, the
+validator and the record land in `release/` at **S8**.
 
-Proposed file: `release/compatibility-record.schema.json` (JSON Schema).
-Proposed record: `release/compatibility-record.json` (one file per release, committed and archived with the
-release evidence).
+Schema file: `release/compatibility-record.schema.json` (JSON Schema).
+Record: `release/compatibility-record.json` (one file per release; **committed and published as a release
+asset** — ADR 0012 item 1).
 
 ```jsonc
 {
@@ -316,12 +320,15 @@ Recorded from ADR 0008 and the operator's binding decisions for this stage.
 
 ---
 
-## 8. Decisions this matrix needs from the operator
+## 8. Decisions this matrix raised, and where each was answered
 
-| # | Question | Why it is open |
-|---|---|---|
-| Q-1 | The protocol identifier change: identifier alone, or identifier and version together? (section 4.2) | The two steps cannot both be deferred to BE-8 without leaving the release gate red on `main` in between. |
-| Q-2 | The console APK's version name and version code for 0.6.0, and the signing certificate fingerprint of each artefact. | operator-console's release is a separate plan (OC-8); the record in section 3.1 needs the values. |
-| Q-3 | The `worker_version_id` of each deployed gateway (the Cloudflare version identifier recorded after the deploy). | It does not exist until BE-4/BE-5 deploy, and it cannot be guessed from a commit. |
-| Q-4 | Whether the compatibility record is committed to the repository, published as a release asset, or both. | The plan says "one record"; it does not say where it lives. This document's recommendation is **both**: committed under `release/` so it is reviewable, and published as a release asset so a consumer can fetch it without the repository. |
-| Q-5 | The gateway hostnames' final form. | ADR 0008 records `qnuralink.workers.dev` as the account zone and says the exact per-Worker hostnames are fixed at first deployment. The values in section 6 are the operator's stated production names (DX-2); the staging names come from the pilot workflow's defaults. They are recorded here as the operator gave them and have not been verified against a live deployment in this stage. |
+**Q-1, Q-4 and Q-5 are closed. Q-2 and Q-3 are values that do not exist yet**, and each has a stage that
+produces them.
+
+| # | Question | The operator's answer | What it requires |
+|---|---|---|---|
+| Q-1 | The protocol identifier change: identifier alone, or identifier and version together? (section 4.2) | **The identifier changes now; the version changes at S8.** ADR 0006 forbids the metadata change before the release conditions hold, and `release/set-version.sh` belongs to S8. | Already done — the identifier is `build-engine/0.6`; **S8** runs `release/set-version.sh 0.6.0` |
+| Q-2 | The console APK's version name and version code for 0.6.0, and the signing certificate fingerprint of each artefact. | **Not yet supplied.** The operator-console release is a separate plan (OC-8). | **S7** obtains it from the console's acceptance record; **S8** writes it into the record |
+| Q-3 | The `worker_version_id` of each deployed gateway (the Cloudflare version identifier recorded after the deploy). | **Not yet obtainable.** It does not exist until the gateway is deployed, and it cannot be guessed from a commit. | **S8** retrieves it from the deployed production Workers by API query |
+| Q-4 | Whether the compatibility record is committed to the repository, published as a release asset, or both. | **Both**: committed under `release/` so it is reviewable, and published as a release asset so a consumer can fetch it without the repository. | **S8** writes it to both places |
+| Q-5 | The gateway hostnames' final form. | **The values in section 6 are final** (ADR 0012 item 3): `ctxgate-read.qnuralink.workers.dev`, `ctxgate-write.qnuralink.workers.dev`, `cbridge.qnuralink.workers.dev`; production read repository `acme-pilot-dev` (private); pilot repositories `acme-pilot` (public) and `acme-pilot-dev` (private); Cloudflare plan **Paid**. | **S4** and **S5** verify the deployed hostnames against these values |
