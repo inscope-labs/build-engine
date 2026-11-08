@@ -64,7 +64,7 @@ implemented reports BLOCKED-EXTERNAL rather than PASS.
 | `C-ISO` | `release/package.sh dist` | 0 | `packaged 41 files, 0.5.0 dist/build-engine-v0.5.0.tar.gz` |
 | `C-ISO` | `release/verify.sh dist/build-engine-v0.5.0.tar.gz --test-payload` | 0 | `verify: OK (build-engine-v0.5.0.tar.gz: 42 files, version 0.5.0, payload tests run)` |
 | `C-ISO` | the artifact's member list | 0 | no `gateway/`, `conformance/`, `ops/`, `variants/` or `.github/` path; no `wrangler.toml`, no `.dev.vars`, no `rollout-gate.sh` |
-| `C-SECRETS` | the credential shapes in `release/forbidden.txt` + the `Bearer` literal shape, over the working tree and the diff against `origin/main` | 0 | no hit in 353 files and no hit in the diff. Seven deliberate sentinels were found, excluded by a file-scoped rule and listed by the check. |
+| `C-SECRETS` | the credential shapes in `release/forbidden.txt` + the `Bearer` literal shape, over the working tree and the diff against `origin/main` | 0 | no hit in 355 files and no hit in the diff. Seven deliberate sentinels were found, excluded by a file-scoped rule and listed by the check. |
 | `C-DIFF` | `git diff v0.5.0..HEAD` over `template/`, `release/manifest.txt`, `release/forbidden.txt`, `tests/` | 0 | nothing removed; 4 files changed (see §5) |
 
 The stage's own `[O]` checks:
