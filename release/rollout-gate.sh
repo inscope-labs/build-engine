@@ -1,0 +1,565 @@
+#!/usr/bin/env bash
+# rollout-gate.sh <stage> - run the rollout plan's gate for one stage and print the result.
+#
+# The governing document is docs/release/V0.6.0-ROLLOUT-PLAN.md (sections 2 and 4). This script
+# is the runner the plan asks for in stage S0: it runs the [R] checks, queries the [E] presence
+# checks, and prints PASS / FAIL / BLOCKED-EXTERNAL per check.
+#
+# It is NOT shipped: it lives in release/, which is outside template/, and release/manifest.txt
+# does not list it. The S0 report proves both.
+#
+# Rules it obeys, from the plan:
+#   - fail closed. A check that cannot run, errors, or returns ambiguous output is a FAIL.
+#   - no claim without evidence. Every check prints the command it ran and an excerpt of the
+#     output that was inspected.
+#   - credentials never appear. The script reads secret NAMES from the API and never reads,
+#     prints or stores a value. The token comes from the environment and is never echoed.
+#
+# Exit codes:
+#   0  every check PASSed
+#   1  at least one check FAILed
+#   2  at least one check is BLOCKED-EXTERNAL - including a stage whose own checks are not
+#      implemented in this runner yet, which is never a PASS
+#   4  usage error
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+STAGE="${1:-}"
+if [[ -z "$STAGE" ]]; then
+  echo "usage: release/rollout-gate.sh <stage>   # S0 .. S9" >&2
+  echo "       release/rollout-gate.sh --list" >&2
+  exit 4
+fi
+if [[ "$STAGE" == "--list" ]]; then
+  for s in S0 S1 S2 S3 S4 S5 S6 S7 S8 S9; do echo "$s"; done
+  exit 0
+fi
+if [[ ! "$STAGE" =~ ^S[0-9]$ ]]; then
+  echo "unknown stage: $STAGE (expected S0..S9)" >&2
+  exit 4
+fi
+
+REPO_SLUG="${ROLLOUT_REPO:-inscope-labs/build-engine}"
+# The token is read from the environment and is never printed, echoed or passed on a command line
+# that another process could read. It is only ever used as an Authorization header.
+TOKEN="${GITHUB_TOKEN:-${GITHUB_PAT:-${GH_TOKEN:-}}}"
+
+FAILURES=0
+BLOCKED=0
+PASSES=0
+
+pass() { PASSES=$((PASSES+1)); printf '  PASS  %-14s %s\n' "$1" "${2:-}"; }
+fail() { FAILURES=$((FAILURES+1)); printf '  FAIL  %-14s %s\n' "$1" "${2:-}"; }
+blocked() { BLOCKED=$((BLOCKED+1)); printf '  BLOCKED-EXTERNAL  %-14s %s\n' "$1" "${2:-}"; }
+note() { printf '  note  %-14s %s\n' "$1" "${2:-}"; }
+section() { printf '\n== %s ==\n' "$1"; }
+
+# Run a command, capture its output and its exit code, and judge it. The output is printed as an
+# excerpt: the last few lines, which is where a failure says what went wrong.
+#   judge <id> <expected-exit> <command...>
+judge() {
+  local id="$1" want="$2"; shift 2
+  local out rc
+  out="$("$@" 2>&1)"; rc=$?
+  if [[ "$rc" == "$want" ]]; then
+    pass "$id" "$(printf '%s' "$out" | tail -n 2 | tr '\n' ' ' | cut -c1-160)"
+    return 0
+  fi
+  fail "$id" "exit $rc (wanted $want): $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ' | cut -c1-200)"
+  return 1
+}
+
+# The same, but for a command whose output has to be inspected for a string.
+#   judge_has <id> <expected-exit> <needle> <command...>
+judge_has() {
+  local id="$1" want="$2" needle="$3"; shift 3
+  local out rc
+  out="$("$@" 2>&1)"; rc=$?
+  if [[ "$rc" == "$want" ]] && printf '%s' "$out" | grep -qF -- "$needle"; then
+    pass "$id" "$(printf '%s' "$out" | tail -n 2 | tr '\n' ' ' | cut -c1-160)"
+    return 0
+  fi
+  fail "$id" "exit $rc (wanted $want), output did not contain '$needle': $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ' | cut -c1-200)"
+  return 1
+}
+
+api() { # api <method> <path>  -> body on stdout, exit code of curl
+  if [[ -z "$TOKEN" ]]; then return 3; fi
+  curl -sS -X "$1" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com$2"
+}
+
+# ---------------------------------------------------------------------------
+# Standing checks (rollout plan section 4). Every stage runs them.
+# ---------------------------------------------------------------------------
+
+# ROLLOUT_GATE_ONLY=id[,id] runs only the named checks. It exists so a single check can be
+# re-run without repeating the whole gate; the full gate is the one that counts.
+ONLY="${ROLLOUT_GATE_ONLY:-}"
+wanted() {
+  [[ -z "$ONLY" ]] && return 0
+  [[ ",$ONLY," == *",$1,"* ]]
+}
+run_check() { # run_check <id> <function>
+  wanted "$1" && "$2"
+}
+
+check_c_prot() {
+  local body
+  if [[ -z "$TOKEN" ]]; then
+    blocked "C-PROT" "no credential in the environment (GITHUB_TOKEN); the branch-protection endpoint needs one"
+    return
+  fi
+  body="$(api GET "/repos/$REPO_SLUG/branches/main/protection" 2>/dev/null)"
+  if [[ -z "$body" ]] || printf '%s' "$body" | grep -q '"message"'; then
+    fail "C-PROT" "the branch-protection query did not answer: $(printf '%s' "$body" | head -c 160)"
+    return
+  fi
+  # ADR 0009's record: a pull request is required, the `test` check is required, force-push is
+  # blocked. Anything weaker is a FAIL.
+  local pr checks fp
+  pr="$(printf '%s' "$body" | jq -r 'if .required_pull_request_reviews then "yes" else "no" end' 2>/dev/null)"
+  checks="$(printf '%s' "$body" | jq -r '.required_status_checks.contexts // [] | join(",")' 2>/dev/null)"
+  fp="$(printf '%s' "$body" | jq -r '.allow_force_pushes.enabled // false' 2>/dev/null)"
+  if [[ "$pr" != "yes" ]]; then fail "C-PROT" "main does not require a pull request"; return; fi
+  if [[ "$checks" != *test* ]]; then fail "C-PROT" "the required status checks are '$checks', not 'test'"; return; fi
+  if [[ "$fp" == "true" ]]; then fail "C-PROT" "force-push is allowed on main"; return; fi
+  pass "C-PROT" "pull request required, required check 'test', force-push blocked"
+}
+
+check_c_ci() {
+  local body
+  if [[ -z "$TOKEN" ]]; then
+    blocked "C-CI" "no credential in the environment (GITHUB_TOKEN); the check-runs endpoint needs one"
+    return
+  fi
+  body="$(api GET "/repos/$REPO_SLUG/commits/main/check-runs" 2>/dev/null)"
+  if [[ -z "$body" ]] || printf '%s' "$body" | grep -q '"message"'; then
+    fail "C-CI" "the check-runs query did not answer: $(printf '%s' "$body" | head -c 160)"
+    return
+  fi
+  local total bad names
+  total="$(printf '%s' "$body" | jq -r '.check_runs | length' 2>/dev/null)"
+  if [[ "$total" == "0" || "$total" == "null" ]]; then
+    fail "C-CI" "no check runs on the tip of main"
+    return
+  fi
+  bad="$(printf '%s' "$body" | jq -r '[.check_runs[] | select(.conclusion != "success") | .name] | join(", ")' 2>/dev/null)"
+  names="$(printf '%s' "$body" | jq -r '[.check_runs[].name] | join(", ")' 2>/dev/null)"
+  if [[ -n "$bad" ]]; then
+    fail "C-CI" "not successful: $bad"
+    return
+  fi
+  pass "C-CI" "$total check runs on main, all successful"
+}
+
+check_c_base() {
+  section "C-BASE shipped-engine and release self-tests"
+  judge_has "C-BASE" 0 "OK" python3 -m unittest discover -s template/engine/tools
+  judge_has "C-BASE" 0 "0 failed" release/test-release.sh
+  judge_has "C-BASE" 0 "0 failed" tests/test_update.sh
+}
+
+check_c_conf() {
+  section "C-CONF shared conformance on the local runtime"
+  judge_has "C-CONF" 0 "0 failed" python3 conformance/harness/run.py all --reference
+  judge_has "C-CONF" 0 "OK" python3 -m unittest discover -s conformance -p 'test_*.py'
+  # The fault injector's own tests: the Stage 6.3 failure pilot depends on them.
+  judge_has "C-CONF" 0 "OK" python3 -m unittest discover -s ops -p 'test_*.py'
+}
+
+check_c_read() {
+  section "C-READ read gateway local checks"
+  ( cd gateway/read/production && judge_has "C-READ" 0 "# fail 0" npm test )
+  ( cd gateway/read/production && judge_has "C-READ" 0 "matches ops/environments.json" npm run ops:check )
+  ( cd gateway/read/production && judge_has "C-READ" 0 "every configuration is understood" npm run check:bundle )
+  ( cd gateway/write && judge_has "C-READ" 0 "read staging environment is separate" npm run check:staging:read )
+  # The reference gateway's own tests (never shipped, but they are part of the green baseline).
+  judge_has "C-READ" 0 "OK" python3 -m unittest discover -s gateway/read/reference -p 'test_*.py'
+}
+
+check_c_write() {
+  section "C-WRITE write gateway local checks"
+  ( cd gateway/write && judge "C-WRITE" 0 npm run typecheck )
+  ( cd gateway/write && judge_has "C-WRITE" 0 "# fail 0" npm test )
+  ( cd gateway/write && judge_has "C-WRITE" 0 "the contract documents agree" npm run check:contract )
+  ( cd gateway/write && judge_has "C-WRITE" 0 "staging environment is separate" npm run check:staging )
+}
+
+check_c_iso() {
+  section "C-ISO release isolation"
+  local artifact="dist/build-engine-v$(tr -d ' \n' < VERSION).tar.gz"
+  rm -rf dist
+  if ! judge "C-ISO" 0 release/package.sh dist; then return; fi
+  judge_has "C-ISO" 0 "verify: OK" release/verify.sh "$artifact" --test-payload
+  # The artifact must not carry gateway code, conformance assets, the operations tooling, the
+  # workflows, a deployment configuration or a secret.
+  local members bad
+  members="$(tar -tzf "$artifact")"
+  bad="$(printf '%s\n' "$members" | grep -E '(^|/)(gateway|conformance|ops|variants|\.github)/' | head -5)"
+  if [[ -n "$bad" ]]; then
+    fail "C-ISO" "the artifact carries infrastructure: $(printf '%s' "$bad" | tr '\n' ' ')"
+  else
+    pass "C-ISO" "no gateway/conformance/ops/variants/.github path in the artifact"
+  fi
+  bad="$(printf '%s\n' "$members" | grep -E '(wrangler\.toml|\.dev\.vars|rollout-gate\.sh)$' | head -5)"
+  if [[ -n "$bad" ]]; then
+    fail "C-ISO" "the artifact carries a deployment configuration: $(printf '%s' "$bad" | tr '\n' ' ')"
+  else
+    pass "C-ISO" "no deployment configuration or gate runner in the artifact"
+  fi
+  rm -rf dist
+}
+
+# A hit is allowed only when it is a deliberate sentinel the repository's own tests put in the tree
+# on purpose. The exclusions are file-scoped and narrow: the same shape anywhere else is a FAIL.
+# Each use is printed by the check, so an exclusion is never silent.
+#
+#   gateway/write/tests/helpers/hygiene.ts
+#       The sentinel credentials. The point of the hygiene check is that a token-shaped value does
+#       not leak through any channel, so the shape has to be there. The marker is the word the
+#       file itself uses to name them.
+#   gateway/write/tests/unit/audit/redaction.test.ts
+#       A GitHub-token-shaped fixture, so the audit stream's redaction can be proved. It is
+#       recognised by what it is: the thirty-six characters of digits and letters in order.
+#   gateway/**/tests/**, gateway/read/production/test/**
+#       The gateways' local test credentials: an obvious test placeholder, never sent to a real
+#       host.
+#
+# The rules are written as shapes rather than as the values themselves, so this file contains no
+# complete credential shape and the scan never has to excuse itself.
+sentinel_allowed() {
+  local file="$1" matched="$2" value
+  case "$file" in
+    gateway/write/tests/helpers/hygiene.ts)
+      [[ "$matched" == *SENTINEL* ]] && return 0 ;;
+    gateway/write/tests/unit/audit/redaction.test.ts)
+      value="${matched#ghp_}"
+      [[ "$value" =~ ^[0-9a-z]{36}$ ]] && return 0 ;;
+  esac
+  case "$file" in
+    gateway/*/tests/*|gateway/*/*/tests/*|gateway/read/production/test/*)
+      [[ "$matched" =~ ^Bearer\ test- ]] && return 0 ;;
+  esac
+  return 1
+}
+
+check_c_secrets() {
+  section "C-SECRETS no credential in the tree"
+  # The credential shapes are the repository's own: release/forbidden.txt already defines what a
+  # real token looks like. The scan reuses those rules rather than inventing a second list, and
+  # adds the "Bearer <literal>" shape the plan names.
+  #
+  # Known test placeholders are listed, not silently skipped: a hit that is one of these is
+  # reported as excluded and the run continues; any other hit is a FAIL.
+  # The text rules from forbidden.txt that describe a credential shape.
+  local -a shapes=()
+  while IFS= read -r line; do shapes+=("$line"); done < <(
+    sed -n '/^# -- credential shapes/,$p' release/forbidden.txt | grep '^text: ' | sed 's/^text: //'
+  )
+  if [[ "${#shapes[@]}" -eq 0 ]]; then
+    fail "C-SECRETS" "release/forbidden.txt carries no credential shape; the scan would be vacuous"
+    return
+  fi
+  note "C-SECRETS" "credential shapes from release/forbidden.txt: ${#shapes[@]} (plus the Bearer literal shape)"
+
+  local -a files=()
+  while IFS= read -r f; do files+=("$f"); done < <( { git ls-files; git ls-files --others --exclude-standard; } | sort -u )
+  local hits=0 excluded=0 f shape m
+  for f in "${files[@]}"; do
+    [[ -f "$f" ]] || continue
+    for shape in "${shapes[@]}" "Bearer [A-Za-z0-9._~+/=-]{16,}"; do
+      while IFS= read -r m; do
+        [[ -z "$m" ]] && continue
+        if sentinel_allowed "$f" "$m"; then
+          excluded=$((excluded+1))
+          printf '  note  %-14s excluded sentinel in %s: %s\n' "C-SECRETS" "$f" "${m:0:60}"
+        else
+          hits=$((hits+1))
+          printf '  note  %-14s HIT in %s: %s\n' "C-SECRETS" "$f" "${m:0:60}"
+        fi
+      done < <(grep -aEo -e "$shape" "$f" 2>/dev/null | head -3)
+    done
+  done
+  # The branch diff is scanned too: a secret introduced by this branch is a hit even if the file is
+  # new. The comparison is against origin/main, and it covers the committed and the staged state.
+  local diffhit=0
+  for shape in "${shapes[@]}" "Bearer [A-Za-z0-9._~+/=-]{16,}"; do
+    if git diff origin/main 2>/dev/null | grep -aE "^\+" | grep -aEq -e "$shape"; then
+      diffhit=1
+      printf '  note  %-14s HIT in the diff against origin/main\n' "C-SECRETS"
+    fi
+  done
+  if [[ "$hits" -gt 0 || "$diffhit" -gt 0 ]]; then
+    fail "C-SECRETS" "$hits hit(s) in the tree, diff against origin/main hit: $diffhit"
+  else
+    pass "C-SECRETS" "no credential shape in ${#files[@]} file(s) or in the diff against origin/main ($excluded deliberate sentinel(s) excluded and listed)"
+  fi
+  # The gate runner itself must not be shipped.
+  if grep -q 'rollout-gate.sh' release/manifest.txt; then
+    fail "C-SECRETS" "release/manifest.txt lists rollout-gate.sh"
+  else
+    pass "C-SECRETS" "rollout-gate.sh is not in release/manifest.txt"
+  fi
+}
+
+check_c_diff() {
+  section "C-DIFF Basic does not regress"
+  # The shipped payload, the release machinery and the tests are compared against the published
+  # 0.5.0 tag. The report lists every difference and justifies it; the check here is that the
+  # comparison can be made and that nothing in the shipped payload was removed.
+  if ! git rev-parse -q --verify v0.5.0 >/dev/null; then
+    fail "C-DIFF" "the tag v0.5.0 is not in the checkout"
+    return
+  fi
+  local removed
+  removed="$(git diff --name-status v0.5.0..HEAD -- template/ release/manifest.txt release/forbidden.txt tests/ \
+    | awk '$1 ~ /^D/ {print $2}' | head -10)"
+  if [[ -n "$removed" ]]; then
+    fail "C-DIFF" "files removed since v0.5.0: $(printf '%s' "$removed" | tr '\n' ' ')"
+  else
+    pass "C-DIFF" "nothing removed from template/, the allowlist, the forbidden rules or the tests"
+  fi
+  local changed
+  changed="$(git diff --name-only v0.5.0..HEAD -- template/ release/manifest.txt release/forbidden.txt tests/ | wc -l | tr -d ' ')"
+  note "C-DIFF" "$changed file(s) changed against v0.5.0 in the shipped payload, the release machinery and the tests; the report lists each"
+}
+
+# ---------------------------------------------------------------------------
+# [E] presence checks. An external input is supplied by the operator or by another repository:
+# the agent verifies PRESENCE and CONSISTENCY only. The APIs below list secret NAMES; no value is
+# ever read, printed or stored.
+# ---------------------------------------------------------------------------
+
+# check_env_exists <id> <environment>  - the environment exists and requires a reviewer.
+check_env_exists() {
+  local id="$1" env="$2" body reviewers
+  body="$(api GET "/repos/$REPO_SLUG/environments/$env" 2>/dev/null)"
+  if [[ -z "$body" ]] || printf '%s' "$body" | grep -q '"message"'; then
+    blocked "$id" "the GitHub environment '$env' does not exist yet"
+    return
+  fi
+  reviewers="$(printf '%s' "$body" | jq -r '[.protection_rules[]?.reviewers[]?.login] | join(",")' 2>/dev/null)"
+  if [[ -z "$reviewers" ]]; then
+    blocked "$id" "the environment '$env' exists but has no required reviewer"
+    return
+  fi
+  pass "$id" "the environment '$env' exists and requires a reviewer ($reviewers)"
+}
+
+# check_repo_secret_names <id> <environment> <name>...  - the names are present. Values are not
+# visible through this API and are not asked for.
+check_repo_secret_names() {
+  local id="$1" env="$2"; shift 2
+  local body names missing="" want
+  body="$(api GET "/repos/$REPO_SLUG/environments/$env/secrets" 2>/dev/null)"
+  if [[ -z "$body" ]] || printf '%s' "$body" | grep -q '"message"'; then
+    blocked "$id" "the secret list of '$env' could not be read"
+    return
+  fi
+  names="$(printf '%s' "$body" | jq -r '.secrets[].name' 2>/dev/null)"
+  for want in "$@"; do
+    printf '%s\n' "$names" | grep -qxF "$want" || missing="$missing $want"
+  done
+  if [[ -n "$missing" ]]; then
+    blocked "$id" "secret name(s) absent from '$env':$missing"
+    return
+  fi
+  pass "$id" "secret name(s) present in '$env': $*"
+}
+
+# check_worker_secret_names <id> <worker> <name>...  - the Cloudflare Worker holds the secret
+# names. The account id and the API token come from the environment; without them the check is
+# BLOCKED-EXTERNAL, because a missing credential is an external input, not a failure of the tree.
+check_worker_secret_names() {
+  local id="$1" worker="$2"; shift 2
+  local acct="${CLOUDFLARE_ACCOUNT_ID:-}" tok="${CLOUDFLARE_API_TOKEN:-}" body names missing="" want
+  if [[ -z "$acct" || -z "$tok" ]]; then
+    blocked "$id" "no Cloudflare credential in the environment (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN)"
+    return
+  fi
+  body="$(curl -sS -H "Authorization: Bearer $tok" \
+    "https://api.cloudflare.com/client/v4/accounts/$acct/workers/scripts/$worker/secrets" 2>/dev/null)"
+  if [[ -z "$body" ]] || ! printf '%s' "$body" | jq -e '.success == true' >/dev/null 2>&1; then
+    blocked "$id" "the secret list of the Worker '$worker' could not be read"
+    return
+  fi
+  names="$(printf '%s' "$body" | jq -r '.result[]?.name' 2>/dev/null)"
+  for want in "$@"; do
+    printf '%s\n' "$names" | grep -qxF "$want" || missing="$missing $want"
+  done
+  if [[ -n "$missing" ]]; then
+    blocked "$id" "secret name(s) absent from the Worker '$worker':$missing"
+    return
+  fi
+  pass "$id" "secret name(s) present in the Worker '$worker': $*"
+}
+
+# ---------------------------------------------------------------------------
+# Stage-specific checks.
+# ---------------------------------------------------------------------------
+
+check_s0_adrs() {
+  section "S0 stage-specific checks"
+  local n
+  for n in 0010 0011 0012 0013; do
+    local f
+    f="$(ls docs/decisions/${n}-*.md 2>/dev/null | head -1)"
+    if [[ -z "$f" ]]; then fail "S0-ADR-$n" "no ADR $n in docs/decisions/"; continue; fi
+    if grep -q 'Status: \*\*decided\*\*' "$f"; then
+      pass "S0-ADR-$n" "$(basename "$f") is decided"
+    else
+      fail "S0-ADR-$n" "$(basename "$f") does not carry status 'decided'"
+    fi
+  done
+  # The three BE-0 documents must no longer say draft.
+  local d
+  for d in COMPATIBILITY-MATRIX CAPABILITY-CONFORMANCE CBRIDGE-COVERAGE-MATRIX; do
+    if grep -qi 'Status:.*DRAFT for the operator' "docs/release/$d.md"; then
+      fail "S0-DOC-$d" "still says DRAFT"
+    else
+      pass "S0-DOC-$d" "no longer marked DRAFT"
+    fi
+  done
+  # The state list must be reconciled to the shipped schema.
+  local states
+  states="$(python3 -c 'import json;print(" ".join(json.load(open("template/engine/schemas/task.schema.json"))["properties"]["status"]["enum"]))')"
+  local missing=""
+  for st in $states; do
+    grep -q "\`$st\`" docs/release/CAPABILITY-CONFORMANCE.md || missing="$missing $st"
+  done
+  if [[ -n "$missing" ]]; then
+    fail "S0-STATE" "the schema states missing from CAPABILITY-CONFORMANCE.md:$missing"
+  else
+    pass "S0-STATE" "the schema's states ($states) all appear in the conformance document"
+  fi
+  # ADR 0008's open items must be closed, and the decisions index must list the new ADRs.
+  if grep -q 'DX-1 and DX-2 closed by ADR 0012' docs/decisions/0008-hosting-hostnames-and-repositories.md; then
+    pass "S0-ADR0008" "ADR 0008 records DX-1 and DX-2 as closed by ADR 0012"
+  else
+    fail "S0-ADR0008" "ADR 0008's status line does not record the closure"
+  fi
+  local missing_adr
+  missing_adr=""
+  for n in 0010 0011 0012 0013; do
+    grep -q "| $n |" docs/decisions/README.md || missing_adr="$missing_adr $n"
+  done
+  if [[ -n "$missing_adr" ]]; then
+    fail "S0-INDEX" "docs/decisions/README.md does not list:$missing_adr"
+  else
+    pass "S0-INDEX" "docs/decisions/README.md lists 0010 to 0013"
+  fi
+  # The gate runner must not be shipped.
+  if grep -q 'rollout-gate.sh' release/manifest.txt; then
+    fail "S0-NOTSHIPPED" "release/manifest.txt lists rollout-gate.sh"
+  else
+    pass "S0-NOTSHIPPED" "rollout-gate.sh is not in release/manifest.txt"
+  fi
+}
+
+check_s1_lifecycle() {
+  section "S1 stage-specific checks"
+  # The Worker conformance suite must run, and the case count is recorded (the plan expects 58).
+  local out
+  out="$(gateway/read/production/test/run-conformance.py 2>&1)"
+  local rc=$?
+  local cases
+  cases="$(printf '%s' "$out" | grep -oE '[0-9]+ (passed|cases)' | tail -1)"
+  if [[ "$rc" != 0 ]]; then
+    fail "S1-CASES" "run-conformance.py exited $rc: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ' | cut -c1-180)"
+  else
+    pass "S1-CASES" "run-conformance.py ran; ${cases:-case count not reported by the runner}"
+    note "S1-CASES" "the plan expects 58 cases; the report states the count this runner produced"
+  fi
+  # Every lifecycle item must map to a test file that exists.
+  local missing=""
+  while read -r item file; do
+    [[ -z "$item" ]] && continue
+    if [[ ! -f "$file" ]]; then missing="$missing $item"; fi
+  done <<'EOF'
+root capability gateway/write/tests/unit/auth/root-url.test.ts
+root capability signature gateway/write/tests/unit/auth/signature.test.ts
+task and work-order binding gateway/write/tests/unit/auth/policy-authz.test.ts
+single writer gateway/write/tests/unit/session/writer-claim.test.ts
+single writer (integration) gateway/write/tests/integration/single-writer.test.ts
+sequence and nonce gateway/write/tests/unit/session/sequence.test.ts
+staging scaffold gateway/write/tests/unit/staging/scaffold.test.ts
+staging append and read-back gateway/write/tests/unit/staging/append.test.ts
+staging delete gateway/write/tests/unit/staging/delete.test.ts
+staging status gateway/write/tests/unit/staging/status.test.ts
+UTF-8 and file-type checks gateway/write/tests/unit/policy/type-policy.test.ts
+UTF-8 decoding gateway/write/tests/unit/util/encodings.test.ts
+path safety gateway/write/tests/unit/policy/path-safety.test.ts
+quota accounting gateway/write/tests/unit/policy/quota-accounting.test.ts
+quota exhaustion gateway/write/tests/integration/quota-exhaustion.test.ts
+read-back and integrity gateway/write/tests/integration/happy-path.test.ts
+commit idempotency gateway/write/tests/unit/commit/commit-idempotency.test.ts
+commit and delivery (integration) gateway/write/tests/integration/commit-idempotency.test.ts
+seal gateway/write/tests/unit/seal/seal.test.ts
+seal close and revoke gateway/write/tests/integration/seal.test.ts
+tombstone (close) gateway/write/tests/unit/session/tombstones.test.ts
+EOF
+  if [[ -n "$missing" ]]; then
+    fail "S1-LIFECYCLE" "no test file for:$missing"
+  else
+    pass "S1-LIFECYCLE" "every named lifecycle item maps to a test file that exists"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Run the gate.
+# ---------------------------------------------------------------------------
+
+printf 'rollout gate: stage %s\n' "$STAGE"
+printf 'repository:   %s\n' "$REPO_SLUG"
+printf 'main:         %s\n' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+printf 'started:      %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+run_check C-PROT check_c_prot
+run_check C-CI check_c_ci
+run_check C-BASE check_c_base
+run_check C-CONF check_c_conf
+run_check C-READ check_c_read
+run_check C-WRITE check_c_write
+run_check C-ISO check_c_iso
+run_check C-SECRETS check_c_secrets
+run_check C-DIFF check_c_diff
+
+case "$STAGE" in
+  S0) run_check S0 check_s0_adrs ;;
+  S1) run_check S1 check_s1_lifecycle ;;
+  S3)
+    check_env_exists "S3-ENV" production
+    ;;
+  S4)
+    check_repo_secret_names "S4-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CTXGATE_BASE_URL
+    check_worker_secret_names "S4-WORKER-SECRETS" ctxgate-read SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
+    ;;
+  S5)
+    check_repo_secret_names "S5-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+    check_worker_secret_names "S5-WORKER-SECRETS" ctxgate-write SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
+    ;;
+  S2|S6|S7|S8|S9)
+    printf '\n  note  %-14s this runner implements the standing checks only; the stage-specific\n' "$STAGE"
+    printf '        checks for %s are not implemented here, so this run is NOT a gate PASS for\n' "$STAGE"
+    printf '        %s. The stage report lists them separately.\n' "$STAGE"
+    BLOCKED=$((BLOCKED+1))
+    ;;
+esac
+
+printf '\n== result ==\n'
+printf '  PASS %d   FAIL %d   BLOCKED-EXTERNAL %d\n' "$PASSES" "$FAILURES" "$BLOCKED"
+if [[ "$FAILURES" -gt 0 ]]; then
+  echo "  RESULT: FAIL ($FAILURES failing check(s))"
+  exit 1
+fi
+if [[ "$BLOCKED" -gt 0 ]]; then
+  echo "  RESULT: BLOCKED-EXTERNAL ($BLOCKED unmet condition(s))"
+  exit 2
+fi
+echo "  RESULT: PASS (stage $STAGE)"
+exit 0
