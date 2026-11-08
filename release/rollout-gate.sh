@@ -46,13 +46,17 @@ REPO_SLUG="${ROLLOUT_REPO:-inscope-labs/build-engine}"
 # that another process could read. It is only ever used as an Authorization header.
 TOKEN="${GITHUB_TOKEN:-${GITHUB_PAT:-${GH_TOKEN:-}}}"
 
-FAILURES=0
-BLOCKED=0
-PASSES=0
+# The verdicts are counted through a file, not through shell variables. Several checks run inside
+# a subshell - "( cd gateway/write && npm test )" - and a subshell cannot change its parent's
+# variables. A verdict raised in a subshell would therefore never have reached the summary, and a
+# FAIL there would have been reported as a PASS: the runner would have failed OPEN. The file is
+# shared by every subshell, so every verdict counts, wherever it was raised.
+RESULTS="$(mktemp "${TMPDIR:-/tmp}/rollout-gate.XXXXXX")"
+trap 'rm -f "$RESULTS"' EXIT
 
-pass() { PASSES=$((PASSES+1)); printf '  PASS  %-14s %s\n' "$1" "${2:-}"; }
-fail() { FAILURES=$((FAILURES+1)); printf '  FAIL  %-14s %s\n' "$1" "${2:-}"; }
-blocked() { BLOCKED=$((BLOCKED+1)); printf '  BLOCKED-EXTERNAL  %-14s %s\n' "$1" "${2:-}"; }
+pass() { printf '  PASS  %-14s %s\n' "$1" "${2:-}"; echo P >> "$RESULTS"; }
+fail() { printf '  FAIL  %-14s %s\n' "$1" "${2:-}"; echo F >> "$RESULTS"; }
+blocked() { printf '  BLOCKED-EXTERNAL  %-14s %s\n' "$1" "${2:-}"; echo B >> "$RESULTS"; }
 note() { printf '  note  %-14s %s\n' "$1" "${2:-}"; }
 section() { printf '\n== %s ==\n' "$1"; }
 
@@ -573,6 +577,12 @@ case "$STAGE" in
     BLOCKED=$((BLOCKED+1))
     ;;
 esac
+
+# grep prints 0 and exits 1 when it finds nothing, so the fallback must not add a second number.
+count_verdicts() { grep -c "^$1\$" "$RESULTS" 2>/dev/null || true; }
+PASSES="$(count_verdicts P)"
+FAILURES="$(count_verdicts F)"
+BLOCKED="$(count_verdicts B)"
 
 printf '\n== result ==\n'
 printf '  PASS %d   FAIL %d   BLOCKED-EXTERNAL %d\n' "$PASSES" "$FAILURES" "$BLOCKED"
