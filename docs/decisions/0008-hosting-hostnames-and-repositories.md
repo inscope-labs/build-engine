@@ -1,6 +1,6 @@
 # 0008: hosting scope, hostnames, and repositories (amends 0001)
 
-Status: **decided** (2026-11-02), with open items listed below
+Status: **decided** (2026-11-02); open items DX-1 and DX-2 closed by ADR 0012 (2026-11-08)
 
 Closes plan decision D-6. Amends ADR 0001 as closed in pull request #33 (hosting scope and production hostname).
 
@@ -21,8 +21,8 @@ Records the operator's hosting and repository choices as given, and makes the ga
 
 ## Consequences
 - **Gate change needed (separate authorization).** `gateway/read/production/ops/render-environments.py` and `environments.json`/`environments.md` forbid production on `workers.dev`; the write gateway's production block pins `workers_dev = false` (protocol section 12.5). Changing them is code work outside this assignment's authorized paths.
-- **Open item DX-1, credential model for per-plan repositories.** Both gateways currently take a fixed repository in configuration, and a fine-grained token cannot be scoped to a repository that does not exist yet. How a gateway learns and is authorized for a repository created at onboarding is not decided here. It must be decided before any production deploy.
-- **Open item DX-2.** Exact hostnames, the pilot repository names and the plan tier are to be supplied.
+- **Open item DX-1, credential model for per-plan repositories.** Both gateways currently take a fixed repository in configuration, and a fine-grained token cannot be scoped to a repository that does not exist yet. How a gateway learns and is authorized for a repository created at onboarding is not decided here. It must be decided before any production deploy. (Closed by ADR 0012.)
+- **Open item DX-2.** Exact hostnames, the pilot repository names and the plan tier are to be supplied. (Closed by ADR 0012.)
 
 ## Blocks resolved
 D-6 as far as it can be decided today; hostname question in ADR 0001 closure.
