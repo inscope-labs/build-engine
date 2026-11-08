@@ -416,6 +416,28 @@ check_s0_adrs() {
       fail "S0-ADR-$n" "$(basename "$f") does not carry status 'decided'"
     fi
   done
+  # Each ADR must state the chosen option for the questions the exit gate names.
+  local f id missing_id=""
+  for f in docs/decisions/0010-*.md; do
+    for id in Q-A Q-C Q-D Q-E; do
+      grep -qF "$id" "$f" || missing_id="$missing_id 0010/$id"
+    done
+  done
+  for f in docs/decisions/0011-*.md; do
+    for id in Q-B Q-B2 Q-CB-1 Q-CB-2 Q-CB-3; do
+      grep -qF "$id" "$f" || missing_id="$missing_id 0011/$id"
+    done
+  done
+  for f in docs/decisions/0012-*.md; do
+    for id in Q-4 Q-5 DX-1 DX-2; do
+      grep -qF "$id" "$f" || missing_id="$missing_id 0012/$id"
+    done
+  done
+  if [[ -n "$missing_id" ]]; then
+    fail "S0-ADRCONTENT" "the chosen option is not stated for:$missing_id"
+  else
+    pass "S0-ADRCONTENT" "0010 (Q-A, Q-C, Q-D, Q-E), 0011 (Q-B, Q-B2, Q-CB-1..3), 0012 (Q-4, Q-5, DX-1, DX-2) each state their answer"
+  fi
   # The three BE-0 documents must no longer say draft.
   local d
   for d in COMPATIBILITY-MATRIX CAPABILITY-CONFORMANCE CBRIDGE-COVERAGE-MATRIX; do
@@ -465,7 +487,7 @@ check_s1_lifecycle() {
   section "S1 stage-specific checks"
   # The Worker conformance suite must run, and the case count is recorded (the plan expects 58).
   local out
-  out="$(gateway/read/production/test/run-conformance.py 2>&1)"
+  out="$(python3 gateway/read/production/test/run-conformance.py 2>&1)"
   local rc=$?
   local cases
   cases="$(printf '%s' "$out" | grep -oE '[0-9]+ (passed|cases)' | tail -1)"
@@ -476,32 +498,33 @@ check_s1_lifecycle() {
     note "S1-CASES" "the plan expects 58 cases; the report states the count this runner produced"
   fi
   # Every lifecycle item must map to a test file that exists.
-  local missing=""
-  while read -r item file; do
+  local missing="" item file
+  while IFS='|' read -r item file; do
     [[ -z "$item" ]] && continue
     if [[ ! -f "$file" ]]; then missing="$missing $item"; fi
   done <<'EOF'
-root capability gateway/write/tests/unit/auth/root-url.test.ts
-root capability signature gateway/write/tests/unit/auth/signature.test.ts
-task and work-order binding gateway/write/tests/unit/auth/policy-authz.test.ts
-single writer gateway/write/tests/unit/session/writer-claim.test.ts
-single writer (integration) gateway/write/tests/integration/single-writer.test.ts
-sequence and nonce gateway/write/tests/unit/session/sequence.test.ts
-staging scaffold gateway/write/tests/unit/staging/scaffold.test.ts
-staging append and read-back gateway/write/tests/unit/staging/append.test.ts
-staging delete gateway/write/tests/unit/staging/delete.test.ts
-staging status gateway/write/tests/unit/staging/status.test.ts
-UTF-8 and file-type checks gateway/write/tests/unit/policy/type-policy.test.ts
-UTF-8 decoding gateway/write/tests/unit/util/encodings.test.ts
-path safety gateway/write/tests/unit/policy/path-safety.test.ts
-quota accounting gateway/write/tests/unit/policy/quota-accounting.test.ts
-quota exhaustion gateway/write/tests/integration/quota-exhaustion.test.ts
-read-back and integrity gateway/write/tests/integration/happy-path.test.ts
-commit idempotency gateway/write/tests/unit/commit/commit-idempotency.test.ts
-commit and delivery (integration) gateway/write/tests/integration/commit-idempotency.test.ts
-seal gateway/write/tests/unit/seal/seal.test.ts
-seal close and revoke gateway/write/tests/integration/seal.test.ts
-tombstone (close) gateway/write/tests/unit/session/tombstones.test.ts
+root capability|gateway/write/tests/unit/auth/root-url.test.ts
+root capability signature|gateway/write/tests/unit/auth/signature.test.ts
+task and work-order binding|gateway/write/tests/unit/auth/policy-authz.test.ts
+task and work-order binding (integration)|gateway/write/tests/integration/adversarial-inputs.test.ts
+single writer|gateway/write/tests/unit/session/writer-claim.test.ts
+single writer (integration)|gateway/write/tests/integration/single-writer.test.ts
+sequence|gateway/write/tests/unit/session/sequence.test.ts
+staging scaffold|gateway/write/tests/unit/staging/scaffold.test.ts
+staging append and read-back|gateway/write/tests/unit/staging/append.test.ts
+staging delete|gateway/write/tests/unit/staging/delete.test.ts
+staging status|gateway/write/tests/unit/staging/status.test.ts
+UTF-8 and file-type checks|gateway/write/tests/unit/policy/type-policy.test.ts
+UTF-8 decoding|gateway/write/tests/unit/util/encodings.test.ts
+path safety|gateway/write/tests/unit/policy/path-safety.test.ts
+quota accounting|gateway/write/tests/unit/policy/quota-accounting.test.ts
+quota exhaustion|gateway/write/tests/integration/quota-exhaustion.test.ts
+read-back and integrity|gateway/write/tests/integration/happy-path.test.ts
+commit idempotency|gateway/write/tests/unit/commit/commit-idempotency.test.ts
+commit and delivery (integration)|gateway/write/tests/integration/commit-idempotency.test.ts
+seal|gateway/write/tests/unit/seal/seal.test.ts
+seal close and revoke|gateway/write/tests/integration/seal.test.ts
+tombstone (close)|gateway/write/tests/unit/session/tombstones.test.ts
 EOF
   if [[ -n "$missing" ]]; then
     fail "S1-LIFECYCLE" "no test file for:$missing"
