@@ -875,6 +875,7 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-075 | Phase 6 - **Stage 6.3** | Found and closed in Stage 6.3, by interrupting the workflow against the real provider: a provider failure at the branch move left the branch demonstrably where it was, and the gateway answered `409 reconcile-required` — a human — where the contract says `503 provider-unavailable`, which the agent may retry |
 | R0-013 | Phase 6 - **Stage 6.2**, closed 2026-11-05 | **CLOSED.** The `staging-pilot` workflow runs the signed leg against the deployed staging Workers with the secrets held in GitHub; run `41964576712` passed 44 checks on 2026-11-05 |
 | R0-014 | Phase 6 - **Stage 6.3**, decided 2026-11-07 | **ACCEPTED.** The failure scenarios run against the local runtime and the deployed no-secret probes; the deployed gateways do **not** get a fault-injection switch. The gap is documented, not closed |
+| F0-078, F0-079 | Stage S4 | Found and closed in Stage S4, by running the deployed state-failure proof against the real gateway: the proof asked the gateway before Cloudflare's deferred Durable Object code update had landed, so it saw a healthy store, and the run's summary asserted the conclusion instead of reporting the outcome |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 + **BE-0** | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070). **BE-0 changed the exposure rule** under ADR 0008 decision 2: production is on `workers.dev` for both gateways, and the shared-zone mitigations (distinct names, disjoint key ids, distinct destinations, no wildcard routes) are what the gates check instead. The compatibility-date review still stands |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
@@ -1385,3 +1386,70 @@ it, and each was read rather than pattern-matched:
   is S8's work and needs the `C-DIFF` review that goes with it.
 - `tests/test_cbridge.sh` — a test script that deliberately captures the output of a command
   it expects to fail. The assertions follow the capture; the capture is not a gate.
+
+## Addendum A14 — S4: the read gateway's staging acceptance (2026-11-09)
+
+Stage S4 of `docs/release/V0.6.0-ROLLOUT-PLAN.md`. One finding was CONFIRMED by execution
+against the deployed gateway, and one was found in the same file while fixing it.
+
+### F0-078 — The deployed state-failure proof asked the gateway before the failure was live
+
+- Severity: S2. Status: CONFIRMED (executed against the deployed staging gateway, run
+  `42701286443`, 2026-11-09). **Closed in the pull request that carries this addendum**, once
+  the operator merges it and the proof is re-run.
+- The finding: S4 requires a proof that the **deployed** read gateway fails closed when its
+  state store cannot be read. The workflow plants that failure by deploying a build whose
+  Durable Object constructor throws, and then asks the deployed gateway for a link. The first
+  run of it answered `403` where the proof expected `503 state-unavailable`:
+
+      the unsigned request answered 403: forbidden (link invalid, expired or revoked)
+      FAIL the request is refused with 503, not served
+      FAIL the refusal names state-unavailable (forbidden (link invalid, expired or revoked))
+
+  The run failed, and it failed honestly: the restore step ran, the good build was published
+  again, and the gateway serves.
+- Root cause: **the failure was never live.** Cloudflare's default Durable Object code-update
+  strategy is `deferred`, with a maximum delay of 300 seconds. An object that is already
+  running keeps running the **old** code after a deploy, so the new constructor is not
+  executed for the object that is actually serving. The workflow deployed and then asked the
+  gateway immediately, within about half a second of the deploy, so it reached the *healthy*
+  store. The gateway was right to refuse with `403`: it could read its state, so there was no
+  reason to answer `503`. A naive reading of the failed run — "the gateway did not fail
+  closed" — would have been the opposite of the truth.
+- Consequence: the proof proved nothing. An S4 exit-gate item rested on a run that could
+  never have passed, and the failure was indistinguishable from a gateway that genuinely
+  failed open. The two must not look alike: one is a proof that does not work, the other is
+  a defect in the product.
+- Required resolution: the probe must wait for the planted failure to become live before it
+  concludes anything, and it must be able to say **which** answer it saw. The wait must be
+  longer than the vendor's maximum delay.
+- Resolution: `ops/state-failure-probe.py` gained `--wait SECONDS`, which polls until the
+  expected answer appears or the bound expires, and prints every attempt, so a run that times
+  out says what the gateway answered and when it answered it. It also gained `--check-admin`,
+  which asks the operator channel - the one route that reaches the state store directly - so
+  the evidence distinguishes "the gateway refused" from "there was nothing to read". The
+  workflow now runs the probe with `--wait 420`, which is longer than Cloudflare's
+  300-second maximum delay, and the plant is unchanged: the state store itself is still the
+  thing that is broken.
+- Owner: the agent. Planned phase: Stage S4.
+- Closure evidence: the proof re-run after this change, with the transcript in the run, and
+  the S4 exit gate's `S4-STATE-FAILURE` check.
+
+### F0-079 — The state-failure run's summary asserted the proof's conclusion instead of reporting it
+
+- Severity: S3. Status: CONFIRMED (found in the same file while fixing F0-078). **Closed in
+  the pull request that carries this addendum.**
+- The finding: the run summary step ran with `if: always()`, so it ran after a failed probe
+  too, and its text stated the conclusion as fact: "It answered 503 state-unavailable
+  instead of serving it, and /healthz kept answering". A failed run would have left a
+  summary in the run's record saying the proof passed. The run `42701286443` was a failed
+  proof whose summary claimed a passed one.
+- Consequence: the run record - the artifact a reviewer reads - is wrong exactly when it
+  matters most. A summary that states a conclusion rather than reporting an outcome is a
+  defect in its own right, and it is the kind that survives: the transcript shows the
+  failure, but the summary above it says the opposite.
+- Required resolution: the summary must report the outcome of the steps it summarises.
+- Resolution: the probe and restore steps now have ids, and the summary reports
+  `steps.probe.outcome` and `steps.restore.outcome` explicitly, saying which of the two
+  happened. It makes no claim about the result it did not observe.
+- Owner: the agent. Planned phase: Stage S4.

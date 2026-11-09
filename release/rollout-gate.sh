@@ -761,6 +761,28 @@ check_s4_read_gateway() {
     fi
   fi
 
+  # --- the deployed gateway has been shown to fail closed.
+  # The plan's S4 exit gate wants a proof that the DEPLOYED gateway refuses when its state
+  # store cannot be read. The proof is a run of the staging-state-failure workflow, and it is
+  # only evidence if it passed. A failed run is not a weak proof; it is no proof at all, and
+  # the run's own transcript is what says which it was (F0-078).
+  local sf_run sf_concl
+  sf_run="$(api GET "/repos/$REPO_SLUG/actions/workflows/staging-state-failure.yml/runs?per_page=10" 2>/dev/null \
+    | jq -r '[.workflow_runs[]? | select(.head_branch == "main")] | .[0].id // empty' 2>/dev/null)"
+  if [[ -z "$sf_run" ]]; then
+    blocked "S4-STATE-FAILURE" "the state-failure proof has never been run against the deployed gateway"
+  else
+    sf_concl="$(api GET "/repos/$REPO_SLUG/actions/runs/$sf_run" 2>/dev/null \
+      | jq -r '.conclusion // ""' 2>/dev/null)"
+    if [[ "$sf_concl" == "success" ]]; then
+      pass "S4-STATE-FAILURE" "the deployed state-failure proof passed (run $sf_run)"
+    elif [[ -z "$sf_concl" ]]; then
+      blocked "S4-STATE-FAILURE" "the state-failure proof (run $sf_run) has not finished"
+    else
+      fail "S4-STATE-FAILURE" "the state-failure proof (run $sf_run) concluded '$sf_concl': the deployed gateway was not shown to fail closed"
+    fi
+  fi
+
   # --- the production run's environment approval.
   # The plan: "The production run shows an environment approval by a login recorded in ADR
   # 0013 that is not the dispatching agent's identity. No approval means FAIL. If ADR 0013

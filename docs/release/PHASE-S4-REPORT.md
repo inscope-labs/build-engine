@@ -2,12 +2,19 @@
 
 **Stage:** S4 of `docs/release/V0.6.0-ROLLOUT-PLAN.md` (build plan BE-4).
 **Entry gate:** S3's `[R]` work is on `main` (PR #53 merged as `83e15e15`; `PHASE-S3-REPORT.md`).
-S3's `[E]` condition — the `production` environment's required reviewer — is **still unmet**,
-and so are S4's own `[E]` conditions (section 0).
-**Baseline:** `main` at `83e15e15`. `VERSION` = `0.5.0`.
-**Branch:** `s4/read-gateway-staging-acceptance`. **Pull request:** **#54**.
-**Result:** **the staging half is done and verified; the production half is BLOCKED-EXTERNAL.**
-`release/rollout-gate.sh S4` → **26 PASS, 0 FAIL, 4 BLOCKED-EXTERNAL** (exit 2).
+**Baseline:** `main` at `83e15e15` when this stage opened; **PR #54 is merged** (`608155f`).
+**VERSION** = `0.5.0`.
+**Branch:** `s4/read-gateway-staging-acceptance` (PR **#54**, merged). The production half and
+the deployed proof's fix are together on `s4/production-authorization` (PR **#55**).
+**Result:** **the staging half is done and verified. The production half is authorized and its
+changes are in review; it is still blocked on the operator for two things** — the second
+approver account and the production environment's values (section 7).
+`release/rollout-gate.sh S4` → **26 PASS, 0 FAIL, 4 BLOCKED-EXTERNAL** (exit 2) before the
+operator's answers; see section 7 for the state after them.
+
+> **Section 7 is an addendum**, written on 2026-11-09 after the operator answered S4's unblock
+> questionnaire. Sections 0 to 6 are the stage as it was delivered; section 7 supersedes them
+> where it says so.
 **The read gateway is published.** `https://ctxgate-read-staging.qnuralink.workers.dev` answers,
 serves the staging key id `s1`, and refuses what it must.
 **Scope kept:** no merge, no tag, no publication, no production deploy, and **no change to any
@@ -303,3 +310,111 @@ at `1563bd2`, and the result was the same both times.
 | `GET /repos/…/actions/runs/42660470167/approvals` | `[]` — and the endpoint works |
 | `POST /actions/workflows/staging-state-failure.yml/dispatches` | **404** — the workflow is not on `main` yet |
 | `python3 ops/render-environments.py --assert-deployable production` | exit 1 — `GITHUB_REPO is still a placeholder: OWNER/REPO` |
+
+
+---
+
+## 7. The production half, after the operator's answers (2026-11-09)
+
+The operator answered S4's unblock questionnaire on 2026-11-09 and authorized all four actions
+the questionnaire asked about. This section records what that made possible, what was applied,
+what the answers did **not** make possible, and the two findings the stage produced when it
+ran the deployed proof.
+
+### 7.1 The answers
+
+| Question | Answer | What it changed |
+|---|---|---|
+| the approver on `production` | **A** — a second personal account, login `inscope-xlabs` | ADR 0013's addendum records the login; the protection rule is authorized |
+| the production repository and allowlist | **A** — `acme-pilot-dev`, `amk/,plans/*/package/` | the committed configuration carries them and `wrangler.toml` is re-rendered |
+| the credential's scope | **A** — the operator grants Secrets (read) and Environments (read/write) | the secret lists became readable **by name** (section 7.3) |
+| the authorizations | **all four** | the protection rule, the ADR addendum, the configuration edit, and the dispatches |
+
+### 7.2 What was applied
+
+- **ADR 0013 gained an addendum.** The two conditions it carried are met: the approver's login
+  is supplied, and it is not the login the agent dispatches as. The addendum names the four
+  authorizations, each of which the operator granted explicitly.
+- **The production configuration carries the real values.** `GITHUB_REPO` was the placeholder
+  `OWNER/REPO`, which `render-environments.py` refuses to deploy; it is now `acme-pilot-dev`,
+  and `wrangler.toml` is re-rendered from it. One line in each file.
+  `--assert-deployable production` now answers *"the 'production' environment is ready to deploy"*.
+- **The gate's lookup of the recorded login is precise.** It reads the one line the addendum's
+  convention defines, so no other backticked word in the ADR can be mistaken for a login, and
+  with no addendum it yields nothing and the approval gate stays BLOCKED-EXTERNAL.
+- **Pull request #55** carries all of it. CI is 7/7 green. **The operator merges it** (G-12).
+
+### 7.3 The credential now reads the secret lists
+
+With the scope the operator granted, all four listings answer 200. The names are:
+
+| Environment | Secret and variable names |
+|---|---|
+| `staging` | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CTXGATE_BASE_URL`, `CTXGATE_OPERATOR_TOKEN`, `CTXGATE_SECRET`, `CTXGATE_WRITE_OPERATOR_TOKEN`, `CTXGATE_WRITE_SECRET`, `READ_GH_TOKEN`, `WRITE_GH_TOKEN`, and the variable `DELIVERY_PUBLIC_KEY` |
+| `production` | **none** — no secret and no variable |
+| repository level | **none** |
+
+**Names only. No value was read, printed or stored** (ADR 0013 item 4). The production
+environment is therefore **unprovisioned**, which is the operator's outstanding checklist item,
+and the `production-init` run would fail on it. The `staging` environment shows what a
+provisioned environment looks like.
+
+### 7.4 The two things the answers did not make possible
+
+**The approver account does not exist yet.** `GET /users/inscope-xlabs` answers **404**, and
+`GET /repos/inscope-labs/build-engine/collaborators` lists **one** account with access:
+`inscope-labs`, which is the identity the agent dispatches as — so it cannot also be the
+reviewer. There **is** a pending collaborator invitation (id `342406426`, `write`, created
+`2026-11-09T10:53:04Z`), and its `invitee` is `null`: it was sent to an address, not to an
+existing login, so **no GitHub user id exists for it yet**. GitHub's required-reviewer rule
+takes a numeric user id, so the protection rule cannot be written until the account is created
+and the invitation is accepted. Adding `inscope-labs` as the reviewer would satisfy the API
+and defeat the ADR: the approval gate would approve itself.
+
+**The production environment holds no values.** Section 7.3. The operator's checklist covers
+this, and it is the only way to set it: GitHub has no API for a secret's value, and ADR 0013
+item 4 says the agent never handles one.
+
+### 7.5 The deployed proof failed, and the failure was the point
+
+With PR #54 merged, the state-failure proof became dispatchable. **Run `42701286443` failed**,
+and it failed honestly: the restore step ran, the good build was published again, and the
+gateway serves (`/healthz` answers 200, key ids `['s1']`).
+
+    the unsigned request answered 403: forbidden (link invalid, expired or revoked)
+    FAIL the request is refused with 503, not served
+    FAIL the refusal names state-unavailable (forbidden (link invalid, expired or revoked))
+
+**The cause was not the gateway.** Cloudflare's default Durable Object code-update strategy is
+`deferred`, with a maximum delay of 300 seconds: an object that is already running keeps
+running the **old** code after a deploy, so the planted constructor throw was never executed
+for the object that was serving. The workflow deployed and asked the gateway within half a
+second, so it reached a healthy store — and the gateway was right to answer `403`, because it
+could read its state and had no reason to answer `503`. This is **F0-078**, and the second
+finding, that the run's summary asserted the proof's conclusion instead of reporting it, is
+**F0-079**.
+
+The fix is in PR **#55**: the probe waits for the planted failure to become live (`--wait`,
+longer than the vendor's maximum delay), prints every attempt so a timeout says what was
+answered and when, and asks the operator channel — the one route that reaches the state store
+directly — so the evidence distinguishes *"the gateway refused"* from *"there was nothing to
+read"*. The plant is unchanged: **the state store itself is still the thing that is broken.**
+
+The gate gained `S4-STATE-FAILURE`, which requires the most recent proof run to have
+**concluded `success`**. A failed run is not a weak proof; it is no proof, and the gate now
+says so.
+
+### 7.6 The state after the answers
+
+| Item | State | Whose |
+|---|---|---|
+| PR #55 — the ADR addendum, the configuration, the gate's login lookup | open, CI 7/7 | **operator: merge** |
+| PR #55 — the proof's fix and `S4-STATE-FAILURE` (same pull request) | open | **operator: merge** |
+| the `inscope-xlabs` account and its invitation | does not exist | **operator: create and accept** |
+| the production environment's five secrets and one variable | unprovisioned | **operator: set** |
+| the protection rule on `production` | not written | agent, once the account exists |
+| the production deploy | not dispatched | agent, once the rule and the values are in place |
+
+**Nothing was merged, tagged, published or deployed to production.** The only deployment this
+stage performed after the answers was the **staging** one the state-failure proof needs, and
+the proof's restore step put the good build back.
