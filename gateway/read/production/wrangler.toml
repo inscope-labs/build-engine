@@ -145,7 +145,7 @@ new_sqlite_classes = ["GatewayState"]
 
 [env.production.vars]
   GITHUB_API_BASE = "https://api.github.com"
-  GITHUB_REPO = "OWNER/REPO"
+  GITHUB_REPO = "acme-pilot-dev"
   ALLOW_PREFIXES = "amk/,plans/*/package/"
   DENY_PATTERNS = "[\"(^|/)\\\\.git(/|$)\",\"(^|/)\\\\.github/\",\"(^|/)\\\\.env\",\"(^|/)(secrets?|credentials?)(\\\\.|/|$)\",\"\\\\.(pem|key|p12)$\",\"(^|/)__pycache__(/|$)\",\"\\\\.pyc$\"]"
   MAX_BYTES = "1048576"

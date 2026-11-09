@@ -704,10 +704,14 @@ s4_staging_host() {
 # The GitHub login(s) ADR 0013 records for the approver. The ADR's own condition says the
 # operator supplies them by an addendum to it, and that until they are supplied the gates
 # that compare an author with a login are BLOCKED-EXTERNAL. The lookup is deliberately
-# narrow: a backticked token on a line that records the login. Everything the gate is about
-# to compare against is printed, so a mismatch is diagnosable rather than mysterious.
+# narrow: the addendum states a convention, and this reads exactly that line — one that
+# begins `**Login.**` immediately followed by a backticked login. Every other backticked
+# word in the ADR is therefore incapable of being mistaken for a login. Everything the gate
+# is about to compare against is printed, so a mismatch is diagnosable rather than
+# mysterious.
 s4_recorded_logins() {
-  grep -iE '\*\*login' docs/decisions/0013-rollout-authorizations.md 2>/dev/null \
+  grep -iE '^\s*[-*]?\s*\*\*login\.\*\*\s*`[A-Za-z0-9][A-Za-z0-9-]{0,38}`' \
+    docs/decisions/0013-rollout-authorizations.md 2>/dev/null \
     | grep -oE '`[A-Za-z0-9][A-Za-z0-9-]{0,38}`' | tr -d '`' | sort -u | tr '\n' ' '
 }
 
