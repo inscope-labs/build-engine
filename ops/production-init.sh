@@ -135,7 +135,13 @@ init_one() {
   cd "$ROOT/$dir"
   npm ci --no-audit --no-fund >/dev/null
 
-  listed="$(npx wrangler secret list "${envargs[@]}" 2>/dev/null || true)"
+  # No permissive fallback: a wrangler that cannot list the secrets is reported as such,
+  # instead of being flattened into an empty list that the checks below read as "no secrets
+  # yet". Both readings block or permit the same way here, but only one of them tells the
+  # operator what actually happened.
+  if ! listed="$(npx wrangler secret list "${envargs[@]}" 2>&1)"; then
+    fail "$label: wrangler could not list the production Worker's secrets: $(printf '%s' "$listed" | tail -n 1)"
+  fi
   if printf '%s' "$listed" | grep -q SIGNING_KEYS \
      && printf '%s' "$listed" | grep -q OPERATOR_TOKEN \
      && printf '%s' "$listed" | grep -q GITHUB_TOKEN \
@@ -158,7 +164,9 @@ init_one() {
   put SIGNING_KEYS "$signing_json"
   put OPERATOR_TOKEN "$operator"
 
-  listed="$(npx wrangler secret list "${envargs[@]}" 2>/dev/null || true)"
+  if ! listed="$(npx wrangler secret list "${envargs[@]}" 2>&1)"; then
+    fail "$label: wrangler could not list the production Worker's secrets after the run: $(printf '%s' "$listed" | tail -n 1)"
+  fi
   for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
     printf '%s' "$listed" | grep -q "$s" || fail "$label: $s is not set after the run"
   done

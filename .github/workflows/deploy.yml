@@ -20,6 +20,32 @@ name: deploy
 # is the very first deploy (`first_deploy: yes`): a Worker without SIGNING_KEYS refuses to
 # start, so the first deploy is safe, and `production-init` then sets the secrets. After it
 # publishes, and when `base_url` is given, the published gateway is asked what it is.
+#
+# ---------------------------------------------------------------------------
+# THE DEPLOYMENT IS A FAIL-CLOSED SEQUENCE (rollout plan S3, build plan BE-3)
+#
+# The stages below are separate jobs joined by `needs:`, so the order is the job graph and
+# not a comment. Nothing is published unless every stage passed:
+#
+#   1. typecheck                  npm run typecheck
+#   2. unit and integration       npm test (unit, integration, load and chaos)
+#   3. conformance                the shared-property suite and the task-state vectors
+#   4. privacy and log hygiene    the log hygiene gate and the credential's reach
+#   5. bundle verification        the bundle builds, for every environment
+#   6. staging acceptance         the staging gateway is deployed, and it is the staging one
+#   7. explicit production approval  the `production` environment's required reviewer
+#
+# Stage 7 is the environment: GitHub holds the job at the approval prompt until a reviewer
+# releases it, and that reviewer is never the identity that dispatched the run (ADR 0013
+# item 3). The approval is therefore the last thing that happens before the publish, and it
+# cannot be skipped by editing a step, because it is a property of the environment.
+#
+# Stage 6 is not decoration. A production deployment that has not been preceded by an
+# accepted staging deployment would publish a gateway nobody has seen running. The check is
+# against the deployed staging gateway's own identity, so it fails closed when staging has
+# not been deployed, and it fails closed when the gateway answering at the staging host is
+# not the staging one.
+# ---------------------------------------------------------------------------
 on:
   workflow_dispatch:
     inputs:
@@ -39,6 +65,11 @@ on:
         required: false
         type: string
         default: ""
+      staging_base:
+        description: "the staging write gateway, which must have been deployed and accepted before production is published"
+        required: false
+        type: string
+        default: "https://ctxgate-write-staging.qnuralink.workers.dev"
 permissions:
   contents: read
 concurrency:
@@ -48,7 +79,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   gate:
-    name: the deploy gate
+    name: 1-5 the deploy gate
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,26 +94,78 @@ jobs:
             echo "this may only run from main, not from ${GITHUB_REF}"
             exit 1
           fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
-      - run: npm run typecheck
-      - name: The whole test suite
+      - name: 1 - the typecheck, over three programs
+        run: npm run typecheck
+      - name: 2 - the whole test suite (unit, integration, load and chaos)
         run: npm test
-      - name: The contract documents agree
-        run: python3 scripts/check-contract-consistency.py
-      - name: The log hygiene and credential boundary gate
+      - name: 3 - the shared-property conformance suite (ADR 0010, Q-A)
+        working-directory: .
+        run: python3 conformance/harness/run_shared.py
+      - name: 3 - the task-state transition vectors (ADR 0011, Q-B)
+        working-directory: .
+        run: python3 conformance/harness/transition_reference.py
+      - name: 3 - the contract documents agree with the code
+        run: npm run check:contract
+      - name: 4 - the log hygiene and credential boundary gate
         run: npm run verify:log-hygiene
-      - name: The production configuration is deployable
+      - name: 4 - the credential's reach in the code
+        run: npm run check:token-scope -- --static
+      - name: 5 - the bundle builds, for every environment
+        run: npm run check:bundle
+      - name: the production configuration is deployable
         run: python3 scripts/check-production.py
-  deploy:
-    name: deploy
+
+  staging-acceptance:
+    name: 6 - staging acceptance
     needs: gate
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/write
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/write/package-lock.json
+      - run: npm ci
+      - name: the write gateway's staging environment is separate from production
+        run: npm run check:staging
+      - name: the read gateway's staging environment is separate from production
+        run: npm run check:staging:read
+      - name: the deployed staging gateway is the staging one
+        env:
+          STAGING_BASE: ${{ inputs.staging_base }}
+        run: |
+          set -euo pipefail
+          # The check must be aimed at the staging gateway. A production host here would be
+          # meaningless: it would compare the production gateway with the staging
+          # configuration, and it would fail for a reason that has nothing to do with
+          # staging. The pattern is the same one the staging pilot uses.
+          printf '%s' "$STAGING_BASE" | grep -Eq '^https://ctxgate-write-staging\.[A-Za-z0-9.-]+$' || {
+            echo "staging_base must be a ctxgate-write-staging host (ADR 0012): $STAGING_BASE"
+            exit 1
+          }
+          echo "accepting the staging gateway at $STAGING_BASE"
+          python3 scripts/check-staging-separation.py --base-url "$STAGING_BASE"
+
+  deploy:
+    name: 7 - deploy
+    needs: [gate, staging-acceptance]
+    runs-on: ubuntu-latest
+    # The environment is the approval. GitHub holds this job until a reviewer releases it,
+    # and the reviewer is a person: the identity that dispatched the run is not one of
+    # them (ADR 0013 item 3).
     environment: production
     defaults:
       run:
@@ -90,17 +173,13 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: gateway/write/package-lock.json
       - run: npm ci
-      # The bundle is built and inspected before it is published. A bundle that does not build
-      # is not deployed, and a bundle whose size has moved a long way is worth a second look.
-      - name: Build the bundle, without deploying it
-        run: npm run check:bundle
       - name: The production Worker has its secrets
         if: inputs.first_deploy != 'yes'
         env:
@@ -108,7 +187,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          listed="$(npx wrangler secret list 2>/dev/null || true)"
+          # The secret list is fetched without a permissive fallback. This line used to end in
+          # a shell fallback that swallowed a failing wrangler - a bad credential, a wrong
+          # account, a network error - and turned it into an empty list, which the loop below
+          # then reported as "production is missing SIGNING_KEYS". The deployment was blocked
+          # either way, so this was never a hole in the gate; it was a wrong diagnosis of one,
+          # and a reader could not tell a missing secret from a broken credential.
+          #
+          # Now both outcomes are distinguished, and both block. A failing wrangler is reported
+          # as a failing wrangler; a secret that is genuinely absent is reported as absent.
+          if ! listed="$(npx wrangler secret list 2>&1)"; then
+            echo "wrangler could not list the production Worker's secrets:"
+            printf '%s\n' "$listed" | tail -n 20
+            exit 1
+          fi
           for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
             printf '%s' "$listed" | grep -q "$s" || {
               echo "production is missing $s: run production-init first (or first_deploy=yes for the very first deploy)"

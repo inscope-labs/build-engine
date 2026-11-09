@@ -7,6 +7,24 @@ name: deploy read gateway
 #
 # The same gate script runs in both jobs, so the thing that decides whether a deployment may
 # happen is one script, not two configurations of it.
+#
+# ---------------------------------------------------------------------------
+# THE DEPLOYMENT IS A FAIL-CLOSED SEQUENCE (rollout plan S3, build plan BE-3)
+#
+#   1. configuration       ops/deploy-gate.sh: the configuration is valid and not drifted
+#   2. typecheck           the code type-checks
+#   3. unit tests          the shared signing vectors, reproduced byte for byte
+#   4. bundle verification the bundle builds, for every environment
+#   5. conformance         the shared conformance suite against the Worker, over real HTTP
+#      plus the abuse controls and the operational checks
+#   6. privacy             the isolation proof: the gateway does not write to the source
+#                          repository and does not keep a copy of what it served
+#   7. staging acceptance  the staging gateway is deployed, and it is the staging one
+#   8. explicit approval   the environment's required reviewer
+#
+# The gate script runs stages 1 to 6. Stage 7 is its own job, and the publish job waits for
+# it, so a production publication cannot precede an accepted staging deployment.
+# ---------------------------------------------------------------------------
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +35,11 @@ on:
           - staging
           - production
         required: true
+      staging_base:
+        description: "the staging read gateway, which must have been deployed and accepted before production is published"
+        required: false
+        type: string
+        default: "https://ctxgate-read-staging.qnuralink.workers.dev"
 permissions:
   contents: read
 concurrency:
@@ -25,7 +48,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   gate:
-    name: the gate
+    name: 1-6 the gate
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,11 +56,11 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -45,9 +68,52 @@ jobs:
       - name: The gate
         run: bash ops/deploy-gate.sh --env "${{ inputs.environment }}"
 
-  publish:
-    name: publish to ${{ inputs.environment }}
+  staging-acceptance:
+    name: 7 - staging acceptance
     needs: gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway/read/production
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/read/production/package-lock.json
+      - name: the read gateway's staging environment is separate from production
+        # The script lives with the write gateway, because the separation it checks is a
+        # property of the shared zone (ADR 0008, item 4) and both gateways are inside it.
+        run: python3 ../../write/scripts/check-staging-separation.py --kind read
+      - name: the deployed staging gateway is the staging one
+        # Only for production. For a staging publication this deployment IS the staging
+        # acceptance, and the check after the publish says so. The step is skipped rather
+        # than the job, because a skipped job would skip the publish job that waits for it.
+        if: inputs.environment == 'production'
+        env:
+          STAGING_BASE: ${{ inputs.staging_base }}
+        run: |
+          set -euo pipefail
+          # The check must be aimed at the staging gateway. A production host here would be
+          # meaningless: it would compare the production gateway with the staging
+          # configuration, and it would fail for a reason that has nothing to do with
+          # staging. The pattern is the same one the staging pilot uses.
+          printf '%s' "$STAGING_BASE" | grep -Eq '^https://ctxgate-read-staging\.[A-Za-z0-9.-]+$' || {
+            echo "staging_base must be a ctxgate-read-staging host (ADR 0012): $STAGING_BASE"
+            exit 1
+          }
+          echo "accepting the staging gateway at $STAGING_BASE"
+          python3 ../../write/scripts/check-staging-separation.py --kind read --base-url "$STAGING_BASE"
+
+  publish:
+    name: 8 - publish to ${{ inputs.environment }}
+    needs: [gate, staging-acceptance]
     runs-on: ubuntu-latest
     # The environment is the operator's gate: a reviewer must approve it, and the secrets
     # live in it rather than in the repository.
@@ -58,11 +124,11 @@ jobs:
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm

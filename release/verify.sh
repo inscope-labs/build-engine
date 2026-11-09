@@ -124,7 +124,19 @@ while IFS= read -r line; do
   kind="${line%%:*}"; re="${line#*: }"
   case "$kind" in
     path) grep -Eq -- "$re" "$WORK/members" && { grep -E -- "$re" "$WORK/members" | head -3 >&2; die "forbidden path rule hit: $re"; } ;;
-    text) hits="$(grep -ralE -- "$re" "$X" || true)"; [[ -z "$hits" ]] || { echo "$hits" | head -3 >&2; die "forbidden content rule hit: $re"; } ;;
+    text) if hits="$(grep -ralE -- "$re" "$X")"; then
+            :
+          else
+            # grep answers 1 when it found nothing and 2 when it could not look. Only the
+            # first is a clean result; the second is a rule that was never evaluated, and a
+            # rule that was never evaluated must not pass.
+            rc=$?
+            if [[ "$rc" -ne 1 ]]; then
+              die "forbidden content rule could not be evaluated (grep exit $rc): $re"
+            fi
+            hits=""
+          fi
+          [[ -z "$hits" ]] || { echo "$hits" | head -3 >&2; die "forbidden content rule hit: $re"; } ;;
     *) die "forbidden.txt: bad rule '$line'" ;;
   esac
 done < "$ROOT/release/forbidden.txt"

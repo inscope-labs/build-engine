@@ -81,7 +81,12 @@ init_one() {
   cd "$ROOT/$dir"
   npm ci --no-audit --no-fund >/dev/null
 
-  listed="$(npx wrangler secret list --env staging 2>/dev/null || true)"
+  # No permissive fallback: a wrangler that cannot list the secrets is reported as such,
+  # instead of being flattened into an empty list that the check below reads as "no secrets
+  # yet".
+  if ! listed="$(npx wrangler secret list --env staging 2>&1)"; then
+    fail "$label: wrangler could not list the staging Worker's secrets: $(printf '%s' "$listed" | tail -n 1)"
+  fi
   if printf '%s' "$listed" | grep -q SIGNING_KEYS \
      && printf '%s' "$listed" | grep -q OPERATOR_TOKEN \
      && printf '%s' "$listed" | grep -q GITHUB_TOKEN \
@@ -103,7 +108,9 @@ init_one() {
   put SIGNING_KEYS "$signing_json"
   put OPERATOR_TOKEN "$operator"
 
-  listed="$(npx wrangler secret list --env staging 2>/dev/null || true)"
+  if ! listed="$(npx wrangler secret list --env staging 2>&1)"; then
+    fail "$label: wrangler could not list the staging Worker's secrets after the run: $(printf '%s' "$listed" | tail -n 1)"
+  fi
   for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
     printf '%s' "$listed" | grep -q "$s" || fail "$label: $s is not set after the run"
   done
@@ -116,7 +123,10 @@ b[os.environ["LABEL"]]={"worker":os.environ["WORKER"],"key_id":os.environ["KEYID
 json.dump(b,open(os.environ["B"],"w"))
 PY
   local url=""
-  [ -f "$TMP/deploy-$label.txt" ] && url="$(grep -o 'https://[^ ]*workers\.dev' "$TMP/deploy-$label.txt" | head -1 || true)"
+  # awk, not grep: grep answers 1 when it matches nothing, and under "set -e" that would end
+  # the script before the summary below could be written. awk prints the first match and
+  # answers 0 whether or not it found one.
+  [ -f "$TMP/deploy-$label.txt" ] && url="$(awk 'match($0, /https:\/\/[^ ]*workers\.dev/) { print substr($0, RSTART, RLENGTH); exit }' "$TMP/deploy-$label.txt")"
   {
     echo "- **$label**: Worker \`$worker\`, key id \`$keyid\`, secrets set: SIGNING_KEYS, OPERATOR_TOKEN, GITHUB_TOKEN"
     [ -n "$url" ] && echo "  - URL printed by the deploy: \`$url\`"
