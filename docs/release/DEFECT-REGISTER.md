@@ -1331,7 +1331,7 @@ gate could run.
   clean checkout of `main` at `b5d20dd` it answers:
 
       $ ROLLOUT_GATE_ONLY=C-SECRETS release/rollout-gate.sh S1
-      note  C-SECRETS  HIT in docs/release/PHASE-S2-REPORT.md: Bearer test-operator-token
+      note  C-SECRETS  HIT in docs/release/PHASE-S2-REPORT.md: Bearer <the operator token sentinel>
       FAIL  C-SECRETS  1 hit(s) in the tree, diff against origin/main hit: 0
 
   The hit is in the **S2 stage report**, in the sentence that lists the sentinels the S2 run
@@ -1339,6 +1339,9 @@ gate could run.
   for. The report was written *after* its own gate run, so the run could not have seen it: the
   report says `C-SECRETS` pass, and it did pass, and then the sentence that recorded the pass
   made it fail.
+
+  The line above is the transcript with the literal replaced, and it is replaced for the same
+  reason: this addendum's first draft quoted the shape, and the scan caught the addendum.
 - Consequence: every stage from S3 onwards would have failed its entry gate on a hit that no
   agent had introduced and that the file it was in had already been written about. The check
   was right; the document was wrong.
@@ -1347,7 +1350,7 @@ gate could run.
 - Closure evidence: the sentence in `docs/release/PHASE-S2-REPORT.md` now names the operator
   token sentinel without reproducing a credential-shaped literal. `ROLLOUT_GATE_ONLY=C-SECRETS
   release/rollout-gate.sh S3` answers `PASS ... no credential shape in 373 file(s) or in the
-  diff against origin/main (10 deliberate sentinel(s) excluded and listed)`, with the 10
+  diff against origin/main (8 deliberate sentinel(s) excluded and listed)`, with the 8
   exclusions listed one by one, as the check always has.
 
 ### F0-077 — The consumer's update script claimed a rollback that may not have happened
