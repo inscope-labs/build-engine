@@ -41,8 +41,8 @@ jobs:
             echo "this may only run from main, not from ${GITHUB_REF}"
             exit 1
           fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -70,8 +70,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -82,7 +82,14 @@ jobs:
       - name: The staging Worker has its secrets
         run: |
           set -euo pipefail
-          listed="$(npx wrangler secret list --env staging 2>/dev/null || true)"
+          # Without a permissive fallback: a wrangler that cannot list the secrets is a failure
+          # in its own right, and it is reported as one instead of as a missing secret. Both
+          # outcomes block the deployment.
+          if ! listed="$(npx wrangler secret list --env staging 2>&1)"; then
+            echo "wrangler could not list the staging Worker's secrets:"
+            printf '%s\n' "$listed" | tail -n 20
+            exit 1
+          fi
           for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
             printf '%s' "$listed" | grep -q "$s" || {
               echo "staging is missing $s: run the staging-init workflow first"
@@ -99,7 +106,13 @@ jobs:
           set -euo pipefail
           url="$IN_BASE_URL"
           if [ -z "$url" ]; then
-            url="$(grep -o 'https://[^ ]*workers\.dev' "$RUNNER_TEMP/deploy.txt" | head -1 || true)"
+            # awk, not grep. grep answers 1 when it matches nothing, and under "set -e" that
+            # would end the script on the spot, before the check below could say what had
+            # happened. awk prints the first match and answers 0 whether or not it found one,
+            # so the check below is the only thing that decides, and its message is the one
+            # the operator reads. This line used to carry a permissive shell fallback for the
+            # same reason.
+            url="$(awk 'match($0, /https:\/\/[^ ]*workers\.dev/) { print substr($0, RSTART, RLENGTH); exit }' "$RUNNER_TEMP/deploy.txt")"
           fi
           if [ -z "$url" ]; then
             echo "the staging URL was not in the deploy output: run again with base_url set"

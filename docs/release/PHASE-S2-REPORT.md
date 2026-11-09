@@ -66,7 +66,7 @@ shared properties.
 Standing checks, this branch: `C-PROT` pass; `C-CI` pass (7 runs on `main`); `C-BASE` pass (94; 150 and 22); `C-CONF` pass
 (harness 94); `C-READ` pass (unit 37, ops, bundle, staging separation); `C-WRITE` pass (typecheck, **398 tests**, contract,
 staging separation); `C-ISO` pass; `C-SECRETS` pass (370 files, the diff, 8 sentinels excluded and listed, including the
-new `Bearer test-operator-token` in `task-state.test.ts`, the same fixture the other operator tests use); `C-DIFF` pass.
+new operator-token sentinel in `task-state.test.ts`, the same fixture the other operator tests use); `C-DIFF` pass.
 
 | Count | Baseline (S1) | Now | Change |
 |---|---|---|---|

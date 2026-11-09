@@ -138,7 +138,14 @@ fi
 
 # ---------------------------------------------------------------------------
 step "the environment has its own secrets"
-LISTED="$(npx wrangler secret list --env "$ENVIRONMENT" 2>/dev/null || true)"
+# Without a permissive fallback. This used to carry a shell fallback that swallowed a
+# wrangler which could not list the secrets - a bad credential, a wrong account - so it
+# produced an empty list, and the loop below then reported a secret as missing. The deployment
+# was blocked either way, so this was never a hole in the gate; it was a wrong diagnosis of one.
+# Both outcomes are now told apart, and both block.
+if ! LISTED="$(npx wrangler secret list --env "$ENVIRONMENT" 2>&1)"; then
+  fail "wrangler could not list the $ENVIRONMENT environment's secrets: $(printf '%s' "$LISTED" | tail -n 1)"
+fi
 for secret in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
   printf '%s' "$LISTED" | grep -q "$secret" || fail "the $ENVIRONMENT environment has no $secret secret"
   note "$secret is set"

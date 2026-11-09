@@ -56,7 +56,12 @@ cleanup() { [[ -n "$TMP_OUT" ]] && rm -f "$TMP_OUT"; rm -rf "$WORK"; }
 trap cleanup EXIT
 
 # ---------------------------------------------------------------- the tree must be clean
-DIRTY="$(git -C "$ROOT" status --porcelain -- template release/manifest.txt 2>/dev/null || true)"
+# Without a permissive fallback: a git that cannot report the tree's status is a failure in
+# its own right. The old form flattened it into an empty status, which read as "the tree is
+# clean", and the build would have gone on to package whatever was on disk.
+if ! DIRTY="$(git -C "$ROOT" status --porcelain -- template release/manifest.txt 2>&1)"; then
+  die "could not read the tree's status: $DIRTY"
+fi
 if [[ -n "$DIRTY" ]]; then
   note "the template tree and the manifest must be committed and clean:"
   printf '%s\n' "$DIRTY" | sed 's/^/  /' >&2

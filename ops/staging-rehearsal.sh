@@ -81,9 +81,20 @@ trap cleanup EXIT
 # if it notices the child died), and then the runtime itself.
 stop_gateway() {
   local port="$1"
-  pkill -f "wrangler dev --env staging --port $port" 2>/dev/null || true
+  # pkill answers 1 when nothing matched, which is not a failure here: the point is that the
+  # process is gone. The two branches say which of the two happened, because a rehearsal that
+  # stops nothing and says nothing is indistinguishable from one that stopped something.
+  if pkill -f "wrangler dev --env staging --port $port" >/dev/null 2>&1; then
+    echo "stopped the wrangler launcher on $port"
+  else
+    echo "no wrangler launcher was running on $port"
+  fi
   sleep 1
-  pkill -f "socket-addr=entry=127.0.0.1:$port" 2>/dev/null || true
+  if pkill -f "socket-addr=entry=127.0.0.1:$port" >/dev/null 2>&1; then
+    echo "stopped the runtime on $port"
+  else
+    echo "no runtime was running on $port"
+  fi
   sleep 1
 }
 
@@ -211,7 +222,10 @@ PYEOF
 note "the staged content reads back byte for byte"
 
 COMMIT="$(curl -s -m 60 "$CAPABILITY/commit?files=report.md" | jqf)"
-COMMIT_SHA="$(printf '%s' "$COMMIT" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["commit"])' 2>/dev/null || true)"
+# A parse that fails leaves the variable empty, and the line below turns an empty value into
+# a failure. The fallback is therefore not a way past the check; it is what lets the check
+# say what went wrong.
+COMMIT_SHA="$(printf '%s' "$COMMIT" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read())["commit"])' 2>/dev/null)" || COMMIT_SHA=""
 [ -n "$COMMIT_SHA" ] || fail "the commit did not succeed: $COMMIT"
 note "the commit landed: $COMMIT_SHA"
 

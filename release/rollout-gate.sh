@@ -601,6 +601,88 @@ check_s2_closure() {
   fi
 }
 
+check_s3_hardening() {
+  section "S3 stage-specific checks"
+
+  # The workflows are fail-closed: no permissive expression in the deployment path, every
+  # action pinned, and every publishing workflow a gated sequence. The checker is the
+  # statement of those properties; it is not a scan of this file.
+  local out rc
+  out="$(python3 release/check-workflow-policy.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S3-POLICY" "the workflow policy check failed: $(printf '%s' "$out" | tail -n 5 | tr '\n' ' ' | cut -c1-200)"
+  else
+    pass "S3-POLICY" "$(printf '%s' "$out" | tail -1)"
+  fi
+
+  # The installs are deterministic: every package has a committed lockfile that agrees with
+  # its manifest, and every workflow installs with npm ci.
+  out="$(python3 release/check-installs.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S3-INSTALLS" "the install determinism check failed: $(printf '%s' "$out" | tail -n 5 | tr '\n' ' ' | cut -c1-200)"
+  else
+    pass "S3-INSTALLS" "$(printf '%s' "$out" | tail -1)"
+  fi
+
+  # The S3 work item named three baseline hits. The scan is repeated here, over the whole
+  # deployment path, so that a hit added later is caught by the gate and not only by review.
+  #
+  # The two policy checkers are excluded, and the exclusion is file-scoped: they have to
+  # name the permissive forms in order to look for them, so they would otherwise flag
+  # themselves. Nothing else is excluded.
+  local hits
+  hits="$(grep -rnE '\|\|[[:space:]]*(true|:)[[:space:]]*$|continue-on-error:[[:space:]]*true|set[[:space:]]+\+e' \
+      .github/workflows ops release gateway/read/production/ops gateway/write/scripts 2>/dev/null \
+      | grep -v node_modules \
+      | grep -vE '^release/check-(workflow-policy|installs)\.py:' | head -5)"
+  if [[ -n "$hits" ]]; then
+    fail "S3-PERMISSIVE" "a permissive expression is in the deployment path: $(printf '%s' "$hits" | tr '\n' ' ' | cut -c1-200)"
+  else
+    pass "S3-PERMISSIVE" "no permissive expression in .github/workflows, ops, release or the gateway deploy scripts"
+  fi
+
+  # The lockfiles are committed. The check is that they are tracked, not merely present.
+  local lock
+  for lock in gateway/read/production/package-lock.json gateway/write/package-lock.json; do
+    if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
+      pass "S3-LOCKFILE" "$lock is committed"
+    else
+      fail "S3-LOCKFILE" "$lock is not committed"
+    fi
+  done
+
+  # The publishing workflows are never triggered by a pull request, and the write gateway's
+  # own log hygiene gate says the same thing about a deployment credential. Both are stated
+  # here so the S3 gate does not depend on one script's opinion.
+  local wf
+  for wf in .github/workflows/deploy.yml .github/workflows/deploy-read-gateway.yml \
+            .github/workflows/deploy-write-gateway-staging.yml; do
+    if grep -qE '^on:[[:space:]]*$|^on:[[:space:]]*workflow_dispatch' "$wf" \
+       && ! grep -qE '^[[:space:]]*pull_request(_target)?:' "$wf"; then
+      pass "S3-TRIGGER" "$(basename "$wf") is not pull-request triggered"
+    else
+      fail "S3-TRIGGER" "$(basename "$wf") can be triggered by a pull request"
+    fi
+  done
+
+  # The two production publishing workflows are a sequence, not a list: the staging
+  # acceptance job exists, and the publishing job waits for it.
+  local pair file rest accept pub
+  for pair in ".github/workflows/deploy.yml:staging-acceptance:deploy" \
+              ".github/workflows/deploy-read-gateway.yml:staging-acceptance:publish"; do
+    file="${pair%%:*}"
+    rest="${pair#*:}"
+    accept="${rest%%:*}"
+    pub="${rest##*:}"
+    if grep -q "^  ${accept}:" "$file" && grep -q "needs: \[.*${accept}.*\]" "$file" \
+       && grep -q "^  ${pub}:" "$file" && grep -q "environment:" "$file"; then
+      pass "S3-SEQUENCE" "$(basename "$file"): '$accept' exists and '$pub' waits for it"
+    else
+      fail "S3-SEQUENCE" "$(basename "$file"): the publishing job does not wait for '$accept'"
+    fi
+  done
+}
+
 # ---------------------------------------------------------------------------
 # Run the gate.
 # ---------------------------------------------------------------------------
@@ -625,6 +707,7 @@ case "$STAGE" in
   S1) run_check S1 check_s1_lifecycle ;;
   S2) run_check S2 check_s2_closure ;;
   S3)
+    check_s3_hardening
     check_env_exists "S3-ENV" production
     ;;
   S4)
@@ -643,8 +726,9 @@ case "$STAGE" in
     ;;
 esac
 
-# grep prints 0 and exits 1 when it finds nothing, so the fallback must not add a second number.
-count_verdicts() { grep -c "^$1\$" "$RESULTS" 2>/dev/null || true; }
+# grep prints 0 and exits 1 when it finds nothing, so the count is taken with awk: it always
+# answers 0 and always prints the number, including the zero.
+count_verdicts() { awk -v v="$1" '$0 == v { n++ } END { print n + 0 }' "$RESULTS"; }
 PASSES="$(count_verdicts P)"
 FAILURES="$(count_verdicts F)"
 BLOCKED="$(count_verdicts B)"
