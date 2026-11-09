@@ -205,8 +205,8 @@ on a merge.
 $ GITHUB_TOKEN=… release/rollout-gate.sh S4
 rollout gate: stage S4
 repository:   inscope-labs/build-engine
-main:         07bf9ad
-started:      2026-11-09T…
+main:         1563bd2
+started:      2026-11-09T17:13:45Z
 ```
 
 | Check | Result |
@@ -218,7 +218,7 @@ started:      2026-11-09T…
 | `C-READ` | PASS — unit suite (`# fail 0`); `ops:check`; `check:bundle`; the read staging separation; the reference gateway's unittest `OK` |
 | `C-WRITE` | PASS — the typecheck over three programs; the whole suite (`# fail 0`); `check:contract`; `check:staging` |
 | `C-ISO` | PASS — no gateway/conformance/ops/variants/`.github` path and no deployment configuration in the artifact |
-| `C-SECRETS` | PASS — no credential shape in the tree or in the diff against `origin/main`; the deliberate sentinels excluded and listed |
+| `C-SECRETS` | PASS — no credential shape in 380 files or in the diff against `origin/main`; 8 deliberate sentinels excluded and listed |
 | `C-DIFF` | PASS — nothing removed from `template/`, the allowlist, the forbidden rules or the tests |
 | `S4-PROD-CONFIG` | **BLOCKED-EXTERNAL** — the production configuration is not deployable: `GITHUB_REPO` is still a placeholder: `OWNER/REPO` |
 | `S4-STAGING` | PASS — the staging gateway at `ctxgate-read-staging.qnuralink.workers.dev` answers and serves the staging key ids (`s1`) |
@@ -228,6 +228,13 @@ started:      2026-11-09T…
 | `S4-WORKER-SECRETS` | **BLOCKED-EXTERNAL** — no Cloudflare credential in the environment (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`) |
 
 **26 PASS, 0 FAIL, 4 BLOCKED-EXTERNAL.** The exit code is **2**.
+
+**The pull request's own CI is green:** `GET /repos/…/commits/1563bd2/check-runs` answers
+**7 runs, all `success`** — `test`, `read gateway (typecheck, unit, conformance)`,
+`write gateway (typecheck, bundle, contract)`, `write gateway (unit)`,
+`write gateway (integration)`, `write gateway (log hygiene and the credential boundary)` and
+`write gateway (staging is separate from production)`. The gate was run twice, at `4a2781d` and
+at `1563bd2`, and the result was the same both times.
 
 ---
 
