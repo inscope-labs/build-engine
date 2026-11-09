@@ -1057,7 +1057,39 @@ capabilities.
 | `{base}/admin/reset-quota` | POST | reset a task's quota ledger after an eviction (section 13.2) |
 | `{base}/admin/audit` | GET | read the redacted audit stream for an order |
 | `{base}/admin/metrics` | GET | counters only |
+| `{base}/admin/task-state` | GET | the seal fact for one task under one work order, read-only (section 10.4.1) |
 | `{base}/admin/mint` | POST | mint a capability for a task, subject to the operator policy |
+
+#### 10.4.1 The task-state fact
+
+`GET {base}/admin/task-state?task=<task>&order=<order>`, with the operator token.
+
+Gateway A owns a task's *state*; this gateway owns the *seal* (ADR 0011 item 1). Before Gateway A records
+`done`, it reads this fact. The route is read-only: it never creates, changes or persists a session, so asking
+about a task this gateway has never seen creates nothing. It is a **fact, not a decision**: whether a transition
+is allowed is Gateway A's rule (`docs/release/TASK-STATE-TRANSITION-CONTRACT.md`).
+
+Both parameters are required, each exactly once, and no other parameter is accepted. Each id matches
+`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. Anything else is `400 bad request`, in the operator channel's plain-text
+style. A missing or wrong operator token is `401 unauthorised`. A request with a method other than `GET` is
+`404`, as on every other operator route. An unreadable session is `503` with `state-unavailable`.
+
+The answer is JSON:
+
+| Field | Meaning |
+|---|---|
+| `task`, `order` | the ids the operator asked about |
+| `known` | whether this gateway holds a session for the task |
+| `state` | `open`, `sealed`, `revoked`, `closed`, or `unknown` when `known` is false |
+| `committed` | whether a successful commit is recorded |
+| `sealed` | whether `state` is `sealed` |
+| `commit` | `null`, or `{sha, files, at, task_match, order_match}`; the count of files, never their paths or hashes |
+| `seal` | `null`, or `{at, commit, files}` |
+| `seal_attested` | **the field Gateway A acts on**: true only when the state is `sealed`, a seal and a commit are both recorded, the seal is over that commit, and the commit belongs to the task and the work order asked about |
+
+The response never carries a capability, a signature, a path, a content hash, a writer id or file content (the
+rules of section 11 apply). A sealed session stays sealed: a later `admin/revoke` or `admin/close` does not change
+it (section 5.2 gives those transitions only from `open`), and this fact reports that honestly.
 
 The operator channel is **not** part of the agent protocol. It is not hypermedia, it is not linked from agent
 responses, and the agent has no credential for it. An agent that guesses the path is refused with `401`.

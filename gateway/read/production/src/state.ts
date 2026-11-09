@@ -46,9 +46,35 @@ const REVOKED_KEY = "revoked";
 const SEQ_KEY = "seq";
 const AUDIT_PREFIX = "audit:";
 const WINDOW_SECONDS = 60;
+const PRESENTATION_PREFIX = "pres:";
+
+/** What the gateway keeps about one link's presentations (R-1.d). No signature, no URL, no content. */
+export interface Presentation {
+  order: string;
+  ref: string;
+  path: string;
+  count: number;
+  first: number;
+  last: number;
+  /** When the entry is no longer needed: the link cannot be presented after this. */
+  until: number;
+}
+
+export interface ReplaySettings {
+  /** Presentations of one link above which it is reported. */
+  threshold: number;
+  /** How long to keep the entry: the longest a link can live. */
+  keepSeconds: number;
+}
 
 export class GatewayState {
-  constructor(private readonly state: DurableObjectState) {}
+  private readonly state: DurableObjectState;
+
+  // A plain assignment, not a parameter property: the unit tests run this file under Node's
+  // type-stripping mode, which does not support parameter properties. The behaviour is the same.
+  constructor(state: DurableObjectState) {
+    this.state = state;
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -69,15 +95,26 @@ export class GatewayState {
               record: AuditRecord;
               retention?: number;
               limits?: RefusalLimits;
+              replay?: ReplaySettings;
             };
             this.retention = body.retention ?? this.retention;
             await this.appendAudit(body.record);
             await this.countRefusal(body.record, body.limits ?? { burst: 30, cooldownSeconds: 300 });
+            await this.countPresentation(body.record, body.replay ?? { threshold: 10, keepSeconds: 259_200 + 120 });
             return Response.json({ written: 1 });
           }
           return new Response(await this.auditRecords(), {
             headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" },
           });
+        }
+        case "/order-status": {
+          const order = url.searchParams.get("order") ?? "";
+          const now = Number(url.searchParams.get("now") ?? "0");
+          return Response.json(await this.orderStatus(order, Number.isFinite(now) ? now : 0));
+        }
+        case "/replay": {
+          const threshold = Number(url.searchParams.get("threshold") ?? "10");
+          return Response.json(await this.replayReport(Number.isFinite(threshold) && threshold >= 1 ? threshold : 10));
         }
         case "/metrics":
           return Response.json(await this.metrics());
@@ -130,6 +167,12 @@ export class GatewayState {
         const w = Number(tail);
         if (Number.isFinite(w) && w < cutoff) await this.state.storage.delete(key);
       }
+    }
+    // A link's presentation count is kept only as long as the link can still be presented.
+    const presentations = await this.state.storage.list({ prefix: PRESENTATION_PREFIX });
+    for (const [key, value] of presentations.entries()) {
+      const until = (value as Presentation | undefined)?.until;
+      if (typeof until !== "number" || until < now) await this.state.storage.delete(key);
     }
     // The cooldowns are timestamps, not windows: one is removed when it has run out.
     const cooldowns = await this.state.storage.list({ prefix: "cool:" });
@@ -217,6 +260,96 @@ export class GatewayState {
     }
   }
 
+  /**
+   * Count a presentation of a link (GAP R-1, option R-1.d, ADR 0010).
+   *
+   * Every request that proved its link and was served is one presentation of that link. The link
+   * is identified by what it names: the order, the commit and the path. Nothing prevents a second
+   * presentation; the count only makes it visible, and the operator's threshold is the tripwire.
+   *
+   * Only served requests are counted (`reason: "ok"`). A refusal is not a presentation that
+   * returned content, and a refusal before the signature says nothing about an order.
+   * The audit record's schema does not change: this reads fields it already has.
+   *
+   * Counting must never fail a request: if it cannot be done, the audit write still stands and
+   * the gateway says so in the platform log, without any link data.
+   */
+  private async countPresentation(record: AuditRecord, replay: ReplaySettings): Promise<void> {
+    if (record.reason !== "ok" || record.status !== 200) return;
+    if (!record.order || record.order === "-" || !record.ref || record.ref === "-" || !record.path || record.path === "-") return;
+    try {
+      const key = `${PRESENTATION_PREFIX}${record.order}:${record.ref}:${encodeURIComponent(record.path)}`;
+      const existing = (await this.state.storage.get(key)) as Presentation | undefined;
+      const entry: Presentation = {
+        order: record.order,
+        ref: record.ref,
+        path: record.path,
+        count: (existing?.count ?? 0) + 1,
+        first: existing?.first ?? record.ts,
+        last: record.ts,
+        until: record.ts + replay.keepSeconds,
+      };
+      await this.state.storage.put(key, entry);
+      if (entry.count === replay.threshold + 1) {
+        // Said once, when the threshold is first crossed. It names the order and the count only.
+        console.warn(JSON.stringify({ replay_alert: "threshold-exceeded", order: entry.order, presentations: entry.count, threshold: replay.threshold }));
+      }
+    } catch {
+      console.warn(JSON.stringify({ replay_count: "failed" }));
+    }
+  }
+
+  /**
+   * Where one order stands: revoked or not, in a cooldown or not, and how its links have been
+   * presented. Counts and a flag only: no path, no commit, no signature.
+   */
+  private async orderStatus(order: string, now: number): Promise<Record<string, unknown>> {
+    const revoked = await this.isRevoked(order);
+    const until = (await this.state.storage.get(`cool:${order}`)) as number | undefined;
+    const listed = await this.state.storage.list({ prefix: `${PRESENTATION_PREFIX}${order}:` });
+    let repeated = 0;
+    let most = 0;
+    let last: number | null = null;
+    for (const value of listed.values()) {
+      const entry = value as Presentation;
+      if (entry.count >= 2) repeated += 1;
+      if (entry.count > most) most = entry.count;
+      if (last === null || entry.last > last) last = entry.last;
+    }
+    const cooling = typeof until === "number" && now < until;
+    return {
+      order,
+      revoked,
+      cooldown: { active: cooling, until: cooling ? until : null },
+      links_tracked: listed.size,
+      links_repeated: repeated,
+      most_presented: most,
+      last_presented: last,
+    };
+  }
+
+  /** The links presented more than the threshold, most presented first. Counts and names only. */
+  private async replayReport(threshold: number): Promise<Record<string, unknown>> {
+    const listed = await this.state.storage.list({ prefix: PRESENTATION_PREFIX });
+    const exceeded: Array<Record<string, unknown>> = [];
+    let repeated = 0;
+    for (const value of listed.values()) {
+      const entry = value as Presentation;
+      if (entry.count >= 2) repeated += 1;
+      if (entry.count > threshold) {
+        exceeded.push({ order: entry.order, ref: entry.ref, path: entry.path, presentations: entry.count, first: entry.first, last: entry.last });
+      }
+    }
+    exceeded.sort((a, b) => (b.presentations as number) - (a.presentations as number));
+    return {
+      note: "a replay is not prevented: this reports presentations of one link above the threshold (GAP R-1, accepted, ADR 0010)",
+      threshold,
+      links_tracked: listed.size,
+      links_repeated: repeated,
+      exceeded,
+    };
+  }
+
   /** The trail is a bounded ring, not an archive. Retention is documented in ops/limits.md. */
   private async trimAudit(): Promise<void> {
     const listed = await this.state.storage.list({ prefix: AUDIT_PREFIX });
@@ -254,8 +387,13 @@ export class GatewayState {
       byStatus[String(record.status)] = (byStatus[String(record.status)] ?? 0) + 1;
       byReason[record.reason] = (byReason[record.reason] ?? 0) + 1;
     }
+    const presented = await this.state.storage.list({ prefix: PRESENTATION_PREFIX });
+    let repeatedLinks = 0;
+    for (const value of presented.values()) if (((value as Presentation).count ?? 0) >= 2) repeatedLinks += 1;
     return {
       revoked_orders: revoked.size,
+      links_tracked: presented.size,
+      links_repeated: repeatedLinks,
       audit_records: listed.size,
       by_status: byStatus,
       by_reason: byReason,

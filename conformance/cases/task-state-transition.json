@@ -1,0 +1,933 @@
+{
+  "description": "Vectors for the task-state transition decision (docs/release/TASK-STATE-TRANSITION-CONTRACT.md section 5). Executed by conformance/harness/transition_reference.py. Operator-console may run the same cases against Gateway A.",
+  "task_statuses_authority": "template/engine/schemas/task.schema.json",
+  "cases": [
+    {
+      "id": "T01",
+      "description": "SET_DONE over a sealed, attested task is accepted",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "http": 200,
+        "new_status": "done"
+      }
+    },
+    {
+      "id": "T02",
+      "description": "SET_DONE from pr_open over a sealed task is accepted",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "pr_open",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "http": 200,
+        "new_status": "done"
+      }
+    },
+    {
+      "id": "T03",
+      "description": "SET_DONE over an unsealed task (open, committed) is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "open",
+          "committed": true,
+          "sealed": false,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": null,
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T04",
+      "description": "SET_DONE over an open task with no commit is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "open",
+          "committed": false,
+          "sealed": false,
+          "commit": null,
+          "seal": null,
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T05",
+      "description": "SET_DONE over a revoked task is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "revoked",
+          "committed": true,
+          "sealed": false,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": null,
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T06",
+      "description": "SET_DONE over a closed work order is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "closed",
+          "committed": true,
+          "sealed": false,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": null,
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T07",
+      "description": "SET_DONE for a task the write gateway has never seen is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": false,
+          "state": "unknown",
+          "committed": false,
+          "sealed": false,
+          "commit": null,
+          "seal": null,
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T08",
+      "description": "SET_DONE with a seal fact for a different work order is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S002",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T09",
+      "description": "SET_DONE with a seal fact for a different task is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-02",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T10",
+      "description": "SET_DONE whose seal is over a commit of another work order is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": false
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": false
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_NOT_ATTESTED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T11",
+      "description": "SET_DONE when the seal fact cannot be read fails closed",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": "unavailable"
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_FACT_UNAVAILABLE",
+        "http": 503
+      }
+    },
+    {
+      "id": "T12",
+      "description": "SET_DONE with no seal fact supplied fails closed",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": false,
+        "code": "SEAL_FACT_UNAVAILABLE",
+        "http": 503
+      }
+    },
+    {
+      "id": "T13",
+      "description": "a replayed capability is refused before anything else about the transition",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": true,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "NONCE_REPLAYED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T14",
+      "description": "a moved task branch is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": false,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "HEAD_MOVED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T15",
+      "description": "a capability for another branch is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": false,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "BRANCH_MISMATCH",
+        "http": 403
+      }
+    },
+    {
+      "id": "T16",
+      "description": "an operation outside the closed set is refused",
+      "request": {
+        "operation": "PUBLISH",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "UNKNOWN_OP",
+        "http": 400
+      }
+    },
+    {
+      "id": "T17",
+      "description": "SET_DONE from planned (wrong state) is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "planned",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T18",
+      "description": "SET_DONE from done (terminal) is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "done",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T19",
+      "description": "SET_DONE from dropped (terminal) is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "dropped",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T20",
+      "description": "SET_DONE from superseded (terminal) is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "superseded",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T21",
+      "description": "SET_IN_PROGRESS from planned is accepted and needs no seal fact",
+      "request": {
+        "operation": "SET_IN_PROGRESS",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "planned",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "http": 200,
+        "new_status": "in_progress"
+      }
+    },
+    {
+      "id": "T22",
+      "description": "SET_IN_PROGRESS from in_progress (already in that state) is refused",
+      "request": {
+        "operation": "SET_IN_PROGRESS",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T23",
+      "description": "SET_IN_PROGRESS from done (terminal) is refused",
+      "request": {
+        "operation": "SET_IN_PROGRESS",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "done",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T24",
+      "description": "SET with target done cannot be used to skip the seal check",
+      "request": {
+        "operation": "SET",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "target_status": "done",
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T25",
+      "description": "SET to pr_open from in_progress is accepted",
+      "request": {
+        "operation": "SET",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "target_status": "pr_open",
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "http": 200,
+        "new_status": "pr_open"
+      }
+    },
+    {
+      "id": "T26",
+      "description": "SET to a status the schema does not define is refused",
+      "request": {
+        "operation": "SET",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "target_status": "blocked",
+        "seal_fact": null
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T27",
+      "description": "a status the schema does not define as the current status is refused",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "ordered",
+        "branch_matches": true,
+        "nonce_seen": false,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "TRANSITION_NOT_ALLOWED",
+        "http": 409
+      }
+    },
+    {
+      "id": "T28",
+      "description": "a replay is refused even when the seal fact would have been fine",
+      "request": {
+        "operation": "SET_DONE",
+        "task": "10008-1-001-01",
+        "order": "10008-S001",
+        "current_status": "in_progress",
+        "branch_matches": true,
+        "nonce_seen": true,
+        "head_matches": true,
+        "seal_fact": {
+          "ok": true,
+          "task": "10008-1-001-01",
+          "order": "10008-S001",
+          "known": true,
+          "state": "sealed",
+          "committed": true,
+          "sealed": true,
+          "commit": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2,
+            "at": 1800000000,
+            "task_match": true,
+            "order_match": true
+          },
+          "seal": {
+            "at": 1800000100,
+            "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "files": 2
+          },
+          "seal_attested": true
+        }
+      },
+      "expect": {
+        "accepted": false,
+        "code": "NONCE_REPLAYED",
+        "http": 409
+      }
+    }
+  ]
+}

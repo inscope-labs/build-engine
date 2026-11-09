@@ -393,6 +393,10 @@ async function operatorChannel(input: RouterInput, base: string): Promise<Respon
     return auditStream(input);
   }
 
+  if (url.pathname === `${ROUTE_ADMIN}/task-state` && request.method === "GET") {
+    return taskState(input);
+  }
+
   if (url.pathname === `${ROUTE_ADMIN}/mint` && request.method === "POST") {
     return mintCapability(input, base);
   }
@@ -418,6 +422,44 @@ async function operatorChannel(input: RouterInput, base: string): Promise<Respon
   }
 
   return new Response("not found\n", { status: 404, headers: textHeaders(requestId) });
+}
+
+/** An id the operator may ask about: the same conservative shape the capability's own ids have. */
+const OPERATOR_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * The task-state fact.
+ *
+ * `GET {base}/admin/task-state?task=<task>&order=<order>`. Read-only; both parameters are required,
+ * each exactly once. The answer is what `docs/release/TASK-STATE-TRANSITION-CONTRACT.md` calls the
+ * seal fact: Gateway A reads it before it records `done`. A malformed request is `400`, in the
+ * operator channel's own plain-text style; an unreadable session is `503 state-unavailable`.
+ */
+async function taskState(input: RouterInput): Promise<Response> {
+  const { request, env, requestId } = input;
+  const url = new URL(request.url);
+  const tasks = url.searchParams.getAll("task");
+  const orders = url.searchParams.getAll("order");
+  const known = new Set(["task", "order"]);
+  const extra = [...url.searchParams.keys()].some((key) => !known.has(key));
+  const task = tasks[0] ?? "";
+  const order = orders[0] ?? "";
+  if (
+    tasks.length !== 1 ||
+    orders.length !== 1 ||
+    extra ||
+    !OPERATOR_ID.test(task) ||
+    !OPERATOR_ID.test(order)
+  ) {
+    return new Response("bad request\n", { status: 400, headers: textHeaders(requestId) });
+  }
+  const stub = env.TASK_SESSION.get(env.TASK_SESSION.idFromName(task));
+  const result = await stub.fetch("https://session.internal/admin/task-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task, order }),
+  });
+  return new Response(await result.text(), { status: result.status, headers: textHeaders(requestId) });
 }
 
 /** Whether the request carries the operator credential. */

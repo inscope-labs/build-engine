@@ -33,6 +33,7 @@ import { checkTypeAllowed, typeFailureCode } from "../policy/type-policy.ts";
 import { checkPath } from "../policy/path-safety.ts";
 import { checkFileCount } from "../policy/quotas.ts";
 import { sealSession } from "../seal/seal.ts";
+import { describeTaskState, type TaskStateFact } from "../operator/task-state.ts";
 import { appendChunk } from "../staging/append.ts";
 import { replaceContent } from "../staging/replace.ts";
 import { deleteStaged } from "../staging/delete.ts";
@@ -211,6 +212,8 @@ export class TaskSession {
           return Response.json(await this.close());
         case "/admin/reset-quota":
           return Response.json(await this.resetQuota());
+        case "/admin/task-state":
+          return Response.json(await this.taskState(body as { task: string; order: string }));
         case "/admin/commit-record":
           return Response.json(await this.recordCommit((body as { commit: CommitRecord }).commit));
         default:
@@ -710,6 +713,17 @@ export class TaskSession {
     session.quota = { ...emptyQuota(), bytesAcceptedTotal: session.quota.bytesAcceptedTotal, bytesLost: session.quota.bytesLost };
     await this.save(session);
     return { quota: session.quota };
+  }
+
+  /**
+   * Describe the task's state for the operator (the task-state fact).
+   *
+   * Read-only: it looks at the durable record and never loads, reconciles or saves a session, so
+   * asking about a task this gateway has never seen does not create one.
+   */
+  private async taskState(request: { task: string; order: string }): Promise<TaskStateFact> {
+    const stored = this.session ?? (await this.state.storage.get<StoredSession>(SESSION_KEY));
+    return describeTaskState(stored, request.task, request.order);
   }
 
   /**

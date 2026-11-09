@@ -164,6 +164,30 @@ curl -sS https://<the host>/admin/metrics -H "Authorization: Bearer $OPERATOR_TO
 
 ---
 
+## See where one order stands
+
+```bash
+curl -sS "https://<the gateway's host>/admin/status?order=10008-S001" -H "Authorization: Bearer $OPERATOR_TOKEN"
+```
+
+It says whether the order is revoked, whether it is in an abuse cooldown (and until when), how many of its links have
+been presented, how many more than once, and when the last one was. It names no path, commit or signature. A revoked
+order stays revoked: to give a task fresh links after a revoke, mint them under a **new** order id.
+
+## Look for replayed links
+
+A read link can be presented again until it expires. That is accepted (ADR 0010), and it is made
+visible. To see which links have been presented more than the threshold:
+
+```bash
+curl -sS https://<the gateway's host>/admin/replay -H "Authorization: Bearer $OPERATOR_TOKEN"
+```
+
+Each entry names the order, the commit, the path and the count. A count above the threshold is a
+prompt to read that order's audit trail (the section above), not proof of misuse: a consumer that
+retries a failed fetch presents the same link more than once. If the pattern is not a retry,
+revoke the order. `REPLAY_ALERT_THRESHOLD` is set in `ops/environments.json`; see `ops/limits.md`.
+
 ## Incident response
 
 | Symptom | What it means | What to do |

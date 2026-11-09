@@ -27,6 +27,7 @@ from localenv import CONFORMANCE, LocalEnv, log  # noqa: E402
 
 PER_ORDER_LIMIT = 5
 REFUSAL_BURST = 3
+REPLAY_THRESHOLD = 3
 
 
 def main():
@@ -40,6 +41,7 @@ def main():
             "RATE_LIMIT_GLOBAL:5000",
             "REFUSAL_BURST:%d" % REFUSAL_BURST,
             "REFUSAL_COOLDOWN_SECONDS:300",
+            "REPLAY_ALERT_THRESHOLD:%d" % REPLAY_THRESHOLD,
         ], port_offset=40) as env:
             log("worker is up: %s" % json.dumps(env.health))
 
@@ -132,6 +134,51 @@ def main():
                     if leak in blob:
                         failures.append("the metrics endpoint discloses %r" % leak)
                 log("ok   the metrics endpoint counts without disclosing (%s)" % json.dumps(metrics))
+
+            # 7b. a replay is visible (GAP R-1, option R-1.d, ADR 0010): the link from step 1 was
+            # presented PER_ORDER_LIMIT times, which is above the threshold, and every presentation
+            # was served. Nothing is prevented; the operator can see it.
+            status, raw = env.admin("/admin/replay")
+            if status != 200:
+                failures.append("the replay report returned %s" % status)
+            else:
+                report = json.loads(raw)
+                exceeded = report.get("exceeded", [])
+                ours = [e for e in exceeded if e.get("order") == "10008-S001" and e.get("presentations") == PER_ORDER_LIMIT]
+                if report.get("threshold") != REPLAY_THRESHOLD:
+                    failures.append("the replay report threshold is %r, expected %d" % (report.get("threshold"), REPLAY_THRESHOLD))
+                if len(ours) != 1:
+                    failures.append("the replay report does not show the link presented %d times: %s" % (PER_ORDER_LIMIT, exceeded))
+                if signature in json.dumps(report) or "test-secret" in json.dumps(report):
+                    failures.append("the replay report contains a signature or a secret")
+                if not failures:
+                    log("ok   a replayed link is visible against the threshold (%d presentations, threshold %d)"
+                        % (PER_ORDER_LIMIT, REPLAY_THRESHOLD))
+            status, _ = env.request("/admin/replay")
+            if status != 401:
+                failures.append("the replay report answered %s without a credential" % status)
+            else:
+                log("ok   the replay report is closed without the operator credential")
+
+            # 7c. the status of one order: its links, and whether it is cooling down
+            status, raw = env.admin("/admin/status?order=10008-S001")
+            if status != 200:
+                failures.append("the order status returned %s" % status)
+            else:
+                order_status = json.loads(raw)
+                if order_status.get("revoked") is not False or order_status.get("most_presented") != PER_ORDER_LIMIT:
+                    failures.append("the order status is wrong for 10008-S001: %s" % order_status)
+                if signature in raw.decode("utf-8"):
+                    failures.append("the order status contains a signature")
+            status, raw = env.admin("/admin/status?order=%s" % noisy_order)
+            cooling = json.loads(raw).get("cooldown", {}).get("active") if status == 200 else None
+            if cooling is not True:
+                failures.append("the order in a cooldown is not reported as cooling down: %s %s" % (status, raw))
+            status, _ = env.admin("/admin/status?order=..%2Fetc")
+            if status != 400:
+                failures.append("a malformed order id returned %s, expected 400" % status)
+            if not failures:
+                log("ok   the status of one order reports its links and its cooldown")
 
             # 8. the admin channel is closed without a credential
             status, _ = env.request("/admin/audit")

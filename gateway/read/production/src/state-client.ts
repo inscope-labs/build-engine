@@ -106,6 +106,7 @@ export function buildStateClient(env: StateBinding, policy: Policy): StateClient
           body: JSON.stringify({
             record,
             retention: policy.auditRetention,
+            replay: { threshold: policy.replayAlertThreshold, keepSeconds: policy.maxTtl + policy.clockSkewTolerance },
             limits: {
               burst: policy.refusalBurst,
               cooldownSeconds: policy.refusalCooldownSeconds,

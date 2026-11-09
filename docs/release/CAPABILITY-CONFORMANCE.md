@@ -73,6 +73,13 @@ all three formats against a common property list. `conformance/` covers the read
 its own suite; the operator format lives in the other repository with its own vectors. This document is the
 first cross-system statement of the five properties, and it is prose, not an executable check.
 
+**Closed at S2 for the shared properties (ADR 0010 item 1).** `conformance/harness/run_shared.py` is the shared
+executable suite: it covers all fifteen cells of the property-by-format matrix in section 4.4, **runs** the
+named tests rather than trusting their names, and reports a cell as `EXTERNAL` (never as a pass) when the evidence
+is in another repository. `ctxop-v1` is the one format that cannot be executed from here, so its five cells are
+cited and stay `EXTERNAL` until the S7 gate verifies the operator-console evidence (`run_shared.py --strict`
+fails while any cell is `EXTERNAL`). The text below is the question as it was put to the operator.
+
 **The operator's decision (Q-A):** does "cross-system conformance" mean (a) one shared executable suite in this
 repository that covers all three formats, (b) three per-format suites plus this document as the cross-system
 statement, or (c) a shared suite that covers the shared properties only (signing discipline, expiry bound,
@@ -152,6 +159,62 @@ indistinguishable from the original writer."
 
 ---
 
+### 4.4 The evidence matrix: five properties by three formats
+
+Generated from `conformance/cases/shared-properties.json` by `python3 conformance/harness/run_shared.py --markdown`,
+and kept equal to it by `conformance/test_shared_properties.py`. **Signing, expiry and revocation are the shared
+properties** (ADR 0010 item 1); scope and replay are owned by each format's own suite and are listed so that the
+matrix is complete. Every executable cell names the tests that prove it, and `run_shared.py` runs them. An
+`accepted gap` cell cites the decision that accepts the gap **and** runs the tests that bound it. An `external`
+cell is **cited, not run**: it is not a pass.
+
+<!-- shared-evidence:begin -->
+#### signing (shared property)
+
+| Format | Status | Evidence |
+|---|---|---|
+| `ctxop-v1` | external (cited, not run here) | `inscope-labs/operator-console@992deff gateway/tests/unit/capability/verify.test.ts`: "accepts a valid ECDSA-signed capability"; "rejects BAD_SIGNATURE when payload is tampered"; "rejects BAD_SIGNATURE with wrong key"; "rejects empty signature"; "rejects UNKNOWN_KID" |
+| `ctxgate-v1` | executable | `gateway/read/production/test/unit/scheme.test.ts`: "every valid vector verifies"; "a tampered field never verifies"; "every invalid input is refused"<br>cases `B4-tamper-kid`, `B4-tamper-signature`, `B4-tamper-exp` (run by `gateway/read/production/test/run-conformance.py`) |
+| `ctxwrite-v1` | executable | `gateway/write/tests/unit/auth/signature.test.ts`: "the signature verifies"; "a tampered field never verifies"; "another secret never verifies"; "a malformed signature never verifies"; "the domain separator keeps a read-side signature from verifying here" |
+
+#### scope (owned by each format's own suite)
+
+| Format | Status | Evidence |
+|---|---|---|
+| `ctxop-v1` | external (cited, not run here) | `inscope-labs/operator-console@992deff gateway/tests/unit/capability/verify.test.ts`: "rejects BRANCH_MISMATCH when expectedBranch differs"; "rejects BRANCH_INVALID for main at decode time"<br>`inscope-labs/operator-console@992deff gateway/tests/unit/capability/codec.test.ts`: "rejects UNKNOWN_OP" |
+| `ctxgate-v1` | executable | `gateway/read/production/test/unit/scheme.test.ts`: "parseLink refuses what it must"<br>cases `B4-tamper-path`, `B4-tamper-ref`, `B7-out-of-prefix`, `B7-denied-by-name`, `B1-content-is-pinned-to-the-named-commit` (run by `gateway/read/production/test/run-conformance.py`) |
+| `ctxwrite-v1` | executable | `gateway/write/tests/integration/adversarial-inputs.test.ts`: "a task's files are not another task's files"; "a capability cannot be moved to another order or another plan"; "a parameter that tries to choose the destination has its own code"<br>`gateway/write/tests/unit/auth/policy-authz.test.ts`: "the destination cannot be chosen by a request" |
+
+#### expiry (shared property)
+
+| Format | Status | Evidence |
+|---|---|---|
+| `ctxop-v1` | external (cited, not run here) | `inscope-labs/operator-console@992deff gateway/tests/unit/capability/verify.test.ts`: "rejects CAPABILITY_EXPIRED"; "rejects TTL_TOO_LONG"; "accepts TTL at the maximum boundary" |
+| `ctxgate-v1` | executable | cases `B3-valid-at-expiry`, `B3-refused-one-past-expiry`, `B5-ttl-too-long`, `B5-ttl-at-limit` (run by `gateway/read/production/test/run-conformance.py`) |
+| `ctxwrite-v1` | executable | `gateway/write/tests/unit/auth/policy-authz.test.ts`: "a capability is served at its expiry and refused one second later"; "a capability whose lifetime is longer than the gateway allows is refused"; "an expired capability is reported as expired, and not as a ttl problem" |
+
+#### revocation (shared property)
+
+| Format | Status | Evidence |
+|---|---|---|
+| `ctxop-v1` | external (cited, not run here) | `inscope-labs/operator-console@992deff gateway/tests/unit/auth/device.test.ts`: "returns null for unknown kid" **Note:** key retirement only; per-capability revocation is required for 0.6.0 (ADR 0010 item 4) and is a 501 stub in the documents read: the S7 gate needs console evidence |
+| `ctxgate-v1` | executable | cases `B6-revoked-order-refused`, `B6-other-order-unaffected` (run by `gateway/read/production/test/run-conformance.py`)<br>`gateway/read/production/test/unit/state-client.test.ts`: "a state store that errors is not read as an empty revocation list"; "a state store that cannot be reached is not read as an empty revocation list"<br>`gateway/read/production/test/run-staging-checks.py`: "a revoked order is still revoked after the Worker restarts" |
+| `ctxwrite-v1` | executable | `gateway/write/tests/integration/seal.test.ts`: "a revoked task refuses every write, with its own code"; "a closed work order refuses every write, with its own code"; "seal, revocation and closure are three different closures" |
+
+#### replay (owned by each format's own suite)
+
+| Format | Status | Evidence |
+|---|---|---|
+| `ctxop-v1` | external (cited, not run here) | `inscope-labs/operator-console@992deff gateway/tests/unit/capability/nonce.test.ts`: "returns NONCE_REPLAYED on 409"; "fails closed when binding missing" |
+| `ctxgate-v1` | accepted gap | accepted by `docs/decisions/0010-capability-conformance-decisions.md` item 2 (Q-C: R-1.a plus R-1.d)<br>`gateway/read/production/test/unit/replay.test.ts`: "each served presentation of a link is counted, and the replay still succeeds"; "a link at or below the threshold is not reported; above it, it is, with its count"; "refusals are never counted as presentations"; "the audit record is stored exactly as written: its schema does not change"<br>`gateway/read/production/test/run-abuse-controls.py`: "a replayed link is visible against the threshold" **Note:** GAP R-1 accepted in writing; replay is observable, not prevented |
+| `ctxwrite-v1` | accepted gap | accepted by `docs/decisions/0010-capability-conformance-decisions.md` item 3 (Q-D: R-2.a now, R-2.c later)<br>`gateway/write/tests/integration/commit-idempotency.test.ts`: "a retry with the same key returns the same success, and does not commit twice"; "a repeated seal returns the recorded outcome and is not an error"<br>`gateway/write/tests/integration/single-writer.test.ts`: "a second writer for the same task is refused with 409" **Note:** GAP R-2 accepted in writing; the repository is protected at the operation level |
+<!-- shared-evidence:end -->
+
+Current result of `python3 conformance/harness/run_shared.py`: **8 PASS, 2 PASS (accepted gap), 5 EXTERNAL, 0 FAIL.**
+The five `EXTERNAL` cells are all `ctxop-v1`. One of them carries a requirement, not just a citation: per-capability
+revocation is required for 0.6.0 (ADR 0010 item 4) and the documents read describe it as a `501` stub, so the S7
+gate needs operator-console's evidence that it is implemented.
+
 ## 5. The gap register: replay protection
 
 The plan requires replay protection for **every** capability format. Two of the three formats do not meet it at
@@ -160,7 +223,7 @@ writing** (ADR 0010, 2026-11-08) and chosen what is done about each:
 
 | Gap | The operator's decision | What is still to be built | Where |
 |---|---|---|---|
-| **GAP R-1** — the read link is reusable until it expires | **Accepted** (option R-1.a) **plus observable replay** (option R-1.d). No scheme change; no regenerated signing vectors. | Each presentation of a read link is recorded in the audit stream, with a threshold alert. | **S2** |
+| **GAP R-1** — the read link is reusable until it expires | **Accepted** (option R-1.a) **plus observable replay** (option R-1.d). No scheme change; no regenerated signing vectors. | **Built at S2**: each served presentation is counted per link and reported against a threshold (see below). | **S2, done** |
 | **GAP R-2** — the write root capability is a bearer credential | **Accepted** (option R-2.a) for 0.6.0. | Option R-2.c (bind the root capability to an agent identity) is recorded as a **later cross-system stage** and is **not** part of 0.6.0. | not in 0.6.0 |
 
 The evidence for both gaps is unchanged and is kept below, because an accepted gap is still a gap and the
@@ -195,12 +258,28 @@ event, and R-1.b would turn a transient failure into a lost task). R-1.b and R-1
 the operator decides that read-once is worth a scheme version bump and a re-mint flow — and that is a product
 decision, not a technical one.
 
-**What R-1.d means in practice (to be built at S2).** Every presentation of a read link is written to the
-audit stream with its order, path, request id and timestamp — the record already carries those fields — and
-the gateway alerts when the count of presentations for one order exceeds a configured threshold. The audit
-record's schema does not change; a presentation that is already recorded is simply *counted*. The gap is
-**not closed** by this: the replay still succeeds. What changes is that it is **visible**, and the threshold
-is the operator's tripwire.
+**What R-1.d means in practice (built at S2).** Every request that proved its link and was **served** is one
+presentation of that link, and the gateway counts it. The gap is **not closed** by this: the replay still
+succeeds. What changes is that it is **visible**, and the threshold is the operator's tripwire.
+
+- **Where.** `gateway/read/production/src/state.ts` (`countPresentation`, `replayReport`), wired through
+  `state-client.ts`, `policy.ts` and `index.ts`.
+- **What is counted.** A link is identified by what it names: the **order, the commit and the path**. The count
+  is **per link**, not per order: a task that reads forty different files presents forty different links and
+  raises none of the counts, whereas an order total would alarm on ordinary work. This refines the wording the
+  decision used ("the count of presentations for one order"); it keeps its intent, and the operator can ask for
+  an order total if they prefer it.
+- **What the operator sees.** `GET /admin/replay` lists the links above the threshold, most presented first;
+  `GET /admin/metrics` carries `links_tracked` and `links_repeated`; the first time a link crosses the threshold
+  the gateway writes **one** platform-log line naming the order, the count and the threshold, and no path,
+  commit or signature.
+- **The threshold.** `REPLAY_ALERT_THRESHOLD`, set in `gateway/read/production/ops/environments.json` for every
+  environment (default **10**, which is a **proposal** the operator should set from what a real task does).
+- **What it does not do.** The audit record's schema does not change. Refusals are never counted, and a request
+  that did not prove its link cannot raise a count. Counting cannot fail a request. A count is dropped once the
+  link can no longer be presented.
+- **Evidence.** `gateway/read/production/test/unit/replay.test.ts` (17 tests: 13 on replay, 4 on order status) and the end-to-end check
+  "a replayed link is visible against the threshold" in `gateway/read/production/test/run-abuse-controls.py`.
 
 ### GAP R-2 — the write root capability is a bearer credential
 
@@ -235,8 +314,9 @@ touches the console's enrolment model and the write gateway's verification, and 
 
 ### 5.1 One gap that is not about replay
 
-**GAP C-1** — no cross-system executable conformance suite (section 3). The five properties are asserted per
-format; nothing checks them together.
+**GAP C-1** — no cross-system executable conformance suite (section 3). **Closed at S2 for the shared properties**
+(ADR 0010 item 1): `conformance/harness/run_shared.py` checks all fifteen cells together. `ctxop-v1` stays
+`EXTERNAL` (cited, not run) until the S7 gate verifies the operator-console evidence.
 
 ---
 
@@ -246,6 +326,11 @@ ADR 0006 decision 7 and operator-console ADR 0008 both say the same thing: the g
 guarded status-transition operation, the app implements it and never refuses silently, and **its contract is
 defined here, in this document, and consumed by operator-console OC-6**. This is the only part of BE-0 that
 defines a wire behaviour rather than describing one.
+
+> **The wire contract is now `docs/release/TASK-STATE-TRANSITION-CONTRACT.md`.** It defines who calls whom, the
+> seal fact the write gateway provides (`GET /admin/task-state`, implemented here), the order of the checks, the
+> legal transitions, and three new error codes. It is checked by `conformance/harness/transition_reference.py`
+> and 28 vectors. This section keeps the state table and the principles.
 
 ### 6.1 The states
 
@@ -299,22 +384,17 @@ The app must not refuse silently, and neither may the gateway:
 - the app must surface the refusal to the operator **with its cause**, and must not retry a transition that
   the gateway refused for a semantic reason (a moved head, an unknown state, an out-of-scope branch).
 
-### 6.3 What is not decided here
+### 6.3 What is decided, and what is still open
 
-- **The exact state set** must be reconciled with `template/engine/schemas/task.schema.json` before the
-  operation is implemented. The list in §6.1 is a proposal, and this document does not change the shipped
-  schema.
-- **Where the transition is applied.** Gateway A owns the task's state, and Gateway C owns the writer lease and
-  the seal. A `SET_DONE` therefore has to be expressed as *the operator asserts done over a sealed task*, and
-  the two gateways' views must not be able to disagree silently. **This is an open question for the operator**
-  (Q-B below), and it is the reason this section is a proposal rather than a contract.
+**Decided (ADR 0011):** Gateway A owns the task's state and Gateway C owns the seal; `SET_DONE` is accepted only
+against a sealed task, and the gateway cross-checks the seal before recording `done`; the shipped schema is the
+state authority (section 6.1 is reconciled to it). **Built at S2:** the seal fact on the write gateway's operator
+channel, and the contract and executable vectors for the transition.
 
-> **Open question Q-B (for the operator).** Which gateway owns the task state, and what happens when Gateway A
-> says `done` and Gateway C says `sealed`? The agent's recommendation is that **Gateway A owns the state and
-> Gateway C owns the seal**, and that `SET_DONE` is accepted only when the task's capability has already been
-> refused by a seal (i.e. the work is finished) — Gateway A then records `done` as an assertion over a
-> Gateway-C-attested fact, and the gateway cross-checks that fact before accepting it. This keeps one owner
-> per fact, which is the rule the rest of this repository already follows.
+**Still open, and listed in the contract (section 9):** the legal-transition table is new and needs the operator's
+confirmation; the credential Gateway A uses to read the seal fact is a choice between the existing operator token
+and a new read-only credential; and Gateway A's own implementation is operator-console's work (OC-6), not
+verified from this repository.
 
 ---
 
@@ -329,6 +409,8 @@ The app must not refuse silently, and neither may the gateway:
 | Conformance suite (scheme, vectors, behaviours) | `python3 -m unittest discover -s conformance -p 'test_*.py' -v` | see the agent report |
 | Conformance harness end to end | `python3 conformance/harness/run.py all --reference` | see the agent report |
 | Release machinery self-test | `release/test-release.sh` | see the agent report |
+| Shared-property suite | `python3 conformance/harness/run_shared.py` | 8 PASS, 2 PASS (accepted gap), 5 EXTERNAL, 0 FAIL |
+| The seal fact and the transition reference | `gateway/write/tests/unit/operator/task-state.test.ts`, `gateway/write/tests/integration/task-state.test.ts`, `conformance/test_task_state_transition.py` | pass |
 | The deployed staging pilot (evidence for the write gateway's replay behaviour and for the revocation rows) | GitHub Actions run `41964576712`, `staging-pilot`, `signed` mode, 2026-11-05 — **"THE PILOT PASSED (44 checks)"** | read from the run log, 2026-11-07 |
 
 ### 7.2 In `inscope-labs/operator-console` — cited, not executed

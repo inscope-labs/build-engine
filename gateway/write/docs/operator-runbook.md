@@ -38,6 +38,7 @@ with `401`.
 | `{base}/admin/reset-quota` | POST | `OPERATOR_TOKEN` | reset a task's quota ledger after an eviction. |
 | `{base}/admin/audit` | GET | `OPERATOR_TOKEN` | the redacted audit records of an order. |
 | `{base}/admin/metrics` | GET | `OPERATOR_TOKEN` | the live counters of one Worker instance. |
+| `{base}/admin/task-state` | GET | `OPERATOR_TOKEN` | the seal fact for one task under one work order (protocol section 10.4.1): read-only, `seal_attested` is what Gateway A acts on. |
 
 Every call carries the credential in the `Authorization` header:
 
@@ -169,6 +170,10 @@ curl -sS "https://<the gateway's host>/admin/audit?order=10008-S001&limit=10" \
 
 # only what happened since a point in time
 curl -sS "https://<the gateway's host>/admin/audit?order=10008-S001&since=$(date +%s)" \
+  -H "Authorization: Bearer $OPERATOR_TOKEN"
+
+# whether a task is sealed, under this work order (read-only; creates nothing)
+curl -sS "https://<the gateway's host>/admin/task-state?task=10008-1-001-01&order=10008-S001" \
   -H "Authorization: Bearer $OPERATOR_TOKEN"
 ```
 
