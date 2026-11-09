@@ -39,9 +39,10 @@ import sys
 from pathlib import Path
 
 # An install command that is not deterministic. `npm ci` is the only one allowed.
+# The command is looked for anywhere in the line, because in a workflow it is written as
+# "- run: npm install" and not as a bare command.
 NON_DETERMINISTIC = re.compile(
-    r"^\s*(?:-\s*)?(?:npm\s+(?:install|i|add|update)\b|yarn\s+add\b|pnpm\s+(?:add|install)\b|"
-    r"npm\s+ci\s+--no-save\b)",
+    r"\b(?:npm\s+(?:install|i|add|update|audit\s+fix)\b|yarn\s+add\b|pnpm\s+(?:add|install)\b)",
     re.IGNORECASE,
 )
 # The step that installs, and the step that declares the cache path.

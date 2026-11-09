@@ -299,6 +299,10 @@ def check_pinning(root: Path, files: list[str], problems: list[str]) -> int:
         text = (root / rel).read_text(encoding="utf-8")
         for number, line in enumerate(text.splitlines(), start=1):
             stripped = line.strip()
+            # A step is written "- uses: action@version", so the list marker is removed
+            # before the reference is looked at.
+            if stripped.startswith("- "):
+                stripped = stripped[2:].strip()
             if not stripped.startswith("uses:"):
                 continue
             reference = stripped[len("uses:"):].strip()
