@@ -417,9 +417,14 @@ the shipped payload, so it belongs to **S8**.
 
 - **The `production` environment has no required reviewer**, and ADR 0013 has no GitHub login.
   BLOCKED-EXTERNAL. **This is the stage's result: not PASS.**
-- **No environment secret exists yet.** `GET /environments/production/secrets`,
-  `/environments/staging/secrets`, `/actions/secrets` and `/actions/variables` all answer with
-  empty lists. S4's and S5's `[E]` checks are therefore unmet, independently of this stage.
+- **The secret lists could not be read.** `GET /environments/production/secrets`,
+  `/environments/staging/secrets`, `/actions/secrets` and `/actions/variables` answer **403
+  "Resource not accessible by personal access token"** with this credential, so whether any
+  secret exists is **unverified** — not "none". A later stage (2026-11-09) confirmed the
+  `staging` environment does hold the secrets the deploy needs, by dispatching the staging
+  deploy and watching it succeed; the `production` list is still unreadable. The gate runner
+  reports this correctly as `BLOCKED-EXTERNAL` ("the secret list of 'production' could not be
+  read"). A credential with the Secrets read permission is needed to check it by name.
 - **Nothing was deployed.** No environment has been published by this stage, and the two
   demonstration runs published nothing — both publishing jobs were skipped.
 - **No merge, no tag, no publication, no change to any GitHub environment.**
@@ -449,7 +454,7 @@ the shipped payload, so it belongs to **S8**.
 | `grep -rn '\|\| true' .github/ ops/ release/ gateway/…/ops gateway/write/scripts` | no hit |
 | `git ls-files \| grep package-lock.json` | both lockfiles tracked |
 | `GET /repos/…/environments/production` | `protection_rules: []` |
-| `GET /repos/…/environments/production/secrets`, `/staging/secrets`, `/actions/secrets`, `/actions/variables` | all empty |
+| `GET /repos/…/environments/production/secrets`, `/staging/secrets`, `/actions/secrets`, `/actions/variables` | 403 "Resource not accessible by personal access token" — **not readable with this credential**, so the state is unverified |
 | `GET /repos/…/branches/main/protection` | PR required, `test` required, force-push blocked |
 | `GET /repos/…/commits/main/check-runs` | 7 runs, all `success` |
 | `GET /user` | `inscope-labs` (User) |

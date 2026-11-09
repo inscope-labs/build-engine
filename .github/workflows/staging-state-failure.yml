@@ -1,0 +1,154 @@
+# Proves that the DEPLOYED read gateway fails closed when its state store cannot be read.
+#
+# The read gateway's state channel (the Durable Object holding the revocation set, the audit
+# ring and the rate-limit counters) fails closed: if it cannot be read, the request is refused
+# with `503 state-unavailable`. This was F0-030 and F0-031 - the gateway used to fail OPEN
+# there, serving a revoked capability and losing a revocation. The unit tests prove the code;
+# this workflow proves the **deployed** gateway.
+#
+# The failure is planted by deploying a build whose Durable Object constructor throws, which
+# is the harshest of the two branches: the object cannot be reached at all. The unit tests
+# cover the other branch (the object answers with an error) against the same code.
+#
+# It runs only from main, only by hand, and only against the **staging** Worker - the
+# disposable one. The credentials come from the `staging` environment and never leave the
+# runner.
+#
+# **The gateway is restored before the run ends, whatever happens.** The restore step runs
+# `if: always()`, so a failed probe still puts the good build back, and the run then proves
+# the gateway serves again. A staging gateway left broken is a nuisance; one left broken
+# silently is a lie.
+name: staging state failure
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "why this run is happening (recorded in the run summary)"
+        required: true
+        type: string
+      base_url:
+        description: "the staging read gateway (empty = the secret CTXGATE_BASE_URL is used)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # One probe at a time. Two probes would fight over the same Worker's deployment.
+  group: staging-state-failure
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: the state store must fail closed
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - name: Only main may run the probe
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "this may only run from main, not from ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gateway/read/production/package-lock.json
+
+      - name: The gateway's dependencies
+        working-directory: gateway/read/production
+        run: npm ci
+
+      - name: The healthy gateway, before anything is planted
+        env:
+          CTXGATE_BASE_URL: ${{ secrets.CTXGATE_BASE_URL }}
+          IN_BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          url="${IN_BASE_URL:-$CTXGATE_BASE_URL}"
+          [ -n "$url" ] || { echo "no staging gateway URL: give base_url or set CTXGATE_BASE_URL"; exit 1; }
+          echo "BASE=$url" >> "$GITHUB_ENV"
+          python3 ops/state-failure-probe.py --base-url "$url" --expect 403
+
+      - name: Plant the failure in the Durable Object
+        working-directory: gateway/read/production
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          path = pathlib.Path("src/state.ts")
+          text = path.read_text()
+          # The needle is the file's own text. A patch that does not apply FAILS, because a
+          # patch that silently does nothing would publish a healthy build and "prove" that a
+          # healthy gateway refuses - which is not the thing being proved.
+          needle = (
+              "  constructor(state: DurableObjectState) {\n"
+              "    this.state = state;\n"
+              "  }"
+          )
+          if needle not in text:
+              sys.exit("the Durable Object constructor was not found: the patch would have done nothing")
+          broken = needle.replace(
+              "    this.state = state;",
+              "    this.state = state;\n    throw new Error(\"planted: the state store cannot be read\");",
+          )
+          path.write_text(text.replace(needle, broken, 1))
+          print("the Durable Object constructor now throws")
+          PY
+
+      - name: Deploy the broken build
+        working-directory: gateway/read/production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env staging
+
+      - name: The gateway must refuse, because the state cannot be read
+        run: |
+          set -euo pipefail
+          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 503
+
+      - name: Restore the good build
+        if: always()
+        working-directory: gateway/read/production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          git checkout -- src/state.ts
+          echo "the good source is back"
+          npx wrangler deploy --env staging
+          echo "the good build is published again"
+
+      - name: The gateway serves again
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 403
+
+      - name: The run summary
+        if: always()
+        env:
+          REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## staging state failure"
+            echo
+            echo "Source commit: \`${GITHUB_SHA}\`"
+            echo
+            printf 'Reason: %s\n\n' "$REASON"
+            echo "The Durable Object's constructor was made to throw, the build was published to"
+            echo "staging, and the deployed gateway was asked for a link. It answered 503"
+            echo "state-unavailable instead of serving it, and /healthz kept answering, so an"
+            echo "operator can tell 'the state store is down' from 'the gateway is down'. The"
+            echo "good build was published again and the gateway serves again."
+          } >> "$GITHUB_STEP_SUMMARY"
