@@ -294,9 +294,19 @@ and both are caught now.
 $ GITHUB_TOKEN=… release/rollout-gate.sh S3
 rollout gate: stage S3
 repository:   inscope-labs/build-engine
-main:         c4a6f7c
-started:      2026-11-09T11:09:11Z
+main:         dbbc7e4
+started:      2026-11-09T11:14:31Z
 ```
+
+The run was made twice — once at `c4a6f7c` and once at `dbbc7e4`, the branch tip — and the
+result was the same both times: **34 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL**.
+
+**The pull request's own CI is green:** `GET /repos/…/commits/dbbc7e4/check-runs` answers
+**7 runs, all `success`** — `test`, `read gateway (typecheck, unit, conformance)`,
+`write gateway (typecheck, bundle, contract)`, `write gateway (unit)`,
+`write gateway (integration)`, `write gateway (log hygiene and the credential boundary)` and
+`write gateway (staging is separate from production)`. The `test` job now also runs the two
+new checks.
 
 | Check | Result | Evidence |
 |---|---|---|
