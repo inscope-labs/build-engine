@@ -72,7 +72,7 @@ new `Bearer test-operator-token` in `task-state.test.ts`, the same fixture the o
 |---|---|---|---|
 | write gateway tests | 372 | 398 | +26 |
 | read gateway unit tests | 20 | 37 | +17 |
-| conformance unit tests | 14 | 39 | +25 (10 transition, 15 shared) |
+| conformance unit tests | 14 | 40 | +26 (10 transition, 16 shared) |
 | harness checks | 94 | 94 | none |
 | Worker conformance cases | 58 | 58 | none |
 | shipped engine, release, update | 113, 94, 150 and 22 | unchanged | none |
@@ -104,5 +104,10 @@ new `Bearer test-operator-token` in `task-state.test.ts`, the same fixture the o
 - **Gateway A's transition is operator-console's work (OC-6).** Nothing in that repository was run or verified.
 - **The console's minter for read links** is not described in the operator-console documents read; unverified.
 - **Nothing was deployed.** No deployed-gateway evidence is claimed; that is S4 and S5.
+- **The required `test` check failed once on this pull request**, at the conformance unit-test step: one of the new
+  shared-property tests launched Node, which the CI job does not have installed. The tests now use static stand-ins for the
+  three functions that launch a runtime, so they need nothing installed. This was reproduced locally by running the suite with
+  Node off the `PATH` (it failed), and the fix was verified the same way (it passes), and with Node present. The real
+  run, `python3 conformance/harness/run_shared.py`, is unchanged and is part of the S2 gate.
 - **The gate's first run in the authoring environment failed `C-PROT` because `jq` was absent from that environment**, not
   because protection changed; the check passed with `jq` installed and the protection was also read directly from the API.

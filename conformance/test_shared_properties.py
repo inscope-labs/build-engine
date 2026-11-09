@@ -83,6 +83,49 @@ class TestCoverage(unittest.TestCase):
 
 
 class TestTheRunnerCannotBeFooled(unittest.TestCase):
+    """These tests must not need Node, wrangler or any installed dependency: the CI job that runs them has none.
+
+    The three functions that launch a real runtime are replaced by static stand-ins that apply the same
+    rule the real ones enforce: a named test must exist in its file exactly once. What is being tested here
+    is the runner's *judgement* of a cell, not the tests it launches; the real run is
+    `python3 conformance/harness/run_shared.py`, which the S2 gate executes.
+    """
+
+    def setUp(self):
+        self._saved = (RS._node_tests, RS._cases, RS._script)
+
+        def static_tests(kind, file, names):
+            path = REPO / file
+            if not path.is_file():
+                return False, "no such file: %s" % file
+            source = path.read_text(encoding="utf-8")
+            found = sum(1 for n in names if source.count('"%s"' % n) == 1)
+            if found != len(names):
+                return False, "%s: %d of the %d named tests ran (a named test does not exist, or is named twice)" % (file, found, len(names))
+            return True, "%s: %d test(s) passed" % (file, found)
+
+        def static_cases(ids):
+            known = {c["id"] for c in json.loads((HERE / "cases" / "behaviours.json").read_text(encoding="utf-8"))["cases"]}
+            missing = [i for i in ids if i not in known]
+            return (False, "case id(s) not in behaviours.json: %s" % ", ".join(missing)) if missing else (True, "case ids exist")
+
+        def static_script(script, texts):
+            path = REPO / script
+            if not path.is_file():
+                return False, "no such file: %s" % script
+            text = path.read_text(encoding="utf-8")
+            missing = [t for t in texts if t not in text]
+            return (False, "%s does not report: %s" % (script, "; ".join(missing))) if missing else (True, "script names the checks")
+
+        RS._node_tests, RS._cases, RS._script = static_tests, static_cases, static_script
+
+    def tearDown(self):
+        RS._node_tests, RS._cases, RS._script = self._saved
+
+    def test_a_good_cell_passes_under_the_stand_ins(self):
+        self.assertEqual(RS.judge(cell("signing", "ctxwrite-v1"))[0], "PASS")
+        self.assertEqual(RS.judge(cell("replay", "ctxwrite-v1"))[0], "PASS (accepted gap)")
+
     def test_a_named_test_that_does_not_exist_fails_the_cell(self):
         c = cell("signing", "ctxwrite-v1")
         c["evidence"][0]["names"].append("a test that was never written")
