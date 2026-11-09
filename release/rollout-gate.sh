@@ -792,33 +792,42 @@ check_s4_read_gateway() {
   if [[ -z "$logins" ]]; then
     blocked "S4-APPROVAL" "ADR 0013 records no GitHub login; the operator must supply it by an addendum, and until then this gate is BLOCKED-EXTERNAL"
   else
-    local dep run approvals reviewers actor
-    dep="$(api GET "/repos/$REPO_SLUG/deployments?per_page=50" 2>/dev/null \
-      | jq -r '[.[] | select(.environment == "production")] | .[0].id // empty' 2>/dev/null)"
-    if [[ -z "$dep" ]]; then
-      blocked "S4-APPROVAL" "no production deployment has been recorded for this repository"
-    else
-      run="$(api GET "/repos/$REPO_SLUG/deployments/$dep/statuses" 2>/dev/null \
+    # The production run the plan means is the one the read gateway's deploy workflow
+    # dispatched. Older production deployment records exist from before S3 hardened the
+    # workflows - push-triggered deploys, every one of them failed - and a stale record is
+    # not the run that would publish production. Naming one would report a failed approval
+    # where the truth is that production has not been deployed at all.
+    local dep run="" cand runid path
+    for cand in $(api GET "/repos/$REPO_SLUG/deployments?per_page=50" 2>/dev/null \
+      | jq -r '[.[] | select(.environment == "production")][].id' 2>/dev/null | head -n 10); do
+      runid="$(api GET "/repos/$REPO_SLUG/deployments/$cand/statuses" 2>/dev/null \
         | jq -r '.[0].log_url // ""' 2>/dev/null | grep -oE 'runs/[0-9]+' | cut -d/ -f2)"
-      if [[ -z "$run" ]]; then
-        blocked "S4-APPROVAL" "the production deployment $dep has no run behind it"
+      [[ -z "$runid" ]] && continue
+      path="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null \
+        | jq -r '.path // ""' 2>/dev/null)"
+      if [[ "$path" == *".github/workflows/deploy-read-gateway.yml" ]]; then
+        run="$runid"; break
+      fi
+    done
+    if [[ -z "$run" ]]; then
+      fail "S4-APPROVAL" "the production read gateway has not been deployed yet: no run of the read gateway's deploy workflow has published to the 'production' environment"
+    else
+      local approvals reviewers actor
+      approvals="$(api GET "/repos/$REPO_SLUG/actions/runs/$run/approvals" 2>/dev/null)"
+      reviewers="$(printf '%s' "$approvals" | jq -r '[.[].reviewers[]?.login] | join(",")' 2>/dev/null)"
+      actor="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.actor.login // ""' 2>/dev/null)"
+      if [[ -z "$reviewers" ]]; then
+        fail "S4-APPROVAL" "the production run $run has no environment approval at all"
       else
-        approvals="$(api GET "/repos/$REPO_SLUG/actions/runs/$run/approvals" 2>/dev/null)"
-        reviewers="$(printf '%s' "$approvals" | jq -r '[.[].reviewers[]?.login] | join(",")' 2>/dev/null)"
-        actor="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.actor.login // ""' 2>/dev/null)"
-        if [[ -z "$reviewers" ]]; then
-          fail "S4-APPROVAL" "the production run $run has no environment approval at all"
+        local ok=1 who
+        for who in ${reviewers//,/ }; do
+          printf '%s' "$logins" | grep -qw "$who" || { ok=0; note "S4-APPROVAL" "$who approved, and is not a login ADR 0013 records ($logins)"; }
+          [[ "$who" == "$actor" ]] && { ok=0; note "S4-APPROVAL" "$who approved the run it dispatched"; }
+        done
+        if [[ "$ok" == 1 ]]; then
+          pass "S4-APPROVAL" "the production run $run was approved by $reviewers, which ADR 0013 records and which is not the dispatching identity ($actor)"
         else
-          local ok=1 who
-          for who in ${reviewers//,/ }; do
-            printf '%s' "$logins" | grep -qw "$who" || { ok=0; note "S4-APPROVAL" "$who approved, and is not a login ADR 0013 records ($logins)"; }
-            [[ "$who" == "$actor" ]] && { ok=0; note "S4-APPROVAL" "$who approved the run it dispatched"; }
-          done
-          if [[ "$ok" == 1 ]]; then
-            pass "S4-APPROVAL" "the production run $run was approved by $reviewers, which ADR 0013 records and which is not the dispatching identity ($actor)"
-          else
-            fail "S4-APPROVAL" "the production run $run was approved by $reviewers, which does not satisfy ADR 0013 item 6"
-          fi
+          fail "S4-APPROVAL" "the production run $run was approved by $reviewers, which does not satisfy ADR 0013 item 6"
         fi
       fi
     fi
