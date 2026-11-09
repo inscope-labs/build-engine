@@ -684,6 +684,122 @@ check_s3_hardening() {
 }
 
 # ---------------------------------------------------------------------------
+# S4: the read gateway's staging acceptance and production.
+# ---------------------------------------------------------------------------
+
+# The host ADR 0012 records for the production read gateway, and the staging host derived
+# from it. ADR 0012 item 3 is the authority for the production host; the staging host is the
+# committed configuration's staging worker on the same account.
+s4_production_host() {
+  grep -oE 'ctxgate-read\.[A-Za-z0-9.-]+workers\.dev' docs/decisions/0012-release-record-and-hosting-closure.md 2>/dev/null | head -1
+}
+
+s4_staging_host() {
+  local worker subdomain
+  worker="$(python3 -c 'import json;print(json.load(open("gateway/read/production/ops/environments.json"))["environments"]["staging"]["worker_name"])' 2>/dev/null)"
+  subdomain="$(s4_production_host | sed 's/^ctxgate-read\.//')"
+  [[ -n "$worker" && -n "$subdomain" ]] && echo "${worker}.${subdomain}"
+}
+
+# The GitHub login(s) ADR 0013 records for the approver. The ADR's own condition says the
+# operator supplies them by an addendum to it, and that until they are supplied the gates
+# that compare an author with a login are BLOCKED-EXTERNAL. The lookup is deliberately
+# narrow: a backticked token on a line that records the login. Everything the gate is about
+# to compare against is printed, so a mismatch is diagnosable rather than mysterious.
+s4_recorded_logins() {
+  grep -iE '\*\*login' docs/decisions/0013-rollout-authorizations.md 2>/dev/null \
+    | grep -oE '`[A-Za-z0-9][A-Za-z0-9-]{0,38}`' | tr -d '`' | sort -u | tr '\n' ' '
+}
+
+check_s4_read_gateway() {
+  section "S4 stage-specific checks"
+
+  # --- the production configuration is deployable.
+  # The production repository is the operator's (ADR 0012 names it); the placeholder in the
+  # committed configuration is what is checked here, and it is the operator's value to supply.
+  local out rc
+  out="$(cd gateway/read/production && python3 ops/render-environments.py --assert-deployable production 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    blocked "S4-PROD-CONFIG" "the production configuration is not deployable: $(printf '%s' "$out" | tail -n 1)"
+  else
+    pass "S4-PROD-CONFIG" "the production configuration is deployable"
+  fi
+
+  # --- the deployed staging gateway answers, and it is the staging one.
+  local staging
+  staging="$(s4_staging_host)"
+  if [[ -z "$staging" ]]; then
+    blocked "S4-STAGING-HOST" "the staging host could not be derived from the committed configuration and ADR 0012"
+  else
+    local body health keyids
+    body="$(curl -sS -m 30 -H "User-Agent: ctxgate-check/6.1" "https://$staging/healthz" 2>/dev/null)"
+    health="$(printf '%s' "$body" | jq -r '.key_ids | join(",")' 2>/dev/null)"
+    keyids="$(python3 -c 'import json;print(",".join(json.load(open("gateway/read/production/ops/environments.json"))["environments"]["staging"]["key_ids"]))' 2>/dev/null)"
+    if [[ -z "$body" ]]; then
+      blocked "S4-STAGING" "the staging gateway at $staging did not answer; deploy and accept staging first"
+    elif [[ "$health" != "$keyids" ]]; then
+      fail "S4-STAGING" "the gateway at $staging serves the key ids '$health', not the committed staging key ids '$keyids'"
+    else
+      pass "S4-STAGING" "the staging gateway at $staging answers and serves the staging key ids ($keyids)"
+    fi
+  fi
+
+  # --- the deployed read gateway refuses what it must.
+  if [[ -n "$staging" ]]; then
+    out="$(python3 ops/staging-pilot.py --probes-only --only read --read-base "https://$staging" 2>&1)"; rc=$?
+    # The pilot's own summary is wrapped in colour codes; they are stripped before it is read.
+    local plain
+    plain="$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g')"
+    if [[ "$rc" != 0 ]]; then
+      fail "S4-PROBES" "the deployed read gateway did not refuse what it must: $(printf '%s' "$plain" | grep -E '^  - ' | head -3 | tr '\n' ' ' | cut -c1-180)"
+    else
+      pass "S4-PROBES" "$(printf '%s' "$plain" | grep -oE 'THE PROBES PASSED \([0-9]+ checks\)' | tail -1) against the deployed gateway"
+    fi
+  fi
+
+  # --- the production run's environment approval.
+  # The plan: "The production run shows an environment approval by a login recorded in ADR
+  # 0013 that is not the dispatching agent's identity. No approval means FAIL. If ADR 0013
+  # has no login recorded yet, the gate is BLOCKED-EXTERNAL."
+  local logins
+  logins="$(s4_recorded_logins)"
+  if [[ -z "$logins" ]]; then
+    blocked "S4-APPROVAL" "ADR 0013 records no GitHub login; the operator must supply it by an addendum, and until then this gate is BLOCKED-EXTERNAL"
+  else
+    local dep run approvals reviewers actor
+    dep="$(api GET "/repos/$REPO_SLUG/deployments?per_page=50" 2>/dev/null \
+      | jq -r '[.[] | select(.environment == "production")] | .[0].id // empty' 2>/dev/null)"
+    if [[ -z "$dep" ]]; then
+      blocked "S4-APPROVAL" "no production deployment has been recorded for this repository"
+    else
+      run="$(api GET "/repos/$REPO_SLUG/deployments/$dep/statuses" 2>/dev/null \
+        | jq -r '.[0].log_url // ""' 2>/dev/null | grep -oE 'runs/[0-9]+' | cut -d/ -f2)"
+      if [[ -z "$run" ]]; then
+        blocked "S4-APPROVAL" "the production deployment $dep has no run behind it"
+      else
+        approvals="$(api GET "/repos/$REPO_SLUG/actions/runs/$run/approvals" 2>/dev/null)"
+        reviewers="$(printf '%s' "$approvals" | jq -r '[.[].reviewers[]?.login] | join(",")' 2>/dev/null)"
+        actor="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.actor.login // ""' 2>/dev/null)"
+        if [[ -z "$reviewers" ]]; then
+          fail "S4-APPROVAL" "the production run $run has no environment approval at all"
+        else
+          local ok=1 who
+          for who in ${reviewers//,/ }; do
+            printf '%s' "$logins" | grep -qw "$who" || { ok=0; note "S4-APPROVAL" "$who approved, and is not a login ADR 0013 records ($logins)"; }
+            [[ "$who" == "$actor" ]] && { ok=0; note "S4-APPROVAL" "$who approved the run it dispatched"; }
+          done
+          if [[ "$ok" == 1 ]]; then
+            pass "S4-APPROVAL" "the production run $run was approved by $reviewers, which ADR 0013 records and which is not the dispatching identity ($actor)"
+          else
+            fail "S4-APPROVAL" "the production run $run was approved by $reviewers, which does not satisfy ADR 0013 item 6"
+          fi
+        fi
+      fi
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Run the gate.
 # ---------------------------------------------------------------------------
 
@@ -711,6 +827,7 @@ case "$STAGE" in
     check_env_exists "S3-ENV" production
     ;;
   S4)
+    check_s4_read_gateway
     check_repo_secret_names "S4-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CTXGATE_BASE_URL
     check_worker_secret_names "S4-WORKER-SECRETS" ctxgate-read SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
     ;;

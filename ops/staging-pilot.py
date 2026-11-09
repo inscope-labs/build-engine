@@ -220,15 +220,27 @@ def estate_head(branch):
     return out.split()[0] if out.strip() else ""
 
 
-def probes(read_base, write_base):
+def probes(read_base, write_base, only="both"):
     """The checks a deployed gateway can be asked without any secret.
 
     The signed leg needs the staging signing keys, and those are the operator's. These probes
     are the part of the deployed evidence that needs no secret at all: the gateway answers,
     says which environment it is, and refuses everything it must refuse.
+
+    `only` selects which gateway is probed. The write gateway is not deployed until Stage S5,
+    so a stage that owns the read gateway alone asks for the read half and gets the read
+    half's refusals proved against the deployed gateway. With `both` - the default, and what
+    the staging pilot workflow runs - the checks are exactly what they always were.
     """
+    gateways = {
+        "read": ("read", read_base, "ctxgate-v1"),
+        "write": ("write", write_base, "ctxwrite-v1"),
+    }
+    wanted = ["read", "write"] if only == "both" else [only]
+
     say("the deployed gateways")
-    for label, base, scheme in (("read", read_base, "ctxgate-v1"), ("write", write_base, "ctxwrite-v1")):
+    for kind in wanted:
+        label, base, _scheme = gateways[kind]
         status, body = http("GET", base + "/healthz")
         check(status == 200, "the %s gateway answers (%d)" % (label, status))
         try:
@@ -238,26 +250,30 @@ def probes(read_base, write_base):
         note("scheme %s, key ids %s" % (health.get("scheme") or health.get("protocol"), health.get("key_ids")))
 
     say("the deployed gateways are the staging ones")
-    for kind, base in (("write", write_base), ("read", read_base)):
+    for kind in ("write", "read"):
+        if kind not in wanted:
+            continue
         script = os.path.join(WRITE_GW, "scripts", "check-staging-separation.py")
-        rc, out = run([sys.executable, script, "--kind", kind, "--base-url", base], check_rc=False)
+        rc, out = run([sys.executable, script, "--kind", kind, "--base-url", gateways[kind][1]], check_rc=False)
         check(rc == 0, "the separation gate passes for the %s gateway" % kind)
         if rc != 0:
             note(out.strip().splitlines()[-1] if out.strip() else "")
 
     say("the deployed gateways refuse what they must")
-    status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
-    check(status == 403, "a link with a bad signature is refused (%d)" % status)
-    status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
-    check(status == 403, "a link with an unknown order is refused (%d)" % status)
-    status, _ = http("GET", read_base + "/admin/audit")
-    check(status == 401, "the read audit channel refuses an unauthenticated caller (%d)" % status)
-    status, _ = http("GET", write_base + "/admin/audit")
-    check(status == 401, "the write audit channel refuses an unauthenticated caller (%d)" % status)
-    status, _ = http("POST", read_base + "/admin/revoke", {}, {"order": "10008-S001"})
-    check(status == 401, "the read revocation channel refuses an unauthenticated caller (%d)" % status)
-    status, _ = http("POST", write_base + "/admin/revoke", {}, {"task": "10008-1-201-01"})
-    check(status == 401, "the write revocation channel refuses an unauthenticated caller (%d)" % status)
+    if "read" in wanted:
+        status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        check(status == 403, "a link with a bad signature is refused (%d)" % status)
+        status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        check(status == 403, "a link with an unknown order is refused (%d)" % status)
+        status, _ = http("GET", read_base + "/admin/audit")
+        check(status == 401, "the read audit channel refuses an unauthenticated caller (%d)" % status)
+        status, _ = http("POST", read_base + "/admin/revoke", {}, {"order": "10008-S001"})
+        check(status == 401, "the read revocation channel refuses an unauthenticated caller (%d)" % status)
+    if "write" in wanted:
+        status, _ = http("GET", write_base + "/admin/audit")
+        check(status == 401, "the write audit channel refuses an unauthenticated caller (%d)" % status)
+        status, _ = http("POST", write_base + "/admin/revoke", {}, {"task": "10008-1-201-01"})
+        check(status == 401, "the write revocation channel refuses an unauthenticated caller (%d)" % status)
 
     note("the signed leg is NOT proved here: it needs the staging signing keys, which are the")
     note("operator's secret. Ask for them, and run this script with --target deployed.")
@@ -272,21 +288,27 @@ def main(argv=None):
     parser.add_argument("--keep", action="store_true", help="keep the disposable consumer repository")
     parser.add_argument("--probes-only", action="store_true",
                         help="only the checks that need no secret (the deployed gateways)")
+    parser.add_argument("--only", choices=["both", "read", "write"], default="both",
+                        help="which gateway the probes cover; the write gateway is not deployed until Stage S5")
     args = parser.parse_args(argv)
 
     # ---------------------------------------------------------------- the estate
     say("the targets")
+    probed = ["read", "write"] if args.only == "both" else [args.only]
     for label, base in (("read", args.read_base), ("write", args.write_base)):
-        if base:
-            status, _ = http("GET", base + "/healthz", timeout=10)
-            check(status != 0, "the %s gateway at %s is reachable" % (label, base))
-            if status == 0:
-                raise SystemExit("the %s gateway is not reachable" % label)
+        if label not in probed or not base:
+            continue
+        status, _ = http("GET", base + "/healthz", timeout=10)
+        check(status != 0, "the %s gateway at %s is reachable" % (label, base))
+        if status == 0:
+            raise SystemExit("the %s gateway is not reachable" % label)
 
     if args.probes_only:
-        if not (args.read_base and args.write_base):
-            raise SystemExit("--probes-only needs --read-base and --write-base")
-        probes(args.read_base, args.write_base)
+        needed = [base for label, base in (("read", args.read_base), ("write", args.write_base))
+                  if label in probed]
+        if not all(needed):
+            raise SystemExit("--probes-only needs the base URL of every gateway it probes")
+        probes(args.read_base, args.write_base, args.only)
         say("the result")
         if FAILURES:
             print("\033[1;31mTHE PROBES FAILED: %d check(s)\033[0m" % len(FAILURES), flush=True)
