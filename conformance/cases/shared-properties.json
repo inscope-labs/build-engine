@@ -1,0 +1,344 @@
+{
+  "description": "The shared-property suite (ADR 0010, Q-A). Five properties times three capability formats. signing, expiry and revocation are the shared properties; scope and replay are owned by each format's own suite and are listed so that the matrix is complete. Read by conformance/harness/run_shared.py.",
+  "shared_properties": [
+    "signing",
+    "expiry",
+    "revocation"
+  ],
+  "cells": [
+    {
+      "property": "signing",
+      "format": "ctxop-v1",
+      "status": "external",
+      "evidence": [
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/capability/verify.test.ts",
+          "names": [
+            "accepts a valid ECDSA-signed capability",
+            "rejects BAD_SIGNATURE when payload is tampered",
+            "rejects BAD_SIGNATURE with wrong key",
+            "rejects empty signature",
+            "rejects UNKNOWN_KID"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "signing",
+      "format": "ctxgate-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-read",
+          "file": "gateway/read/production/test/unit/scheme.test.ts",
+          "names": [
+            "every valid vector verifies",
+            "a tampered field never verifies",
+            "every invalid input is refused"
+          ]
+        },
+        {
+          "kind": "case",
+          "ids": [
+            "B4-tamper-kid",
+            "B4-tamper-signature",
+            "B4-tamper-exp"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "signing",
+      "format": "ctxwrite-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/unit/auth/signature.test.ts",
+          "names": [
+            "the signature verifies",
+            "a tampered field never verifies",
+            "another secret never verifies",
+            "a malformed signature never verifies",
+            "the domain separator keeps a read-side signature from verifying here"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "scope",
+      "format": "ctxop-v1",
+      "status": "external",
+      "evidence": [
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/capability/verify.test.ts",
+          "names": [
+            "rejects BRANCH_MISMATCH when expectedBranch differs",
+            "rejects BRANCH_INVALID for main at decode time"
+          ]
+        },
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/capability/codec.test.ts",
+          "names": [
+            "rejects UNKNOWN_OP"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "scope",
+      "format": "ctxgate-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-read",
+          "file": "gateway/read/production/test/unit/scheme.test.ts",
+          "names": [
+            "parseLink refuses what it must"
+          ]
+        },
+        {
+          "kind": "case",
+          "ids": [
+            "B4-tamper-path",
+            "B4-tamper-ref",
+            "B7-out-of-prefix",
+            "B7-denied-by-name",
+            "B1-content-is-pinned-to-the-named-commit"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "scope",
+      "format": "ctxwrite-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/integration/adversarial-inputs.test.ts",
+          "names": [
+            "a task's files are not another task's files",
+            "a capability cannot be moved to another order or another plan",
+            "a parameter that tries to choose the destination has its own code"
+          ]
+        },
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/unit/auth/policy-authz.test.ts",
+          "names": [
+            "the destination cannot be chosen by a request"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "expiry",
+      "format": "ctxop-v1",
+      "status": "external",
+      "evidence": [
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/capability/verify.test.ts",
+          "names": [
+            "rejects CAPABILITY_EXPIRED",
+            "rejects TTL_TOO_LONG",
+            "accepts TTL at the maximum boundary"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "expiry",
+      "format": "ctxgate-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "case",
+          "ids": [
+            "B3-valid-at-expiry",
+            "B3-refused-one-past-expiry",
+            "B5-ttl-too-long",
+            "B5-ttl-at-limit"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "expiry",
+      "format": "ctxwrite-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/unit/auth/policy-authz.test.ts",
+          "names": [
+            "a capability is served at its expiry and refused one second later",
+            "a capability whose lifetime is longer than the gateway allows is refused",
+            "an expired capability is reported as expired, and not as a ttl problem"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "revocation",
+      "format": "ctxop-v1",
+      "status": "external",
+      "evidence": [
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/auth/device.test.ts",
+          "names": [
+            "returns null for unknown kid"
+          ]
+        }
+      ],
+      "note": "key retirement only; per-capability revocation is required for 0.6.0 (ADR 0010 item 4) and is a 501 stub in the documents read: the S7 gate needs console evidence"
+    },
+    {
+      "property": "revocation",
+      "format": "ctxgate-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "case",
+          "ids": [
+            "B6-revoked-order-refused",
+            "B6-other-order-unaffected"
+          ]
+        },
+        {
+          "kind": "ts-read",
+          "file": "gateway/read/production/test/unit/state-client.test.ts",
+          "names": [
+            "a state store that errors is not read as an empty revocation list",
+            "a state store that cannot be reached is not read as an empty revocation list"
+          ]
+        },
+        {
+          "kind": "script",
+          "script": "gateway/read/production/test/run-staging-checks.py",
+          "texts": [
+            "a revoked order is still revoked after the Worker restarts"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "revocation",
+      "format": "ctxwrite-v1",
+      "status": "executable",
+      "evidence": [
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/integration/seal.test.ts",
+          "names": [
+            "a revoked task refuses every write, with its own code",
+            "a closed work order refuses every write, with its own code",
+            "seal, revocation and closure are three different closures"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "replay",
+      "format": "ctxop-v1",
+      "status": "external",
+      "evidence": [
+        {
+          "kind": "external",
+          "repo": "inscope-labs/operator-console",
+          "commit": "992defff591d39539bcc8b4ca3cbc14eb9bab783",
+          "file": "gateway/tests/unit/capability/nonce.test.ts",
+          "names": [
+            "returns NONCE_REPLAYED on 409",
+            "fails closed when binding missing"
+          ]
+        }
+      ],
+      "note": ""
+    },
+    {
+      "property": "replay",
+      "format": "ctxgate-v1",
+      "status": "accepted-gap",
+      "evidence": [
+        {
+          "kind": "adr",
+          "file": "docs/decisions/0010-capability-conformance-decisions.md",
+          "item": "2 (Q-C: R-1.a plus R-1.d)"
+        },
+        {
+          "kind": "ts-read",
+          "file": "gateway/read/production/test/unit/replay.test.ts",
+          "names": [
+            "each served presentation of a link is counted, and the replay still succeeds",
+            "a link at or below the threshold is not reported; above it, it is, with its count",
+            "refusals are never counted as presentations",
+            "the audit record is stored exactly as written: its schema does not change"
+          ]
+        },
+        {
+          "kind": "script",
+          "script": "gateway/read/production/test/run-abuse-controls.py",
+          "texts": [
+            "a replayed link is visible against the threshold"
+          ]
+        }
+      ],
+      "note": "GAP R-1 accepted in writing; replay is observable, not prevented"
+    },
+    {
+      "property": "replay",
+      "format": "ctxwrite-v1",
+      "status": "accepted-gap",
+      "evidence": [
+        {
+          "kind": "adr",
+          "file": "docs/decisions/0010-capability-conformance-decisions.md",
+          "item": "3 (Q-D: R-2.a now, R-2.c later)"
+        },
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/integration/commit-idempotency.test.ts",
+          "names": [
+            "a retry with the same key returns the same success, and does not commit twice",
+            "a repeated seal returns the recorded outcome and is not an error"
+          ]
+        },
+        {
+          "kind": "ts-write",
+          "file": "gateway/write/tests/integration/single-writer.test.ts",
+          "names": [
+            "a second writer for the same task is refused with 409"
+          ]
+        }
+      ],
+      "note": "GAP R-2 accepted in writing; the repository is protected at the operation level"
+    }
+  ]
+}

@@ -25,6 +25,8 @@ export interface Policy {
   refusalBurst: number;
   refusalCooldownSeconds: number;
   auditRetention: number;
+  /** How many presentations of one link make a replay worth the operator's attention (R-1.d). */
+  replayAlertThreshold: number;
 }
 
 export class ConfigError extends Error {}
@@ -103,6 +105,7 @@ export function loadPolicy(env: Record<string, string | undefined>): Policy {
     refusalBurst: intEnv(env.REFUSAL_BURST, 30, "REFUSAL_BURST", 1, 10_000),
     refusalCooldownSeconds: intEnv(env.REFUSAL_COOLDOWN_SECONDS, 300, "REFUSAL_COOLDOWN_SECONDS", 1, 86_400),
     auditRetention: intEnv(env.AUDIT_RETENTION, 500, "AUDIT_RETENTION", 10, 10_000),
+    replayAlertThreshold: intEnv(env.REPLAY_ALERT_THRESHOLD, 10, "REPLAY_ALERT_THRESHOLD", 2, 100_000),
   };
 }
 

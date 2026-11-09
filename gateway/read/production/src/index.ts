@@ -36,6 +36,7 @@ export interface Env {
   REFUSAL_BURST: string;
   REFUSAL_COOLDOWN_SECONDS: string;
   AUDIT_RETENTION: string;
+  REPLAY_ALERT_THRESHOLD: string;
   /** Test-mode clock switch. A production deployment MUST NOT set it. */
   CTXGATE_TEST_CLOCK: string;
   STATE: DurableObjectNamespace;
@@ -69,7 +70,7 @@ export default {
       );
     }
     if (url.pathname.startsWith("/admin/")) {
-      return handleAdmin(request, env, url);
+      return handleAdmin(request, env, url, policy);
     }
     return handleLink(request, env, url, policy);
   },
@@ -127,7 +128,7 @@ async function handleLink(request: Request, env: Env, url: URL, policy: Policy):
  * It is authenticated with its own credential, separately from the signing keys, so that
  * holding a signing key does not give an operator the right to rewrite the revocation list.
  */
-async function handleAdmin(request: Request, env: Env, url: URL): Promise<Response> {
+async function handleAdmin(request: Request, env: Env, url: URL, policy: Policy): Promise<Response> {
   if (!isOperator(request, env)) {
     return new Response("unauthorised\n", {
       status: 401,
@@ -185,6 +186,42 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
       .join("\n");
     return new Response(kept ? kept + "\n" : "", {
       headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" },
+    });
+  }
+
+  // The status of one order: revoked, in a cooldown, and how its links have been presented.
+  if (url.pathname === "/admin/status" && request.method === "GET") {
+    const order = url.searchParams.get("order") ?? "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(order)) {
+      return new Response("bad request\n", {
+        status: 400,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    const result = await callStateAdmin(env, `/order-status?order=${encodeURIComponent(order)}&now=${currentTime(env, request)}`, "GET");
+    if (!result.ok) {
+      return new Response(`${result.message}\n`, {
+        status: result.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(await result.response.text(), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // The replay report (R-1.d): which links have been presented more than the threshold allows.
+  // The gap itself is accepted (ADR 0010): a replay still succeeds. This route is what makes it visible.
+  if (url.pathname === "/admin/replay" && request.method === "GET") {
+    const result = await callStateAdmin(env, `/replay?threshold=${policy.replayAlertThreshold}`, "GET");
+    if (!result.ok) {
+      return new Response(`${result.message}\n`, {
+        status: result.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(await result.response.text(), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 

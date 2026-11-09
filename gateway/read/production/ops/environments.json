@@ -53,7 +53,8 @@
         "RATE_LIMIT_GLOBAL": "2000",
         "REFUSAL_BURST": "60",
         "REFUSAL_COOLDOWN_SECONDS": "300",
-        "AUDIT_RETENTION": "500"
+        "AUDIT_RETENTION": "500",
+        "REPLAY_ALERT_THRESHOLD": "10"
       }
     },
     "staging": {
@@ -98,7 +99,8 @@
         "RATE_LIMIT_GLOBAL": "2000",
         "REFUSAL_BURST": "60",
         "REFUSAL_COOLDOWN_SECONDS": "300",
-        "AUDIT_RETENTION": "500"
+        "AUDIT_RETENTION": "500",
+        "REPLAY_ALERT_THRESHOLD": "10"
       }
     },
     "production": {
@@ -143,7 +145,8 @@
         "RATE_LIMIT_GLOBAL": "2000",
         "REFUSAL_BURST": "60",
         "REFUSAL_COOLDOWN_SECONDS": "300",
-        "AUDIT_RETENTION": "500"
+        "AUDIT_RETENTION": "500",
+        "REPLAY_ALERT_THRESHOLD": "10"
       }
     }
   }

@@ -49,6 +49,7 @@ new_sqlite_classes = ["GatewayState"]
   REFUSAL_BURST = "60"
   REFUSAL_COOLDOWN_SECONDS = "300"
   AUDIT_RETENTION = "500"
+  REPLAY_ALERT_THRESHOLD = "10"
 
 # routes / workers_dev are intentionally unset in the test environment: it is never
 # deployed. The deployed environments are below.
@@ -104,6 +105,7 @@ new_sqlite_classes = ["GatewayState"]
   REFUSAL_BURST = "60"
   REFUSAL_COOLDOWN_SECONDS = "300"
   AUDIT_RETENTION = "500"
+  REPLAY_ALERT_THRESHOLD = "10"
 
 # ---------------------------------------------------------------------------
 # PRODUCTION environment: production: the gateway the operator's own tasks are served by
@@ -156,3 +158,4 @@ new_sqlite_classes = ["GatewayState"]
   REFUSAL_BURST = "60"
   REFUSAL_COOLDOWN_SECONDS = "300"
   AUDIT_RETENTION = "500"
+  REPLAY_ALERT_THRESHOLD = "10"

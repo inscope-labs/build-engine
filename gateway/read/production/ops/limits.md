@@ -33,6 +33,7 @@ All three budgets are per 60-second window, and all three are counted in the Dur
 | `REFUSAL_BURST` | 60 | authenticated refusals for one order before it is cooled down |
 | `REFUSAL_COOLDOWN_SECONDS` | 300 | how long that cooldown lasts |
 | `AUDIT_RETENTION` | 500 | how many audit records are kept |
+| `REPLAY_ALERT_THRESHOLD` | 10 | presentations of one link above which it is reported as a replay (see below) |
 
 A task that legitimately fetches many context files can hit the per-order budget. That is the
 trade: the budget is per order, not per file, so a task that fetches forty files has forty
@@ -164,3 +165,34 @@ procedure is in `runbook.md`.
 The audit ring is bounded, not archived. `AUDIT_RETENTION` records are kept; older ones are
 dropped. If the operator needs a longer record, the ring has to be exported before it turns
 over — there is no archive behind it.
+
+## Replay is visible, not prevented
+
+A read link is reusable until it expires, on purpose: the consumer legitimately re-fetches, and a
+single-use link would turn a network retry into a lost link. The operator accepted that residual
+risk in writing (ADR 0010, GAP R-1) and chose to make replay **observable**.
+
+Every request that proved its link and was **served** counts as one presentation of that link. A
+link is identified by what it names: the order, the commit and the path. The gateway keeps the
+count, the first and last time, and nothing else about it: no signature, no URL, no content.
+
+- `GET /admin/replay` (operator token) lists the links presented **more than** `REPLAY_ALERT_THRESHOLD`
+  times, most presented first, with the order, commit, path, count and first and last time.
+- `GET /admin/status?order=<order>` says where one order stands: revoked or not, in a cooldown or not, and how its
+  links have been presented.
+- `GET /admin/metrics` carries `links_tracked` and `links_repeated`: counts only.
+- The first time a link crosses the threshold the gateway writes one line to the platform log
+  naming the order, the count and the threshold. It names no path, commit or signature.
+- A count is dropped once the link can no longer be presented (the maximum lifetime plus the clock
+  tolerance).
+- Refusals are never counted, and a request that did not prove its link cannot raise a count.
+- Counting cannot fail a request. If the count cannot be written, the audit record is still
+  written and the log says `replay_count: failed`.
+
+The audit record's schema does not change.
+
+**Choosing the threshold.** A task that reads several files presents *different* links, so it does
+not raise any one count. A consumer that retries a failed fetch presents the *same* link a few
+times. The default of 10 is a proposal: set it from what a real task does, and revisit it after the
+pilot. A link above the threshold is a prompt to look at the audit trail for that order, not proof
+of misuse. If one is misused, revoke the order (`POST /admin/revoke`).

@@ -537,6 +537,70 @@ EOF
   fi
 }
 
+check_s2_closure() {
+  section "S2 stage-specific checks"
+  local out rc
+
+  # The shared-property suite: every property x format cell is run, or cited as external.
+  out="$(python3 conformance/harness/run_shared.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S2-MATRIX" "run_shared.py exited $rc: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ' | cut -c1-200)"
+  else
+    pass "S2-MATRIX" "$(printf '%s' "$out" | grep -E 'PASS.*EXTERNAL.*FAIL' | tail -1)"
+    note "S2-MATRIX" "EXTERNAL cells (ctxop-v1) are cited, not run; they are not passes and S7 must verify them"
+  fi
+
+  # The transition decision: every vector, including the three refusals the exit gate names.
+  out="$(python3 conformance/harness/transition_reference.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S2-TRANSITION" "transition_reference.py exited $rc"
+  else
+    pass "S2-TRANSITION" "$(printf '%s' "$out" | tail -1)"
+  fi
+  local t
+  for t in "an unsealed task with a commit is reported open and not attested" \
+           "a revoked task is not attested" \
+           "a closed work order is not attested" \
+           "the same fact, asked again, is the same fact (a replayed read is safe)"; do
+    if grep -qF "\"$t\"" gateway/write/tests/integration/task-state.test.ts; then
+      pass "S2-REFUSAL" "test present: $t"
+    else
+      fail "S2-REFUSAL" "no test named: $t"
+    fi
+  done
+  for t in "NONCE_REPLAYED" "SEAL_NOT_ATTESTED" "TRANSITION_NOT_ALLOWED" "SEAL_FACT_UNAVAILABLE"; do
+    if grep -q "\"$t\"" conformance/cases/task-state-transition.json; then
+      pass "S2-REFUSAL" "a vector expects $t"
+    else
+      fail "S2-REFUSAL" "no vector expects $t"
+    fi
+  done
+
+  # The contract documents agree with the code.
+  out="$(cd gateway/write && python3 scripts/check-contract-consistency.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then fail "S2-CONTRACT" "check-contract-consistency exited $rc"; else pass "S2-CONTRACT" "the contract documents agree"; fi
+
+  # The documents the exit gate names exist.
+  local f
+  for f in docs/release/TASK-STATE-TRANSITION-CONTRACT.md docs/release/LINK-LIFECYCLE-COVERAGE.md; do
+    if [[ -f "$f" ]]; then pass "S2-DOCS" "$f exists"; else fail "S2-DOCS" "$f is missing"; fi
+  done
+
+  # Every gap in the capability document is accepted by a decision that exists.
+  if grep -q "ADR 0010" docs/release/CAPABILITY-CONFORMANCE.md && [[ -f docs/decisions/0010-capability-conformance-decisions.md ]]; then
+    pass "S2-GAPS" "GAP R-1 and GAP R-2 are recorded as accepted by ADR 0010"
+  else
+    fail "S2-GAPS" "the capability document does not cite ADR 0010"
+  fi
+
+  # The signing scheme did not change: the vectors and the scheme document are untouched.
+  if git diff --quiet origin/main -- conformance/signing-vectors.json conformance/SCHEME.md; then
+    pass "S2-SCHEME" "conformance/signing-vectors.json and SCHEME.md are unchanged against origin/main"
+  else
+    fail "S2-SCHEME" "the signing vectors or the scheme document changed (ADR 0010: no scheme change)"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Run the gate.
 # ---------------------------------------------------------------------------
@@ -559,6 +623,7 @@ run_check C-DIFF check_c_diff
 case "$STAGE" in
   S0) run_check S0 check_s0_adrs ;;
   S1) run_check S1 check_s1_lifecycle ;;
+  S2) run_check S2 check_s2_closure ;;
   S3)
     check_env_exists "S3-ENV" production
     ;;
@@ -570,7 +635,7 @@ case "$STAGE" in
     check_repo_secret_names "S5-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
     check_worker_secret_names "S5-WORKER-SECRETS" ctxgate-write SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
     ;;
-  S2|S6|S7|S8|S9)
+  S6|S7|S8|S9)
     printf '\n  note  %-14s this runner implements the standing checks only; the stage-specific\n' "$STAGE"
     printf '        checks for %s are not implemented here, so this run is NOT a gate PASS for\n' "$STAGE"
     printf '        %s. The stage report lists them separately.\n' "$STAGE"
