@@ -295,7 +295,7 @@ $ GITHUB_TOKEN=… release/rollout-gate.sh S3
 rollout gate: stage S3
 repository:   inscope-labs/build-engine
 main:         c4a6f7c
-started:      2026-11-09T…
+started:      2026-11-09T11:09:11Z
 ```
 
 | Check | Result | Evidence |
@@ -307,7 +307,7 @@ started:      2026-11-09T…
 | `C-READ` | PASS | unit suite (`# fail 0`); `ops:check`; `check:bundle`; the read staging separation; the reference gateway's unittest `OK` |
 | `C-WRITE` | PASS | typecheck over three programs; the whole suite (`# fail 0`); `check:contract`; `check:staging` |
 | `C-ISO` | PASS | no gateway/conformance/ops/variants/`.github` path and no deployment configuration in the artifact |
-| `C-SECRETS` | PASS | no credential shape in 373 files or in the diff against `origin/main`; 8 deliberate sentinels excluded and listed |
+| `C-SECRETS` | PASS | no credential shape in 375 files or in the diff against `origin/main`; 8 deliberate sentinels excluded and listed |
 | `C-DIFF` | PASS | nothing removed from `template/`, the allowlist, the forbidden rules or the tests; 5 files changed against `v0.5.0`, listed in section 5 |
 | `S3-POLICY` | PASS | workflow policy: 35 deployment-path files free of permissive expressions, 8 deployment workflows not triggered by a push or a pull request, 10 workflows with pinned actions, 2 publishing workflows with a fail-closed sequence |
 | `S3-INSTALLS` | PASS | 2 packages with a committed and agreeing lockfile, 10 workflows installing with `npm ci` |
@@ -317,7 +317,7 @@ started:      2026-11-09T…
 | `S3-SEQUENCE` ×2 | PASS | in both publishing workflows the staging acceptance job exists and the publishing job waits for it |
 | `S3-ENV` | **BLOCKED-EXTERNAL** | the environment `production` exists but has no required reviewer |
 
-**33 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL.** The gate's exit code is **2**, which is the plan's
+**34 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL.** The gate's exit code is **2**, which is the plan's
 code for "blocked".
 
 **The `C-DIFF` note — the five files changed against `v0.5.0`** in `template/`, the allowlist,
@@ -390,6 +390,16 @@ the shipped payload, so it belongs to **S8**.
 6. **The two new checkers exclude themselves** from the permissive-expression scan, by name,
    and the exclusion is printed every time the check runs. They have to name the forms to look
    for them. Nothing else is excluded.
+7. **The protected-path rule, and how it was honoured.** The plan's rule 7 says workflow files
+   are a protected path, and the build plan repeats it: *"workflow files are protected paths;
+   they are authored by Claude/operator, not the AI Studio build agent."* S3's work is
+   entirely workflow files, so the rule had to be read rather than assumed. **The agent
+   authored the changes on a branch and did not merge them**: the rule's mechanism is
+   review-before-effect, and the operator's merge is that review. This report asks the operator
+   to read those ten workflow files as a protected path, which is the one thing the agent
+   cannot do for itself. Nothing in this branch takes effect on `main` until the operator
+   merges it, and nothing at all takes effect in any environment until the operator approves a
+   run.
 
 ---
 
@@ -423,7 +433,7 @@ the shipped payload, so it belongs to **S8**.
 
 | Command | Answer |
 |---|---|
-| `release/rollout-gate.sh S3` | 33 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL; exit 2 |
+| `release/rollout-gate.sh S3` | 34 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL; exit 2 |
 | `python3 release/check-workflow-policy.py` | OK — 35 files, 8 workflows, 10 pinned, 2 sequences |
 | `python3 release/check-installs.py` | OK — 2 packages, 10 workflows |
 | `grep -rn '\|\| true' .github/ ops/ release/ gateway/…/ops gateway/write/scripts` | no hit |

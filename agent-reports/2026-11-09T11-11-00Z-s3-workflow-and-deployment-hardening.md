@@ -99,3 +99,9 @@ gate green.
 5. **`F0-077` is recorded and left open.** `template/engine/bin/update.sh` discards the
    rollback's own failure and then prints "the previous state was restored" either way. It is in
    the shipped payload, so it belongs to S8.
+6. **The protected-path rule was read, not assumed.** Rule 7 says workflow files are authored by
+   Claude/operator, not the build agent, and S3's work is entirely workflow files. The agent
+   authored the changes on a branch and did not merge them: the rule's mechanism is
+   review-before-effect, and the operator's merge is that review. **The operator should read the
+   ten changed workflow files as a protected path** — that is the one thing the agent cannot do
+   for itself.
