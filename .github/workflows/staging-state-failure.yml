@@ -10,6 +10,15 @@
 # is the harshest of the two branches: the object cannot be reached at all. The unit tests
 # cover the other branch (the object answers with an error) against the same code.
 #
+# **The probe waits for the failure to become live.** Cloudflare's default Durable Object
+# code-update strategy is `deferred`, with a maximum delay of 300 seconds: an object that is
+# already running keeps running the OLD code for a while after the deploy. A failure planted
+# in the object is therefore not live the moment the deploy finishes, and a probe that asks
+# straight away sees a healthy store and concludes the gateway did not fail closed. That was
+# F0-078, and it is why the probe waits here. It also asks the operator channel, which reaches
+# the state store directly, so the evidence says "there was nothing to read" and not only
+# "the gateway refused".
+#
 # It runs only from main, only by hand, and only against the **staging** Worker - the
 # disposable one. The credentials come from the `staging` environment and never leave the
 # runner.
@@ -46,7 +55,7 @@ jobs:
     name: the state store must fail closed
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
@@ -112,11 +121,18 @@ jobs:
         run: npx wrangler deploy --env staging
 
       - name: The gateway must refuse, because the state cannot be read
+        id: probe
+        env:
+          CTXGATE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_OPERATOR_TOKEN }}
         run: |
           set -euo pipefail
-          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 503
+          # The wait is the fix for F0-078: the Durable Object's code update is deferred, so
+          # the planted failure is not live the instant the deploy finishes. 420 seconds is
+          # longer than Cloudflare's 300-second maximum delay, with room for the poll.
+          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 503 --wait 420 --check-admin
 
       - name: Restore the good build
+        id: restore
         if: always()
         working-directory: gateway/read/production
         env:
@@ -139,6 +155,8 @@ jobs:
         if: always()
         env:
           REASON: ${{ inputs.reason }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
         run: |
           {
             echo "## staging state failure"
@@ -147,8 +165,24 @@ jobs:
             echo
             printf 'Reason: %s\n\n' "$REASON"
             echo "The Durable Object's constructor was made to throw, the build was published to"
-            echo "staging, and the deployed gateway was asked for a link. It answered 503"
-            echo "state-unavailable instead of serving it, and /healthz kept answering, so an"
-            echo "operator can tell 'the state store is down' from 'the gateway is down'. The"
-            echo "good build was published again and the gateway serves again."
+            echo "staging, and the deployed gateway was asked for a link."
+            echo
+            # The outcome is reported, not asserted. A summary that says the proof passed
+            # whether or not it did is a lie that survives in the run's record.
+            if [ "$PROBE_OUTCOME" = "success" ]; then
+              echo "**The proof passed.** The deployed gateway answered 503 state-unavailable"
+              echo "instead of serving the request, /healthz kept answering, and the operator"
+              echo "channel confirmed that the state store itself could not be reached."
+            else
+              echo "**The proof did not pass** (the probe step was \`${PROBE_OUTCOME}\`). The"
+              echo "transcript above says what the gateway actually answered. This is a failure"
+              echo "of the proof, and it is reported as one."
+            fi
+            echo
+            if [ "$RESTORE_OUTCOME" = "success" ]; then
+              echo "The good build was published again and the gateway serves again."
+            else
+              echo "**The restore did not succeed** (the restore step was \`${RESTORE_OUTCOME}\`)."
+              echo "The staging gateway may still be the broken build and needs a look."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

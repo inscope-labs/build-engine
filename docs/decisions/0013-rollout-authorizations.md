@@ -1,6 +1,6 @@
 # 0013: authorizations for the v0.6.0 rollout plan
 
-Status: **decided** (2026-11-08), with one condition recorded below (identity details)
+Status: **decided** (2026-11-08); the identity conditions are met (2026-11-09); the token-revocation condition stands
 
 Adopts `docs/release/V0.6.0-ROLLOUT-PLAN.md` and records the operator's authorizations for its execution. Closes the S0 review of the three BE-0 documents.
 
@@ -19,9 +19,9 @@ What may the executing agent do while running the plan, who authorizes and appro
 9. **BE-0 documents (5.1).** `COMPATIBILITY-MATRIX.md`, `CAPABILITY-CONFORMANCE.md` and `CBRIDGE-COVERAGE-MATRIX.md` are reviewed and approved with the answers in ADRs 0010 to 0012. Their "DRAFT" status is removed.
 
 ## Conditions
-- **Login.** Item 7 gives a name and an organization, not a GitHub login. The S4, S5 and S9 gates compare the author of a comment or approval with a login, so the operator must supply the exact GitHub login(s). Until it is supplied by an addendum to this ADR, those gates are BLOCKED-EXTERNAL.
-- **Separate identity.** Item 6 requires an agent identity distinct from the operator's. Its name is not yet supplied. The S3 entry gate checks that the identity running the workflows differs from the production environment's reviewers.
-- **Token revocation.** Item 5 means a credential exposed in chat stays valid during the assignment. The replacement session credential, if any, must be fine-grained and limited to `inscope-labs/build-engine`.
+- **Login.** Met — see the addendum of 2026-11-09 below. The approver's login is named there, on the line the release gate reads.
+- **Separate identity.** Met — see the addendum below. The session credential authenticates as a login that is not the approver's, so the plan's approval gate holds as written.
+- **Token revocation.** Still stands. Item 5 means a credential exposed in chat stays valid during the assignment. The replacement session credential, if any, must be fine-grained and limited to `inscope-labs/build-engine`. The operator revokes the exposed token at the end of this assignment.
 
 ## Rationale
 Records the operator's answers to the S0 questionnaire.
@@ -35,3 +35,30 @@ S0 exit gate items: plan adoption, authorization records, BE-0 document review.
 
 ## Operator authorization
 Recorded from the operator's completed S0 decisions questionnaire, uploaded 2026-11-08. Approver: John Wendell, operator and lead architect, inscope-labs. Statements 1.1 to 1.4, 1.6, 1.8 and 5.1 were answered with the defaults (A). Statement 1.5 was answered B. Statement 1.7 was answered "John Wendell / inscope-labs".
+
+## Addendum (2026-11-09)
+Recorded from the operator's completed S4 unblock questionnaire, uploaded 2026-11-09. This addendum supplies the identity details the conditions above required, and records the authorizations for the production half of S4. It does not change items 1.1 to 1.9 above.
+
+### Identity
+- **Login.** `inscope-xlabs`
+- The approver of the production environment is the login named on the line above. It is distinct from the login the agent dispatches workflows as, so the approval gate in item 3 holds: the agent never approves its own deploy.
+- The login is also the identity recorded for the S9 authorization comment in item 8.
+
+### Production read repository
+The production read gateway's repository is `acme-pilot-dev`, as ADR 0012 records it, with the allowlist `amk/,plans/*/package/`. The committed configuration carried the placeholder `OWNER/REPO`; it now carries these values, and `gateway/read/production/wrangler.toml` is re-rendered from them.
+
+### Authorizations granted
+The operator authorizes the agent to do each of the following, and no more than these:
+
+1. **Write the production environment's required-reviewer protection rule**, naming the approver recorded above.
+2. **Write this addendum** — the approver's login and these authorizations. (Done, in this section.)
+3. **Edit the committed production configuration** (`GITHUB_REPO`, `ALLOW_PREFIXES`) and re-render `gateway/read/production/wrangler.toml`. (Done.)
+4. **Dispatch `production-init` and the production deploy, and record the approval** the environment reviewer gives.
+
+Each authorization was granted explicitly in the questionnaire; none was inferred. The agent does not merge, does not tag or publish, does not approve its own deploy, and does not widen access beyond the protection rule named above. Item 1.4 still holds: the agent checks secrets by name only, and never reads, prints, copies or stores a value.
+
+### Session credential scope
+The operator grants the session credential the Secrets (read) and Environments (read/write) permissions on this repository, so the release gate can list the production environment's secret and variable *names*. A credential that cannot list them leaves the secret-list check BLOCKED-EXTERNAL and is reported as such; it is not a failure of the deployment, which cannot succeed without its secrets.
+
+### Reading the approver's login
+The release gate reads the approver's login from this ADR by matching the line that begins `**Login.**` followed by a backticked GitHub login. This convention is deliberate: the line carries exactly one backticked token, so no other word in the ADR can be mistaken for a login.
