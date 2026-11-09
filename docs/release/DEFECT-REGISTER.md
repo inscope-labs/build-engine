@@ -1315,3 +1315,70 @@ of 2026-11-07, which are binding.
   operator-console OC-8.
 - **The release claim is not made.** ADR 0006 decision 4's conditions are unmet, and no document in this
   repository may claim 0.6.0 is "production ready, deployed, and supported" until they are.
+
+---
+
+## Addendum A13 — S3: workflow and deployment hardening (2026-11-09)
+
+Stage S3 of `docs/release/V0.6.0-ROLLOUT-PLAN.md` (build plan BE-3). Two findings, both
+CONFIRMED by execution, and one inherited failure that the stage had to clear before its own
+gate could run.
+
+### F0-076 — A stage report's own text made `C-SECRETS` fail on `main`
+
+- Severity: S2. Status: CONFIRMED (executed on `main` at `b5d20dd`). **Closed in Stage S3.**
+- Evidence: the standing `C-SECRETS` check scans the working tree for credential shapes. On a
+  clean checkout of `main` at `b5d20dd` it answers:
+
+      $ ROLLOUT_GATE_ONLY=C-SECRETS release/rollout-gate.sh S1
+      note  C-SECRETS  HIT in docs/release/PHASE-S2-REPORT.md: Bearer test-operator-token
+      FAIL  C-SECRETS  1 hit(s) in the tree, diff against origin/main hit: 0
+
+  The hit is in the **S2 stage report**, in the sentence that lists the sentinels the S2 run
+  had excluded. The report quoted the sentinel's shape, and the shape is what the scan looks
+  for. The report was written *after* its own gate run, so the run could not have seen it: the
+  report says `C-SECRETS` pass, and it did pass, and then the sentence that recorded the pass
+  made it fail.
+- Consequence: every stage from S3 onwards would have failed its entry gate on a hit that no
+  agent had introduced and that the file it was in had already been written about. The check
+  was right; the document was wrong.
+- Required resolution: a report names a sentinel, it does not reproduce it.
+- Owner: the agent. Planned phase: Stage S3.
+- Closure evidence: the sentence in `docs/release/PHASE-S2-REPORT.md` now names the operator
+  token sentinel without reproducing a credential-shaped literal. `ROLLOUT_GATE_ONLY=C-SECRETS
+  release/rollout-gate.sh S3` answers `PASS ... no credential shape in 373 file(s) or in the
+  diff against origin/main (10 deliberate sentinel(s) excluded and listed)`, with the 10
+  exclusions listed one by one, as the check always has.
+
+### F0-077 — The consumer's update script claimed a rollback that may not have happened
+
+- Severity: S2. Status: CONFIRMED (read, not executed). **Open.** Owner: the agent.
+  Planned phase: Stage S8 (the shipped payload is changed on S8's schedule).
+- Evidence: `template/engine/bin/update.sh`, the `on_exit` trap:
+
+      if [[ $APPLYING -eq 1 && $rc -ne 0 ]]; then rollback || true; echo "update: failed; the previous state was restored" >&2; fi
+
+  The rollback's own failure is discarded, and the message that says the previous state was
+  restored is printed either way. A consumer whose rollback failed is told it did not.
+- Consequence: a failed update that also failed to roll back leaves the consumer's tree in a
+  state it does not know it is in, and reports success in the rollback. The exit code is
+  still the original failure, so the caller knows something went wrong; the operator reading
+  the message does not.
+- Required resolution: the message must distinguish "the previous state was restored" from
+  "the rollback failed and the tree is in an unknown state", and the rollback's own failure
+  must not be discarded.
+- Why it is not closed here: the file is inside the shipped payload. The rollout plan's S8 is
+  the stage that changes the shipped payload and the release metadata, and the change is
+  recorded there rather than smuggled into a workflow-hardening pull request.
+
+### The permissive expressions that were reviewed and left where they are
+
+S3 removed every permissive expression from the deployment path. The ones below are outside
+it, and each was read rather than pattern-matched:
+
+- `template/engine/bin/update.sh` and `template/operator/cbridge` — the shipped consumer
+  payload. `update.sh`'s rollback is F0-077 above; the others are `rmdir`, `cat` and
+  `git worktree` cleanups whose failure is not a gate decision. Changing the shipped payload
+  is S8's work and needs the `C-DIFF` review that goes with it.
+- `tests/test_cbridge.sh` — a test script that deliberately captures the output of a command
+  it expects to fail. The assertions follow the capture; the capture is not a gate.
