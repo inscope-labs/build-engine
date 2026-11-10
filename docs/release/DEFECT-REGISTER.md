@@ -1515,6 +1515,38 @@ against the deployed gateway, and one was found in the same file while fixing it
   `state unavailable`. Both spellings are checked against the two bodies the gateway really
   produces, and the refusal body for an ordinary link rejection is still rejected.
 - Owner: the agent. Planned phase: Stage S4.
+
+### F0-081 — `--create-if-missing` was dead code: the script listed the secrets before it could create the Worker
+
+- Severity: S2. Status: CONFIRMED (executed against the real Cloudflare account, run
+  `42826167412`, 2026-11-10). **Closed in the pull request that carries this addendum.**
+- The finding: the production read gateway's first `production-init` run failed and said only:
+
+      production-init: read: wrangler could not list the production Worker's secrets:
+      Logs were written to "/home/runner/.config/.wrangler/logs/..."
+
+  The production Worker `ctxgate-read` had never been deployed - the hostname answers 404 -
+  and `wrangler secret list` on a Worker that does not exist fails. `ops/production-init.sh`
+  listed the secrets **before** it could create the Worker, so the run aborted at the
+  listing and never reached the create path it was written with. The recovery was
+  unreachable: it could only be reached by a `secret put` failing on a Worker that exists.
+- Two defects in one: the ordering, and the **message**. `tail -n 1` of wrangler's output
+  is a pointer to wrangler's own log file, so the one line the operator was given said
+  where to look and not what happened. A fault that hides its own cause is a fault that
+  costs another round trip.
+- The same dead path was in `ops/staging-init.sh`. It never showed, because the staging
+  Workers already existed when it was written; it would have shown the first time a
+  staging Worker was created from scratch.
+- Required resolution: the existence of the Worker must be established before the secrets
+  are listed, a Worker that does not exist must be created when `--create-if-missing` says
+  it may be, and a fault must be reported with wrangler's own words.
+- Resolution: both scripts ask the Cloudflare API whether the Worker's script exists -
+  the same endpoint the release gate already uses - and **only a 404 counts as "not there
+  yet"**. A credential that cannot read the API, a wrong account id and an API that is
+  down are all something else, and none of them may be mistaken for an absent Worker. The
+  existence check runs first, so the create path is reachable; the `secret put` failure is
+  now reported as what it is, because the Worker is known to exist by then; and every
+  wrangler failure prints the whole of wrangler's output rather than its last line.
 ### F0-082 — The restore check raced the same deferred code update, and the summary conflated the publish with the service
 
 - Severity: S2. Status: CONFIRMED (executed against the deployed gateway, run `42828315746`,

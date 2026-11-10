@@ -74,6 +74,24 @@ echo '{}' > "$TMP/bundle.json"; chmod 600 "$TMP/bundle.json"
 SUMMARY="$TMP/summary.md"
 { echo "## Staging init"; echo; echo "Reason: $REASON"; echo; } > "$SUMMARY"
 
+# worker_state <worker> - whether the Worker's script is already on Cloudflare.
+#   0  it exists
+#   1  it does not exist (a 404 from the API: a state, not a fault)
+#   2  the answer could not be read (a fault, and not the same as "it does not exist")
+# Only a 404 counts as "not there yet".
+worker_state() {
+  local worker="$1" code
+  code="$(curl -sS -o "$TMP/script.json" -w '%{http_code}' \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker" \
+    2>/dev/null)" || code="000"
+  case "$code" in
+    200) return 0 ;;
+    404) return 1 ;;
+    *)   return 2 ;;
+  esac
+}
+
 init_one() {
   local label="$1" dir="$2" ghtoken="$3" keyid="$4" worker="$5"
   local signing operator signing_json listed err
@@ -81,9 +99,21 @@ init_one() {
   cd "$ROOT/$dir"
   npm ci --no-audit --no-fund >/dev/null
 
+  # --- does the Worker exist yet?
+  # This has to come BEFORE the secrets are listed. Listing the secrets of a Worker that is
+  # not there fails, so a script that lists first never reaches its create path, and the
+  # recovery that path was written for is dead code (F0-081).
+  local wstate=0
+  worker_state "$worker" || wstate=$?
+  if [ "$wstate" = 1 ]; then
+    echo "the staging Worker '$worker' does not exist yet: creating it with one staging deploy"
+    npx wrangler deploy --env staging 2>&1 | tee "$TMP/deploy-$label.txt" >&2
+  fi
+
   # No permissive fallback: a wrangler that cannot list the secrets is reported as such,
   # instead of being flattened into an empty list that the check below reads as "no secrets
-  # yet".
+  # yet". And the whole of wrangler's output is reported, not its last line: wrangler's last
+  # line is a pointer to its own log file, which is not a reason.
   if ! listed="$(npx wrangler secret list --env staging 2>&1)"; then
     fail "$label: wrangler could not list the staging Worker's secrets: $(printf '%s' "$listed" | tail -n 1)"
   fi
