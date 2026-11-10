@@ -27,10 +27,63 @@ planning a release; update it in the same pull request that changes an item's st
 | ID | Title | Status | Priority | Target release | Origin |
 |---|---|---|---|---|---|
 | P-001 | Remove all references and constraints about the host repository's visibility | CANCELLED | unassigned | unassigned | Operator, 2026-10-29 — cancelled 2026-11-07, entered in error |
+| P-002 | Plan-specific repositories are configured into the gateway infrastructure | OPEN | unassigned | 0.6.1 | Operator, 2026-11-10 |
+| P-003 | The submissions branch and task folder are plan-specific, not infrastructure | OPEN | unassigned | 0.6.1 | Operator, 2026-11-10 |
 
 ## Open entries
 
-None. The only entry this register has ever held was cancelled; see Closed entries.
+Both entries below are **pending decisions**: nothing is built or changed for release 0.6.0. The operator set
+the target release (0.6.1); priority is not set.
+
+### P-002 — Plan-specific repositories are configured into the gateway infrastructure
+
+- **Request (operator, 2026-11-10):** "repositories that are linked only to a specific plan is nevertheless tied
+  intricately to the system's infrastructure. Doesn't seem like industry standards to me." Asked for a pending
+  decision entry, "pending for release 0.6.1".
+- **Status:** OPEN (pending decision; not started)
+- **Priority / target release:** unassigned / 0.6.1 (target set by the operator, 2026-11-10)
+- **Type:** decision, then a change to the gateways' design (configuration, authorization, credentials)
+- **Why it matters:** ADR 0008 item 5 records that read and submissions repositories are per plan and not known
+  beforehand. ADR 0012 (DX-1) closed the credential model as an operator-declared allowlist of plan repositories in
+  the gateway configuration, with the operator widening the GitHub token's repository selection by hand at onboarding
+  and no GitHub App. A repository that belongs to one plan is therefore held in shared gateway configuration, and
+  onboarding a plan means changing that configuration and the token by hand.
+- **Direction to decide (not decided):** a plan-agnostic gateway. The repository, branch and task come from the signed
+  capability and are checked against an operator-managed registry held as data, not as gateway configuration.
+  Credentials per repository come from a broker held by the gateway (for example a GitHub App installation), so agents
+  never hold them.
+- **Constraint:** release 0.6.0 keeps the ADR 0012 allowlist model; S4 and S5 verify against it. This entry changes
+  nothing before 0.6.1.
+- **Open questions for the operator:**
+  1. Where should the registry live, and who may change it (operator console only)?
+  2. ADR 0012 chose no GitHub App because many agents cannot use Apps. Does that still hold if only the gateway holds
+     the App credential?
+  3. Does the current capability format already carry the repository identity, or does it need a new version?
+  4. How do 0.6.0 deployments migrate, and how do the S4 and S5 style gates change?
+- **Related records:** ADR 0008 item 5 and open item DX-1; ADR 0012 item 5.
+- **Owner:** operator decides scope and release; implementation owner not yet assigned.
+
+### P-003 — The submissions branch and task folder are plan-specific, not infrastructure
+
+- **Request (operator, 2026-11-10):** "the same thing goes for the branch and folder - it's tied directly to a
+  specific plan - nothing to do with the build-engine infrastructure." Asked to record it "as pending for release
+  0.6.1".
+- **Status:** OPEN (pending decision; not started)
+- **Priority / target release:** unassigned / 0.6.1 (target set by the operator, 2026-11-10)
+- **Type:** decision, then a change to the write gateway's design
+- **Why it matters:** the write gateway takes the submissions branch as configuration (`SUBMISSIONS_BRANCH`) and
+  requires that the branch and the task-id folder already exist, because the gateway never creates them. Both belong
+  to one plan, yet one is fixed in gateway configuration.
+- **For 0.6.0:** a branch name and folder layout are chosen for the pilot plan and recorded with the S5 decision.
+  They are plan values, not build-engine conventions.
+- **Direction to decide (not decided):** branch and task folder are plan-level settings carried by the work order,
+  validated by the gateway against the registry in P-002 rather than fixed in its configuration.
+- **Depends on:** P-002 (same registry and authorization design).
+- **Open questions for the operator:**
+  1. Who creates the branch and the task-id folder, and when (plan onboarding or work-order creation)?
+  2. Which naming pattern does the gateway enforce, and who owns it?
+- **Related records:** ADR 0012 section 4 and its S5 condition; `gateway/write` configuration.
+- **Owner:** operator decides scope and release; implementation owner not yet assigned.
 
 ## Closed entries
 
@@ -122,3 +175,4 @@ documents today's limitation; `docs/decisions/0005-class-a-access.md`.
 |---|---|
 | 2026-10-29 | Register created with P-001 (operator request). |
 | 2026-11-07 | P-001 cancelled by the operator: entered in error. The entry is kept and moved to Closed entries; nothing else changed. |
+| 2026-11-10 | P-002 and P-003 added as pending decisions, target release 0.6.1 (operator request). |
