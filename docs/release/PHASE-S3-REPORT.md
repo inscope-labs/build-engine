@@ -461,3 +461,35 @@ the shipped payload, so it belongs to **S8**.
 | `POST /actions/workflows/deploy-read-gateway.yml/dispatches` (ref `s3/planted-failure-demo`) | 204 → run 42606008496, **failure**, publish skipped |
 | `POST /actions/workflows/deploy.yml/dispatches` (ref `s3/planted-failure-demo`) | 204 → run 42606042389, **failure**, deploy skipped |
 | the mutation battery (21 planted regressions) | **21 caught, 0 missed** |
+
+---
+
+## 8. Addendum (2026-11-09): the `[E]` condition is met, and S3 is PASS
+
+Section 6 recorded S3 as **not PASS** because the `production` environment had no required reviewer and ADR 0013
+had no login. Both are now resolved:
+
+- ADR 0013's addendum records the approver login (`inscope-xlabs`), and its addendum 2 records that the
+  reviewer rule was written on 2026-11-09.
+- `GET /repos/inscope-labs/build-engine/environments/production` returns the rule as written: required reviewer
+  `inscope-xlabs` (user id 354669671), self-review prevented, administrator bypass **off**.
+- `release/rollout-gate.sh S3`, run against `main` at `5038c63` with this change's gate runner: the stage
+  checks (`S3-POLICY`, `S3-INSTALLS`, `S3-PERMISSIVE`, `S3-LOCKFILE`, `S3-TRIGGER`, `S3-SEQUENCE`, `S3-ENV`) all
+  PASS, including `S3-ENV`: *the environment 'production' requires a reviewer (inscope-xlabs) that ADR 0013 records,
+  administrators cannot bypass it, self-review is prevented, and the dispatching identity (inscope-labs) is not a
+  reviewer.* **Result: PASS (stage S3).**
+
+**An intermittent failure, not explained.** In the first full run of the gate this session, `C-WRITE` reported "exit 0
+(wanted 0), output did not contain '# fail 0'" for the write gateway's test run. Run directly, the suite reported
+399 passed, 0 failed; the gate's `C-WRITE` check on its own then passed, and so did the whole gate on the
+second full run. It was seen once and not reproduced twice. It is recorded here and not filed as a defect, because
+there is nothing yet to say what caused it; if it recurs it should be.
+
+**Two defects found in the gate runner while doing this**, both in how it read the GitHub API, both closed in the
+same change (F0-080, F0-081): the environment check read a reviewer from a field that does not exist (it would
+have reported "no reviewer" for a correct rule), and the approval check read an approver from a field the approvals
+endpoint does not return. The first is exercised against the live API above; the second is **not yet exercised
+against a real approval**, which will happen at the first production deploy.
+
+**Still true from section 6:** nothing was deployed by this addendum; no merge, tag or publication.
+

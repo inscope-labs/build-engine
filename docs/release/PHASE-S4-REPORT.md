@@ -418,3 +418,29 @@ says so.
 **Nothing was merged, tagged, published or deployed to production.** The only deployment this
 stage performed after the answers was the **staging** one the state-failure proof needs, and
 the proof's restore step put the good build back.
+
+---
+
+## 8. Addendum (2026-11-09): what is cleared and what still blocks the production half
+
+State read from the GitHub API on `main` at `5038c63` (CI 7 of 7 green), with a credential that can read secret
+**names** (never values).
+
+| Blocker (section 7.6) | State now | Whose |
+|---|---|---|
+| PR #55 merged | **cleared** | done |
+| the approver account exists | **cleared**: `inscope-xlabs` is a collaborator with write access | done |
+| the `production` reviewer rule | **cleared** on 2026-11-09 (ADR 0013 addendum 2): reviewer `inscope-xlabs`, self-review prevented, administrator bypass off | done |
+| the `production` environment's secrets and variable | **not cleared**: the environment holds **no** secrets and **no** variables | **operator**; see `PRODUCTION-PROVISIONING.md` |
+| the deployed fail-closed proof after the #55 fix | **not cleared**: the last run (`42701286443`) predates the fix and concluded `failure` | agent: re-dispatch |
+| the production deploy and its approval | **not started**: depends on the two rows above | agent dispatches, `inscope-xlabs` approves |
+
+**What S4 needs from the operator now:** four secrets and one variable, not five and one. `WRITE_GH_TOKEN` is the write
+gateway's credential (S5), is not needed by `production-init --target read`, and cannot be made until the submissions
+repository is settled (ADR 0012's condition). The four secrets are `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+`CTXGATE_BASE_URL` and `READ_GH_TOKEN`; the variable is `DELIVERY_PUBLIC_KEY`. `PRODUCTION-PROVISIONING.md` walks
+through each, and recommends a **new** delivery key for production rather than reusing staging's.
+
+**Gate runner.** `rollout-gate.sh` is corrected (F0-080, F0-081) so that the environment check and the approval check
+read the fields the GitHub API actually returns.
+
