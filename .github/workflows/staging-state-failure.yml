@@ -153,7 +153,7 @@ jobs:
           # The restore is a deploy, and a deploy's Durable Object code update is deferred too:
           # the good build is published but the object may still be running the constructor
           # that throws, so the gateway keeps refusing with 503 until the update lands. The
-          # check waits for it, for the same reason the proof waits (F0-078, F0-082).
+          # check waits for it, for the same reason the proof waits (F0-078, F0-084).
           python3 ops/state-failure-probe.py --base-url "$BASE" --expect 403 --wait 420
 
       - name: The run summary

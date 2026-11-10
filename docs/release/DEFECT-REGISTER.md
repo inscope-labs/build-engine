@@ -878,6 +878,9 @@ No release-blocker metadata has been changed, no release has been published, and
 | F0-078, F0-079 | Stage S4 | Found and closed in Stage S4, by running the deployed state-failure proof against the real gateway: the proof asked the gateway before Cloudflare's deferred Durable Object code update had landed, so it saw a healthy store, and the run's summary asserted the conclusion instead of reporting the outcome |
 | F0-080 | Stage S4 | The gate runner read the production environment's reviewers from a field that does not exist, so a correctly configured reviewer rule would have been reported as "no required reviewer" |
 | F0-081 | Stage S4 | The gate runner read a production run's approver from a field the approvals API does not return, so a real approval would have been reported as "no environment approval at all" |
+| F0-082 | Stage S4 | The state-failure probe asserted the hyphenated spelling of the refusal against a body that spells it out with a space, so it rejected a refusal that was exactly right |
+| F0-083 | Stage S4 | The production init listed a Worker's secrets before it could create the Worker, so `--create-if-missing` was dead code and the run died on the first listing |
+| F0-084 | Stage S4 | The restore check raced the same deferred Durable Object code update as the proof, and the run summary claimed the gateway served again on the restore step's exit code alone |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 + **BE-0** | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070). **BE-0 changed the exposure rule** under ADR 0008 decision 2: production is on `workers.dev` for both gateways, and the shared-zone mitigations (distinct names, disjoint key ids, distinct destinations, no wildcard routes) are what the gates check instead. The compatibility-date review still stands |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
@@ -1488,7 +1491,11 @@ against the deployed gateway, and one was found in the same file while fixing it
   deploy, and the gate will say what it read.
 - Owner: Claude. Planned phase: Stage S4.
 
-### F0-080 — The state-failure probe asserted one spelling of the refusal and rejected the other
+> **Note on the numbers.** The three findings below were first written as F0-080, F0-081 and
+> F0-082, and were renumbered on 2026-11-10 when the operator's own findings of 2026-11-09
+> took those numbers. Nothing else about them changed.
+
+### F0-082 — The state-failure probe asserted one spelling of the refusal and rejected the other
 
 - Severity: S3. Status: CONFIRMED (executed against the deployed gateway, run `42826229928`,
   2026-11-10). **Closed in the pull request that carries this entry.**
@@ -1516,7 +1523,7 @@ against the deployed gateway, and one was found in the same file while fixing it
   produces, and the refusal body for an ordinary link rejection is still rejected.
 - Owner: the agent. Planned phase: Stage S4.
 
-### F0-081 — `--create-if-missing` was dead code: the script listed the secrets before it could create the Worker
+### F0-083 — `--create-if-missing` was dead code: the script listed the secrets before it could create the Worker
 
 - Severity: S2. Status: CONFIRMED (executed against the real Cloudflare account, run
   `42826167412`, 2026-11-10). **Closed in the pull request that carries this addendum.**
@@ -1547,11 +1554,11 @@ against the deployed gateway, and one was found in the same file while fixing it
   existence check runs first, so the create path is reachable; the `secret put` failure is
   now reported as what it is, because the Worker is known to exist by then; and every
   wrangler failure prints the whole of wrangler's output rather than its last line.
-### F0-082 — The restore check raced the same deferred code update, and the summary conflated the publish with the service
+### F0-084 — The restore check raced the same deferred code update, and the summary conflated the publish with the service
 
 - Severity: S2. Status: CONFIRMED (executed against the deployed gateway, run `42828315746`,
   2026-11-10). **Closed in the pull request that carries this addendum.**
-- The finding: with F0-078 and F0-080 fixed, the **proof itself passed** - the deployed gateway
+- The finding: with F0-078 and F0-082 fixed, the **proof itself passed** - the deployed gateway
   answered `503`, the refusal named the state, `/healthz` kept answering, and the operator
   channel confirmed the state store itself was unreachable:
 
