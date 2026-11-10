@@ -66,8 +66,8 @@ fallthrough = true
 # The single repository this gateway may write to, and the single branch in it. The gateway
 # never creates a repository, a branch or a folder, and never pushes anywhere else
 # (protocol section 12).
-SUBMISSIONS_REPO = "OWNER/REPO"
-SUBMISSIONS_BRANCH = "build-engine"
+SUBMISSIONS_REPO = "inscope-labs/acme-pilot-dev"
+SUBMISSIONS_BRANCH = "submissions"
 # Where a task's files go, relative to the repository root. The placeholders are filled from the
 # SIGNED capability, so no request can influence the destination.
 SUBMISSIONS_FOLDER_TEMPLATE = "plans/{plan}/submissions/{order}/{task}"
@@ -131,7 +131,7 @@ DEPLOY_ENV = "staging"
 SIGNING_KEY_IDS = "sk1"
 # The production destination. The staging deployment refuses to start if it is pointed at it.
 # The operator replaces this with the real production repository when there is one.
-PRODUCTION_SUBMISSIONS_REPO = "OWNER/REPO"
+PRODUCTION_SUBMISSIONS_REPO = "inscope-labs/acme-pilot-dev"
 MAX_TTL_SECONDS = "604800"
 LEASE_SECONDS = "300"
 AUDIT_RETENTION_SECONDS = "86400"

@@ -47,9 +47,10 @@ refusal, secrets check, post-deploy `verify-deployment.py`). It is unchanged.
 
 ## Still open (none of this PR resolves it)
 
-- **Production destinations are placeholders**: the write gateway's `SUBMISSIONS_REPO`, the read
-  gateway's host and `GITHUB_REPO`. Until they are named (DX-1, DX-2), the production gates and
-  `production-init` refuse to run. That is intended.
+- **Production destinations**: the write gateway's `SUBMISSIONS_REPO` and `SUBMISSIONS_BRANCH` are now
+  named for the pilot plan (`inscope-labs/acme-pilot-dev`, branch `submissions`; ADR 0014). They are plan
+  values held in gateway configuration for 0.6.0 (pending decisions P-002 and P-003). A placeholder still
+  makes the production gates and `production-init` refuse to run. That is intended.
 - **Production on `workers.dev`** (ADR 0008 decision D-6.1): **changed by BE-0.** The gates no longer
   require `workers_dev = false`; production is exposed on `workers.dev` for both gateways, on each
   Worker's own host, and the shared-zone mitigations (distinct Worker names, distinct key ids,
