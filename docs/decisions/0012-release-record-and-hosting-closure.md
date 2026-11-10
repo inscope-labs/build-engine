@@ -1,6 +1,6 @@
 # 0012: compatibility record, hostnames, repositories and credential model
 
-Status: **decided** (2026-11-08), with one condition recorded below (submissions repository)
+Status: **decided** (2026-11-08); the condition on the submissions repository is resolved by ADR 0014 (2026-11-10)
 
 Closes Q-4, the compatibility-record schema approval and Q-5 of `docs/release/COMPATIBILITY-MATRIX.md`, and the open items DX-1 and DX-2 of ADR 0008.
 
