@@ -1515,3 +1515,36 @@ against the deployed gateway, and one was found in the same file while fixing it
   `state unavailable`. Both spellings are checked against the two bodies the gateway really
   produces, and the refusal body for an ordinary link rejection is still rejected.
 - Owner: the agent. Planned phase: Stage S4.
+### F0-082 — The restore check raced the same deferred code update, and the summary conflated the publish with the service
+
+- Severity: S2. Status: CONFIRMED (executed against the deployed gateway, run `42828315746`,
+  2026-11-10). **Closed in the pull request that carries this addendum.**
+- The finding: with F0-078 and F0-080 fixed, the **proof itself passed** - the deployed gateway
+  answered `503`, the refusal named the state, `/healthz` kept answering, and the operator
+  channel confirmed the state store itself was unreachable:
+
+      the unsigned request answered 503: gateway state unavailable
+      ok   the request is refused with 503, not served
+      ok   the refusal names state-unavailable (gateway state unavailable)
+      ok   /healthz still answers: the gateway is up and its state is not
+      ok   the operator channel reports the state store itself unreachable (503)
+      THE PROBE PASSED
+
+  The run still concluded `failure`, on the step **after** the proof. The restore is a deploy,
+  and a deploy's Durable Object code update is deferred exactly as the broken build's was: the
+  good build was published, but the object was still running the constructor that throws, so
+  the gateway was still refusing with `503` when the check asked. The check had no wait, so it
+  read a gateway that had not finished changing.
+- Two defects in one. The **check** did not wait for the restore's code update to land, and the
+  **summary** said "The good build was published again and the gateway serves again" on the
+  strength of the restore step's exit code alone - a claim about the service that only the
+  verification step can make. The run summary was honest about the proof and wrong about the
+  restore.
+- The staging gateway was in fact healthy again within minutes, and the probe confirms it now;
+  the run simply could not see it.
+- Required resolution: the restore check must wait for the deferred update, and the summary must
+  report the verification step's outcome rather than the restore step's.
+- Resolution: the check waits, with the same bound as the proof, and the summary now states the
+  two things separately - that the good build was published (the restore step) and that the
+  gateway serves again (the verification step).
+- Owner: the agent. Planned phase: Stage S4.
