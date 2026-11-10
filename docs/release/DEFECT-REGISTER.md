@@ -876,6 +876,8 @@ No release-blocker metadata has been changed, no release has been published, and
 | R0-013 | Phase 6 - **Stage 6.2**, closed 2026-11-05 | **CLOSED.** The `staging-pilot` workflow runs the signed leg against the deployed staging Workers with the secrets held in GitHub; run `41964576712` passed 44 checks on 2026-11-05 |
 | R0-014 | Phase 6 - **Stage 6.3**, decided 2026-11-07 | **ACCEPTED.** The failure scenarios run against the local runtime and the deployed no-secret probes; the deployed gateways do **not** get a fault-injection switch. The gap is documented, not closed |
 | F0-078, F0-079 | Stage S4 | Found and closed in Stage S4, by running the deployed state-failure proof against the real gateway: the proof asked the gateway before Cloudflare's deferred Durable Object code update had landed, so it saw a healthy store, and the run's summary asserted the conclusion instead of reporting the outcome |
+| F0-080 | Stage S4 | The gate runner read the production environment's reviewers from a field that does not exist, so a correctly configured reviewer rule would have been reported as "no required reviewer" |
+| F0-081 | Stage S4 | The gate runner read a production run's approver from a field the approvals API does not return, so a real approval would have been reported as "no environment approval at all" |
 | R0-008 | Stage 4.3 (partly closed) + Stage 6.1 + **BE-0** | The read gateway's deployment defaults are now pinned: `ops/environments.json` is the single source, `wrangler.toml` is generated from it, and the gate refuses a drifted configuration. The write gateway's `workers_dev` half is **closed in Stage 6.1** (F0-070). **BE-0 changed the exposure rule** under ADR 0008 decision 2: production is on `workers.dev` for both gateways, and the shared-zone mitigations (distinct names, disjoint key ids, distinct destinations, no wildcard routes) are what the gates check instead. The compatibility-date review still stands |
 
 ## G. Audit method and coverage (what "complete" can and cannot mean)
@@ -1453,3 +1455,35 @@ against the deployed gateway, and one was found in the same file while fixing it
   `steps.probe.outcome` and `steps.restore.outcome` explicitly, saying which of the two
   happened. It makes no claim about the result it did not observe.
 - Owner: the agent. Planned phase: Stage S4.
+
+### F0-080 — The environment check read the reviewer from the wrong field
+
+- Severity: S3. Status: CONFIRMED (found on 2026-11-09, when the reviewer rule was written and the
+  check was run against it). **Closed in the pull request that records it.**
+- Where: `release/rollout-gate.sh`, `check_env_exists`.
+- The check listed reviewers with `.protection_rules[]?.reviewers[]?.login`. The API names a
+  reviewer as `protection_rules[].reviewers[].reviewer.login`; the reviewer is an object beside
+  the `type`. The expression therefore returned nothing for a correctly configured rule, and the
+  gate would have reported "the environment exists but has no required reviewer" when the rule
+  was in place. It had only ever run against an environment with no rule, where the wrong
+  answer and the right one are the same.
+- Required resolution: read the reviewer from where the API puts it, and hold `production` to
+  what ADR 0013 records: the reviewer is a recorded login, the dispatching identity is not a
+  reviewer, administrators cannot bypass the rule, and self-review is prevented.
+- Resolution: done, and checked against the live API with the rule in place (PASS) and with
+  staging, which has no rule (BLOCKED-EXTERNAL, as it should be).
+- Owner: Claude. Planned phase: Stage S3 / S4.
+
+### F0-081 — The approval check read the approver from a field the API does not return
+
+- Severity: S3. Status: CONFIRMED (found by reading the check against the approvals endpoint's
+  documented shape while fixing F0-080). **Closed in the pull request that records it.**
+- Where: `release/rollout-gate.sh`, the `S4-APPROVAL` check.
+- It read approvers with `.[].reviewers[]?.login`. The approvals endpoint returns one object per
+  approval, with the approver in `.user.login` and the outcome in `.state`. The check would have
+  said "no environment approval at all" for a run that had been approved. It has not run against
+  a production run yet, because none has been published.
+- Required resolution: read `.user.login` of approvals whose `.state` is `approved`.
+- Resolution: done. **Not exercised against a real approval**: that happens at the first production
+  deploy, and the gate will say what it read.
+- Owner: Claude. Planned phase: Stage S4.

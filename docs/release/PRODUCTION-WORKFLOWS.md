@@ -38,8 +38,9 @@ refusal, secrets check, post-deploy `verify-deployment.py`). It is unchanged.
 
 ## Setup in GitHub (not something a workflow can do)
 
-1. **Required reviewer on the `production` environment.** Today the environment has no protection
-   rules, so the approval ADR 0008 asks for does not exist. Add yourself as a required reviewer.
+1. **Required reviewer on the `production` environment.** *(Done on 2026-11-09: the reviewer is the second
+   account `inscope-xlabs`, not the operator who dispatches; see ADR 0013, addendum 2.)* Originally the environment
+   had no protection rules, so the approval ADR 0008 asks for did not exist.
 2. In `production`: secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `READ_GH_TOKEN`,
    `WRITE_GH_TOKEN` (production's own credentials, not staging's); variable `DELIVERY_PUBLIC_KEY`.
    The read gateway's deploy also reads the secret `CTXGATE_BASE_URL`.

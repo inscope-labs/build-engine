@@ -62,3 +62,39 @@ The operator grants the session credential the Secrets (read) and Environments (
 
 ### Reading the approver's login
 The release gate reads the approver's login from this ADR by matching the line that begins `**Login.**` followed by a backticked GitHub login. This convention is deliberate: the line carries exactly one backticked token, so no other word in the ADR can be mistaken for a login.
+
+## Addendum 2 (2026-11-09): the production reviewer rule is written
+
+The operator answered "Yes" on 2026-11-09 to the agent writing the production environment's required-reviewer
+rule, with self-review prevented and administrator bypass turned off. The first is authorization 1 of the
+addendum above; the other two settings were put to the operator in the same question and approved in the same
+answer.
+
+**What was written, through the GitHub API, with the operator's credential:**
+
+| Setting on the `production` environment | Value |
+|---|---|
+| required reviewer | `inscope-xlabs` (user id 354669671), the login the addendum above records |
+| prevent self-review | on |
+| administrators can bypass | **off** (it was on) |
+| wait timer | none |
+| deployment branch policy | none (unchanged) |
+
+The `staging` environment was **not** changed.
+
+**What it does.** A production deployment cannot proceed until `inscope-xlabs` approves it. That account is a
+different identity from `inscope-labs`, the login the agent dispatches workflows as, so the agent never approves
+its own deploy (item 3, and item 6 as amended by the addendum above). With administrator bypass off, the owner
+account cannot skip the approval either.
+
+**Checked.** `GET /repos/inscope-labs/build-engine/environments/production` returns the rule as written, and the
+release gate's `S3-ENV` check passes against it (see `PHASE-S3-REPORT.md` section 8).
+
+**Not changed, and still open.**
+- The approver's login is recorded as `inscope-xlabs` for both the production approval and the S9 authorization
+  comment (item 8). If the operator wants `inscope-labs` to post the S9 authorization instead, this ADR needs a
+  further addendum; the gates read what the ADR records.
+- No deployment branch policy was set. A production deployment can be dispatched from any branch the workflow
+  allows; the workflows themselves refuse to publish from anything but `main`, and the operator may add a branch
+  policy of `main` to the environment as well.
+

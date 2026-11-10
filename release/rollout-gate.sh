@@ -340,6 +340,14 @@ check_c_diff() {
 # ---------------------------------------------------------------------------
 
 # check_env_exists <id> <environment>  - the environment exists and requires a reviewer.
+#
+# For `production` this also holds the environment to what ADR 0013 records: the reviewer is a
+# login the ADR names, the dispatching identity (the login this credential belongs to) is not a
+# reviewer, administrators cannot bypass the rule, and self-review is prevented. A rule that an
+# administrator can bypass is not an approval gate; it is a suggestion.
+#
+# The API names a reviewer as protection_rules[].reviewers[].reviewer.login (the reviewer is
+# an object beside the "type"), not as a bare login.
 check_env_exists() {
   local id="$1" env="$2" body reviewers
   body="$(api GET "/repos/$REPO_SLUG/environments/$env" 2>/dev/null)"
@@ -347,12 +355,48 @@ check_env_exists() {
     blocked "$id" "the GitHub environment '$env' does not exist yet"
     return
   fi
-  reviewers="$(printf '%s' "$body" | jq -r '[.protection_rules[]?.reviewers[]?.login] | join(",")' 2>/dev/null)"
+  reviewers="$(printf '%s' "$body" | jq -r '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]? | (.reviewer.login // empty)] | join(",")' 2>/dev/null)"
   if [[ -z "$reviewers" ]]; then
     blocked "$id" "the environment '$env' exists but has no required reviewer"
     return
   fi
-  pass "$id" "the environment '$env' exists and requires a reviewer ($reviewers)"
+  if [[ "$env" != production ]]; then
+    pass "$id" "the environment '$env' exists and requires a reviewer ($reviewers)"
+    return
+  fi
+
+  local bypass selfrev logins actor who ok=1
+  bypass="$(printf '%s' "$body" | jq -r '.can_admins_bypass' 2>/dev/null)"
+  selfrev="$(printf '%s' "$body" | jq -r '[.protection_rules[]? | select(.type == "required_reviewers") | .prevent_self_review] | first // false' 2>/dev/null)"
+  if [[ "$bypass" != false ]]; then
+    fail "$id" "administrators can bypass the production reviewer rule (can_admins_bypass is $bypass); that is not an approval gate"
+    return
+  fi
+  if [[ "$selfrev" != true ]]; then
+    fail "$id" "the production reviewer rule does not prevent self-review"
+    return
+  fi
+  logins="$(s4_recorded_logins)"
+  if [[ -z "$logins" ]]; then
+    blocked "$id" "ADR 0013 records no approver login, so the reviewers ($reviewers) cannot be compared with it"
+    return
+  fi
+  for who in ${reviewers//,/ }; do
+    printf '%s' "$logins" | grep -qw "$who" || { ok=0; note "$id" "$who is a reviewer and is not a login ADR 0013 records ($logins)"; }
+  done
+  actor="$(api GET /user 2>/dev/null | jq -r '.login // ""' 2>/dev/null)"
+  if [[ -n "$actor" ]]; then
+    for who in ${reviewers//,/ }; do
+      [[ "$who" == "$actor" ]] && { ok=0; note "$id" "$who is the identity this credential dispatches as; it must not also be the approver (ADR 0013 item 6)"; }
+    done
+  else
+    note "$id" "the dispatching identity could not be read, so the reviewer was not compared with it"
+  fi
+  if [[ "$ok" == 1 ]]; then
+    pass "$id" "the environment 'production' requires a reviewer ($reviewers) that ADR 0013 records, administrators cannot bypass it, self-review is prevented${actor:+, and the dispatching identity ($actor) is not a reviewer}"
+  else
+    fail "$id" "the production reviewer rule does not satisfy ADR 0013"
+  fi
 }
 
 # check_repo_secret_names <id> <environment> <name>...  - the names are present. Values are not
@@ -814,7 +858,7 @@ check_s4_read_gateway() {
     else
       local approvals reviewers actor
       approvals="$(api GET "/repos/$REPO_SLUG/actions/runs/$run/approvals" 2>/dev/null)"
-      reviewers="$(printf '%s' "$approvals" | jq -r '[.[].reviewers[]?.login] | join(",")' 2>/dev/null)"
+      reviewers="$(printf '%s' "$approvals" | jq -r '[.[] | select(.state == "approved") | (.user.login // empty)] | join(",")' 2>/dev/null)"
       actor="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.actor.login // ""' 2>/dev/null)"
       if [[ -z "$reviewers" ]]; then
         fail "S4-APPROVAL" "the production run $run has no environment approval at all"
