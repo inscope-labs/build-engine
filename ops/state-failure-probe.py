@@ -147,7 +147,12 @@ def main(argv: list[str] | None = None) -> int:
         print("   (it took %d attempts)" % attempts)
     if args.expect == "503":
         check(status == 503, "the request is refused with 503, not served")
-        check("state-unavailable" in body,
+        # The refusal carries the reason "state-unavailable" in the audit record, and the body
+        # the caller sees spells it out as "gateway state unavailable". Both spellings are the
+        # same refusal, so both are accepted: an assertion that only matched one of them
+        # would fail a proof that had in fact succeeded.
+        body_lower = body.lower()
+        check("state-unavailable" in body_lower or "state unavailable" in body_lower,
               "the refusal names state-unavailable (%s)" % (body.strip()[:60] or "no body"))
     else:
         check(status == 403, "the unsigned request is refused with 403 (%d)" % status)

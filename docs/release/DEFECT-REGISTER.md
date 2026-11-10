@@ -1487,3 +1487,31 @@ against the deployed gateway, and one was found in the same file while fixing it
 - Resolution: done. **Not exercised against a real approval**: that happens at the first production
   deploy, and the gate will say what it read.
 - Owner: Claude. Planned phase: Stage S4.
+
+### F0-080 — The state-failure probe asserted one spelling of the refusal and rejected the other
+
+- Severity: S3. Status: CONFIRMED (executed against the deployed gateway, run `42826229928`,
+  2026-11-10). **Closed in the pull request that carries this entry.**
+- The finding: with F0-078 fixed, the deployed proof reached the gateway's real refusal - and
+  then failed on its own assertion:
+
+      the unsigned request answered 503: gateway state unavailable
+      ok   the request is refused with 503, not served
+      FAIL the refusal names state-unavailable (gateway state unavailable)
+      ok   /healthz still answers: the gateway is up and its state is not
+      ok   the operator channel reports the state store itself unreachable (503)
+
+  The gateway's **reason** is `state-unavailable` (that is what the audit record carries), and
+  the **body** the caller sees spells it out as `gateway state unavailable`. The probe
+  asserted the hyphenated spelling against the body, so it rejected a refusal that was
+  exactly right.
+- Consequence: the proof had still proved its point - the deployed gateway refused with `503`,
+  `/healthz` kept answering, and the operator channel confirmed the state store itself was
+  unreachable - but the probe reported failure, and a proof that fails when it has succeeded
+  is a proof that cannot be trusted to pass when it has. A third reader of a red proof would
+  suspect the gateway.
+- Required resolution: the assertion must accept either spelling of the same refusal.
+- Resolution: the probe normalises the body and accepts `state-unavailable` or
+  `state unavailable`. Both spellings are checked against the two bodies the gateway really
+  produces, and the refusal body for an ordinary link rejection is still rejected.
+- Owner: the agent. Planned phase: Stage S4.
