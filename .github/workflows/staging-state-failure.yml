@@ -55,7 +55,7 @@ jobs:
     name: the state store must fail closed
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
@@ -146,10 +146,15 @@ jobs:
           echo "the good build is published again"
 
       - name: The gateway serves again
+        id: verify
         if: always()
         run: |
           set -euo pipefail
-          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 403
+          # The restore is a deploy, and a deploy's Durable Object code update is deferred too:
+          # the good build is published but the object may still be running the constructor
+          # that throws, so the gateway keeps refusing with 503 until the update lands. The
+          # check waits for it, for the same reason the proof waits (F0-078, F0-084).
+          python3 ops/state-failure-probe.py --base-url "$BASE" --expect 403 --wait 420
 
       - name: The run summary
         if: always()
@@ -157,6 +162,7 @@ jobs:
           REASON: ${{ inputs.reason }}
           PROBE_OUTCOME: ${{ steps.probe.outcome }}
           RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
         run: |
           {
             echo "## staging state failure"
@@ -180,9 +186,17 @@ jobs:
             fi
             echo
             if [ "$RESTORE_OUTCOME" = "success" ]; then
-              echo "The good build was published again and the gateway serves again."
+              echo "The good build was published again."
             else
               echo "**The restore did not succeed** (the restore step was \`${RESTORE_OUTCOME}\`)."
               echo "The staging gateway may still be the broken build and needs a look."
+            fi
+            if [ "$VERIFY_OUTCOME" = "success" ]; then
+              echo "The gateway serves again: it refuses an unsigned request with 403, and"
+              echo "/healthz answers and reports the staging key ids."
+            else
+              echo "**The gateway was not seen to serve again** (the verification step was"
+              echo "`${VERIFY_OUTCOME}`). The build may be published while the Durable Object's"
+              echo "code update has not landed yet, so the gateway may still be refusing."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

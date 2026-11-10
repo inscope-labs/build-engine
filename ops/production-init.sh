@@ -159,7 +159,7 @@ init_one() {
   # --- does the Worker exist yet?
   # This has to come BEFORE the secrets are listed. Listing the secrets of a Worker that is
   # not there fails, so a script that lists first never reaches its create path, and the
-  # recovery that path was written for is dead code (F0-081). The production read gateway's
+  # recovery that path was written for is dead code (F0-083). The production read gateway's
   # first run died exactly there.
   local wstate=0
   worker_state "$worker" || wstate=$?
