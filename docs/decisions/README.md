@@ -19,3 +19,4 @@ the question, what the design proposes (or the final decision), what it blocks. 
 | 0011 | Task state ownership and cbridge scope (Q-B, Q-CB-1 to 3) | **decided** (2026-11-08) | S2 status-transition operation; S6; S7 |
 | 0012 | Compatibility record, hostnames, repositories and credential model (Q-4, Q-5, DX-1, DX-2) | **decided** (2026-11-08), condition on the submissions repository | S4, S5, S8 |
 | 0013 | Authorizations for the v0.6.0 rollout plan | **decided** (2026-11-08), conditions on login and agent identity | S3, S4, S5, S9 |
+| 0014 | Two repositories per plan; submissions repository and branch for the pilot | **decided** (2026-11-10) | S5 entry gate; resolves ADR 0012 condition |
