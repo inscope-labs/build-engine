@@ -124,6 +124,27 @@ echo '{}' > "$TMP/bundle.json"; chmod 600 "$TMP/bundle.json"
 SUMMARY="$TMP/summary.md"
 { echo "## Production init"; echo; echo "Reason: $REASON"; echo; } > "$SUMMARY"
 
+# worker_state <worker> - whether the Worker's script is already on Cloudflare.
+#   0  it exists
+#   1  it does not exist (a 404 from the API: a state, not a fault)
+#   2  the answer could not be read (a fault, and not the same as "it does not exist")
+# Only a 404 counts as "not there yet". A credential that cannot read the API, an account id
+# that is wrong, and an API that is down are all something else, and they must not be
+# mistaken for an absent Worker: the run would then create a Worker to no purpose, or
+# publish over one that exists.
+worker_state() {
+  local worker="$1" code
+  code="$(curl -sS -o "$TMP/script.json" -w '%{http_code}' \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker" \
+    2>/dev/null)" || code="000"
+  case "$code" in
+    200) return 0 ;;
+    404) return 1 ;;
+    *)   return 2 ;;
+  esac
+}
+
 # init_one LABEL DIR GITHUB_TOKEN KEY_ID WORKER [wrangler environment args...]
 # The read gateway's production is `--env production`; the write gateway's production is the
 # top-level configuration, which takes no environment argument.
@@ -135,12 +156,28 @@ init_one() {
   cd "$ROOT/$dir"
   npm ci --no-audit --no-fund >/dev/null
 
+  # --- does the Worker exist yet?
+  # This has to come BEFORE the secrets are listed. Listing the secrets of a Worker that is
+  # not there fails, so a script that lists first never reaches its create path, and the
+  # recovery that path was written for is dead code (F0-081). The production read gateway's
+  # first run died exactly there.
+  local wstate=0
+  worker_state "$worker" || wstate=$?
+  if [ "$wstate" = 1 ]; then
+    if [ "$CREATE" != yes ]; then
+      fail "$label: the production Worker '$worker' does not exist yet. Re-run with create_if_missing=yes to create it with one production deploy (it starts with no secrets and refuses to serve until they are set)."
+    fi
+    echo "the production Worker '$worker' does not exist yet: creating it with one production deploy"
+    npx wrangler deploy "${envargs[@]}" 2>&1 | tee "$TMP/deploy-$label.txt" >&2
+  fi
+
   # No permissive fallback: a wrangler that cannot list the secrets is reported as such,
   # instead of being flattened into an empty list that the checks below read as "no secrets
   # yet". Both readings block or permit the same way here, but only one of them tells the
-  # operator what actually happened.
+  # operator what actually happened. And the whole of wrangler's output is reported, not its
+  # last line: wrangler's last line is a pointer to its own log file, which is not a reason.
   if ! listed="$(npx wrangler secret list "${envargs[@]}" 2>&1)"; then
-    fail "$label: wrangler could not list the production Worker's secrets: $(printf '%s' "$listed" | tail -n 1)"
+    fail "$label: wrangler could not list the production Worker's secrets: $(printf '%s' "$listed" | head -c 2000)"
   fi
   if printf '%s' "$listed" | grep -q SIGNING_KEYS \
      && printf '%s' "$listed" | grep -q OPERATOR_TOKEN \
@@ -156,16 +193,15 @@ init_one() {
   err="$TMP/err.txt"
   if ! put GITHUB_TOKEN "$ghtoken" 2>"$err"; then
     cat "$err" >&2
-    [ "$CREATE" = yes ] || fail "$label: the Worker probably does not exist yet. Re-run with create_if_missing=yes to create it with one production deploy (it starts with no secrets and refuses to serve until they are set)."
-    echo "creating the production Worker with one deploy"
-    npx wrangler deploy "${envargs[@]}" 2>&1 | tee "$TMP/deploy-$label.txt" >&2
-    put GITHUB_TOKEN "$ghtoken"
+    # The Worker exists (the check above said so), so this is not "it is not there yet": it is
+    # wrangler refusing to write a secret, and the reason is in wrangler's own words.
+    fail "$label: wrangler could not set the production Worker's GITHUB_TOKEN, although the Worker exists: $(head -c 2000 "$err")"
   fi
   put SIGNING_KEYS "$signing_json"
   put OPERATOR_TOKEN "$operator"
 
   if ! listed="$(npx wrangler secret list "${envargs[@]}" 2>&1)"; then
-    fail "$label: wrangler could not list the production Worker's secrets after the run: $(printf '%s' "$listed" | tail -n 1)"
+    fail "$label: wrangler could not list the production Worker's secrets after the run: $(printf '%s' "$listed" | head -c 2000)"
   fi
   for s in SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN; do
     printf '%s' "$listed" | grep -q "$s" || fail "$label: $s is not set after the run"
