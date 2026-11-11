@@ -65,10 +65,18 @@ READ_GW = os.path.join(ROOT, "gateway", "read", "production")
 ENGINE = os.path.join(ROOT, "template", "engine")
 
 PLAN_ID = "pilot-001"
-PLAN_NUMBER = "10008"
-TASK_ID = "10008-1-201-01"
-OTHER_TASK_ID = "10008-1-202-01"
-GATE_TASK_ID = "10008-1-101-01"
+
+# Every one of the pilot's identifiers carries the plan number, and they are all derived from
+# it, so a second run against a deployed target can use a fresh one: a seal and a revocation
+# are durable by design, and the first run's order and task stay revoked. --plan-number sets
+# it; the default is the number the first deployed run used.
+DEFAULT_PLAN_NUMBER = "10008"
+PLAN_NUMBER = DEFAULT_PLAN_NUMBER
+TASK_ID = "%s-1-201-01" % PLAN_NUMBER
+OTHER_TASK_ID = "%s-1-202-01" % PLAN_NUMBER
+GATE_TASK_ID = "%s-1-101-01" % PLAN_NUMBER
+ORDER_ID = "%s-S001" % PLAN_NUMBER
+OTHER_ORDER_ID = "%s-S999" % PLAN_NUMBER
 CONTEXT_FILE = "brief.md"
 CONTEXT_PATH = "plans/%s/package/%s" % (PLAN_ID, CONTEXT_FILE)
 NEGATIVE_PATH = "plans/%s/private/notes.md" % PLAN_ID
@@ -261,22 +269,38 @@ def probes(read_base, write_base, only="both"):
 
     say("the deployed gateways refuse what they must")
     if "read" in wanted:
-        status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        status, _ = http("GET", read_base + "/v1/s1/0/" + ORDER_ID + "/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
         check(status == 403, "a link with a bad signature is refused (%d)" % status)
-        status, _ = http("GET", read_base + "/v1/s1/0/10008-S001/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        status, _ = http("GET", read_base + "/v1/s1/0/" + ORDER_ID + "/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
         check(status == 403, "a link with an unknown order is refused (%d)" % status)
         status, _ = http("GET", read_base + "/admin/audit")
         check(status == 401, "the read audit channel refuses an unauthenticated caller (%d)" % status)
-        status, _ = http("POST", read_base + "/admin/revoke", {}, {"order": "10008-S001"})
+        status, _ = http("POST", read_base + "/admin/revoke", {}, {"order": ORDER_ID})
         check(status == 401, "the read revocation channel refuses an unauthenticated caller (%d)" % status)
     if "write" in wanted:
         status, _ = http("GET", write_base + "/admin/audit")
         check(status == 401, "the write audit channel refuses an unauthenticated caller (%d)" % status)
-        status, _ = http("POST", write_base + "/admin/revoke", {}, {"task": "10008-1-201-01"})
+        status, _ = http("POST", write_base + "/admin/revoke", {}, {"task": TASK_ID})
         check(status == 401, "the write revocation channel refuses an unauthenticated caller (%d)" % status)
 
     note("the signed leg is NOT proved here: it needs the staging signing keys, which are the")
     note("operator's secret. Ask for them, and run this script with --target deployed.")
+
+
+def set_plan_number(number):
+    """Derive every identifier from the plan number.
+
+    The order id, the task ids and the wrong-order probe all carry it, and they all have to
+    agree with the folder the disposable estate was seeded with, or the gateway refuses the
+    commit because the folder does not exist (protocol section 12.3).
+    """
+    global PLAN_NUMBER, TASK_ID, OTHER_TASK_ID, GATE_TASK_ID, ORDER_ID, OTHER_ORDER_ID
+    PLAN_NUMBER = number
+    TASK_ID = "%s-1-201-01" % number
+    OTHER_TASK_ID = "%s-1-202-01" % number
+    GATE_TASK_ID = "%s-1-101-01" % number
+    ORDER_ID = "%s-S001" % number
+    OTHER_ORDER_ID = "%s-S999" % number
 
 
 def main(argv=None):
@@ -285,12 +309,17 @@ def main(argv=None):
     parser.add_argument("--read-base", default="")
     parser.add_argument("--write-base", default="")
     parser.add_argument("--plan-ref", default="", help="the commit the context file is pinned at")
+    parser.add_argument("--plan-number", default=DEFAULT_PLAN_NUMBER,
+                        help="the pilot's plan number; every identifier carries it, and a "
+                             "deployed run needs a fresh one because a seal and a revocation "
+                             "are durable")
     parser.add_argument("--keep", action="store_true", help="keep the disposable consumer repository")
     parser.add_argument("--probes-only", action="store_true",
                         help="only the checks that need no secret (the deployed gateways)")
     parser.add_argument("--only", choices=["both", "read", "write"], default="both",
                         help="which gateway the probes cover; the write gateway is not deployed until Stage S5")
     args = parser.parse_args(argv)
+    set_plan_number(args.plan_number)
 
     # ---------------------------------------------------------------- the estate
     say("the targets")
@@ -590,7 +619,7 @@ def pilot(args, plan_ref, read_base, write_base, read_secret, read_operator, wri
 
     # A correctly signed link for an order the gateway never issued: the signature is not the
     # authorisation, the order is. This is the wrong-task case of 6.2.4.
-    wrong_order = mint([CONTEXT_FILE], order="10008-S999")
+    wrong_order = mint([CONTEXT_FILE], order=OTHER_ORDER_ID)
     if wrong_order:
         status, body = http("GET", wrong_order[0])
         check(status == 403, "a link for an order that was never issued is refused (%d)" % status)

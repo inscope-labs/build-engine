@@ -759,6 +759,115 @@ s4_recorded_logins() {
     | grep -oE '`[A-Za-z0-9][A-Za-z0-9-]{0,38}`' | tr -d '`' | sort -u | tr '\n' ' '
 }
 
+# The write gateway's staging host and its committed staging key ids.
+s5_staging_key_ids() {
+  python3 -c 'import re
+text = open("gateway/write/wrangler.toml").read()
+m = re.search(r"\[env\.staging\.vars\](.*?)(\[|$)", text, re.S)
+ids = re.search(r"SIGNING_KEY_IDS\s*=\s*\"([^\"]*)\"", m.group(1) if m else "")
+print(",".join((ids.group(1) if ids else "").split(",")))' 2>/dev/null
+}
+
+# The deployed staging write gateway answers, and it is the staging one.
+check_s5_write_gateway() {
+  section "S5 stage-specific checks"
+
+  # --- the production configuration is deployable.
+  # The submissions repository and branch are ADR 0014's, and the check refuses a placeholder,
+  # a shared key id, a shared destination and a drifted workers_dev posture.
+  local out rc
+  out="$(cd gateway/write && python3 scripts/check-production.py 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    blocked "S5-PROD-CONFIG" "the write gateway's production configuration is not deployable: $(printf '%s' "$out" | grep -E '^  - ' | head -2 | tr '\n' ' ')"
+  else
+    pass "S5-PROD-CONFIG" "the write gateway's production configuration is deployable (check-production.py)"
+  fi
+
+  # --- the deployed staging write gateway answers, and it is the staging one.
+  local body health keyids want
+  body="$(curl -sS -m 30 -H "User-Agent: ctxgate-check/6.1" \
+    "https://ctxgate-write-staging.qnuralink.workers.dev/healthz" 2>/dev/null)"
+  health="$(printf '%s' "$body" | jq -r '.policy.key_ids | join(",")' 2>/dev/null)"
+  keyids="$(s5_staging_key_ids)"
+  if [[ -z "$body" ]]; then
+    blocked "S5-STAGING" "the staging write gateway did not answer; deploy and accept staging first"
+  elif [[ "$(printf '%s' "$body" | jq -r '.deploy_env // ""' 2>/dev/null)" != "staging" ]]; then
+    fail "S5-STAGING" "the gateway at ctxgate-write-staging does not report itself as the staging one"
+  elif [[ "$health" != "$keyids" ]]; then
+    fail "S5-STAGING" "the staging write gateway serves the key ids '$health', not the committed staging key ids '$keyids'"
+  else
+    pass "S5-STAGING" "the staging write gateway answers, is the staging one, and serves the committed staging key ids ($keyids)"
+  fi
+
+  # --- the deployed write gateway refuses what it must.
+  if [[ -n "$body" ]]; then
+    out="$(python3 ops/staging-pilot.py --probes-only --only write \
+      --write-base https://ctxgate-write-staging.qnuralink.workers.dev 2>&1)"; rc=$?
+    local plain
+    plain="$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g')"
+    if [[ "$rc" != 0 ]]; then
+      fail "S5-PROBES" "the deployed write gateway did not refuse what it must: $(printf '%s' "$plain" | grep -E '^  - ' | head -3 | tr '\n' ' ' | cut -c1-180)"
+    else
+      pass "S5-PROBES" "$(printf '%s' "$plain" | grep -oE 'THE PROBES PASSED \([0-9]+ checks\)' | tail -1) against the deployed write gateway"
+    fi
+  fi
+
+  # --- the production run's environment approval.
+  # The plan: "Production approval evidence as in S4". The same rule, the same evidence: the
+  # production run shows an environment approval by a login ADR 0013 records, and that login is
+  # not the identity that dispatched the run.
+  local logins
+  logins="$(s4_recorded_logins)"
+  if [[ -z "$logins" ]]; then
+    blocked "S5-APPROVAL" "ADR 0013 records no GitHub login; the operator must supply it by an addendum, and until then this gate is BLOCKED-EXTERNAL"
+  else
+    # The run the plan means is the one the write gateway's deploy workflow dispatched. The
+    # production deployment records that predate S3's hardening are push-triggered runs of a
+    # workflow that can no longer deploy, and a stale record is not the run that would publish
+    # production.
+    local dep run="" cand runid path
+    for cand in $(api GET "/repos/$REPO_SLUG/deployments?per_page=50" 2>/dev/null \
+      | jq -r '[.[] | select(.environment == "production")][].id' 2>/dev/null | head -n 10); do
+      runid="$(api GET "/repos/$REPO_SLUG/deployments/$cand/statuses" 2>/dev/null \
+        | jq -r '.[0].log_url // ""' 2>/dev/null | grep -oE 'runs/[0-9]+' | cut -d/ -f2)"
+      [[ -z "$runid" ]] && continue
+      # The path alone is not enough for the write gateway: the production deployment records
+      # that predate S3's hardening are runs of THIS workflow, push-triggered, every one of them
+      # failed. The hardened workflow runs by hand from main and nowhere else, so those three
+      # facts together are what identify the run that would publish production.
+      local rpath revent rbranch
+      rpath="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.path // ""' 2>/dev/null)"
+      revent="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.event // ""' 2>/dev/null)"
+      rbranch="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.head_branch // ""' 2>/dev/null)"
+      if [[ "$rpath" == *".github/workflows/deploy.yml" && "$revent" == "workflow_dispatch" && "$rbranch" == "main" ]]; then
+        run="$runid"; break
+      fi
+    done
+    if [[ -z "$run" ]]; then
+      fail "S5-APPROVAL" "the production write gateway has not been deployed yet: no run of the write gateway's deploy workflow has published to the 'production' environment"
+    else
+      local approvals reviewers actor
+      approvals="$(api GET "/repos/$REPO_SLUG/actions/runs/$run/approvals" 2>/dev/null)"
+      reviewers="$(printf '%s' "$approvals" | jq -r '[.[] | select(.state == "approved") | (.user.login // empty)] | join(",")' 2>/dev/null)"
+      actor="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.actor.login // ""' 2>/dev/null)"
+      if [[ -z "$reviewers" ]]; then
+        fail "S5-APPROVAL" "the production run $run has no environment approval at all"
+      else
+        local ok=1 who
+        for who in ${reviewers//,/ }; do
+          printf '%s' "$logins" | grep -qw "$who" || { ok=0; note "S5-APPROVAL" "$who approved, and is not a login ADR 0013 records ($logins)"; }
+          [[ "$who" == "$actor" ]] && { ok=0; note "S5-APPROVAL" "$who approved the run it dispatched"; }
+        done
+        if [[ "$ok" == 1 ]]; then
+          pass "S5-APPROVAL" "the production run $run was approved by $reviewers, which ADR 0013 records and which is not the dispatching identity ($actor)"
+        else
+          fail "S5-APPROVAL" "the production run $run was approved by $reviewers, which does not satisfy ADR 0013 item 6"
+        fi
+      fi
+    fi
+  fi
+}
+
 check_s4_read_gateway() {
   section "S4 stage-specific checks"
 
@@ -847,9 +956,11 @@ check_s4_read_gateway() {
       runid="$(api GET "/repos/$REPO_SLUG/deployments/$cand/statuses" 2>/dev/null \
         | jq -r '.[0].log_url // ""' 2>/dev/null | grep -oE 'runs/[0-9]+' | cut -d/ -f2)"
       [[ -z "$runid" ]] && continue
-      path="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null \
-        | jq -r '.path // ""' 2>/dev/null)"
-      if [[ "$path" == *".github/workflows/deploy-read-gateway.yml" ]]; then
+      local rpath revent rbranch
+      rpath="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.path // ""' 2>/dev/null)"
+      revent="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.event // ""' 2>/dev/null)"
+      rbranch="$(api GET "/repos/$REPO_SLUG/actions/runs/$runid" 2>/dev/null | jq -r '.head_branch // ""' 2>/dev/null)"
+      if [[ "$rpath" == *".github/workflows/deploy-read-gateway.yml" && "$revent" == "workflow_dispatch" && "$rbranch" == "main" ]]; then
         run="$runid"; break
       fi
     done
@@ -911,6 +1022,7 @@ case "$STAGE" in
     check_worker_secret_names "S4-WORKER-SECRETS" ctxgate-read SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
     ;;
   S5)
+    check_s5_write_gateway
     check_repo_secret_names "S5-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
     check_worker_secret_names "S5-WORKER-SECRETS" ctxgate-write SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
     ;;

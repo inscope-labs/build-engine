@@ -35,6 +35,10 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 DEFAULT_RECORD = os.path.join(HERE, "staging-estate.json")
+
+# The plan number the first deployed pilot run used. Every identifier carries it, and a
+# deployed run needs a fresh one: a seal and a revocation are durable by design.
+DEFAULT_PLAN_NUMBER = "10008"
 CONFIRM_CREATE = "--i-understand-this-creates-real-branches"
 CONFIRM_DISPOSE = "--i-understand-this-deletes-branches"
 
@@ -180,7 +184,17 @@ def repo_exists(repo):
     return status == 200
 
 
-def command_status(record):
+def task_folder(record, plan_number):
+    """The folder the write gateway commits into, for this run.
+
+    The record holds the shape and the plan number is substituted into it, so the folder the
+    estate seeds and the folder the pilot computes come from one place. They must agree: the
+    gateway never creates the folder (protocol section 12.3), so a disagreement is refused.
+    """
+    return record["write_gateway"]["task_folder"].format(plan_number=plan_number)
+
+
+def command_status(record, plan_number):
     """What exists. This is the evidence a closeout quotes."""
     repo = record["topology"]["repository"]
     print("repository: %s (%s)" % (repo, "present" if repo_exists(repo) else "NOT REACHABLE"))
@@ -191,7 +205,7 @@ def command_status(record):
         print("%s: %s" % (role, branch))
         print("  head: %s" % (head if head else "(the branch does not exist)"))
         if role == "write_gateway":
-            print("  task folder: %s" % section["task_folder"])
+            print("  task folder: %s" % task_folder(record, plan_number))
 
 
 def command_create(record, confirmed):
@@ -203,7 +217,7 @@ def command_create(record, confirmed):
     command_seed(record)
 
 
-def command_seed(record):
+def command_seed(record, plan_number):
     repo = record["topology"]["repository"]
     if not repo_exists(repo):
         fail("the repository %s is not reachable with this credential" % repo)
@@ -218,7 +232,7 @@ def command_seed(record):
     # The task folder, with the placeholder that makes it exist at all: git does not store empty
     # folders, and the gateway refuses to create the folder itself (protocol section 12.3). The
     # path comes from the record, so the record is the only place it is written down.
-    folder = write["task_folder"].strip("/")
+    folder = task_folder(record, plan_number).strip("/")
     write_files[folder + "/.keep"] = ""
     write_commit = push_tree(repo, write["branch"], write_files, "seed the disposable staging submissions branch")
     print("submissions: %s@%s" % (write["branch"], write_commit))
@@ -246,17 +260,19 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--record", default=DEFAULT_RECORD, help="the estate record (default: ops/staging-estate.json)")
     parser.add_argument("command", choices=["status", "create", "seed", "dispose"])
+    parser.add_argument("--plan-number", default=DEFAULT_PLAN_NUMBER,
+                        help="the pilot's plan number; the task folder is derived from it")
     args, flags = parser.parse_known_args(argv)
 
     record = load_record(args.record)
     confirmed = CONFIRM_CREATE in flags or CONFIRM_DISPOSE in flags
 
     if args.command == "status":
-        command_status(record)
+        command_status(record, args.plan_number)
     elif args.command == "create":
         command_create(record, confirmed)
     elif args.command == "seed":
-        command_seed(record)
+        command_seed(record, args.plan_number)
     elif args.command == "dispose":
         command_dispose(record, confirmed)
 
