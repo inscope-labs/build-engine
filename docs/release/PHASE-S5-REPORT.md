@@ -179,6 +179,18 @@ So the identifiers are now **derived from one number, and the number is an argum
 Verified locally before proposing it: the estate seeds for `10009`, the branch then holds
 `plans/pilot-001/submissions/10009-S001`, and the probes pass with the new number.
 
+**And then the whole signed workflow was run end to end against the local runtime**, on its
+own plan number so that the deployed run's number was not burned: `THE PILOT PASSED`
+(**42 checks**) — the file scaffolded, the chunk staged, the three refusals (a denied file
+type, a path outside the task folder, a file over the size limit), the staged content read
+back byte for byte, the commit landed, the retry a replay and not a second commit, the
+branch head the commit, the task sealed, a write after the seal refused, the order and both
+tasks revoked with their capabilities stopping, and the audit records holding **no** secret,
+no content and no signature.
+
+That run is the validation, not the evidence: the exit gate asks for the pilot against the
+**deployed** gateway, and that run needs the merged parameterisation.
+
 ---
 
 ## 4. The gate, so that S5's exit gate means something
