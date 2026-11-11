@@ -1,26 +1,40 @@
 #!/usr/bin/env python3
-"""ops/verify-write-credential-scope.py: what the production write credential can reach.
+"""ops/verify-write-credential-scope.py: what the production write credential can write to.
 
 The S5 entry gate (rollout plan; ADR 0014) asks for two things that a statement cannot settle:
-the write gateway's credential reaches the submissions repository only, and the gateway has no
-access to the consumer repository. This asks GitHub, with the credential itself, which
-repositories it can reach, and fails closed.
+the write gateway's credential can write to the submissions repository, and it can write to no
+other repository, the consumer repository above all. This tests it with the credential itself.
 
-It runs inside the `verify-write-credential-scope` workflow, in the `production` environment,
-with `WRITE_GH_TOKEN` in the environment. The token is read from the environment only (never an
-argument) and is never printed. The output names the expected repository and the consumer
-repository and gives counts for everything else: a log can be read by more people than the
-credential's owner, and the name of an unrelated private repository is not the check's to publish.
+**How write access is tested.** GitHub's per-repository `permissions` field is not evidence: it
+reports the account's role, not the token's rights (a token limited to one repository still saw
+every public repository as writable). So the check asks GitHub to do something the credential
+could only do with write rights, and gives it a request that cannot succeed:
 
-A credential PASSES when, in the list of repositories it can reach:
-  1. the expected submissions repository is present and the credential can push to it;
-  2. the consumer repository is absent, or present without push, maintain or admin rights;
-  3. no other repository grants push, maintain or admin rights;
-  4. no repository other than the expected one is private.
+    POST /repos/OWNER/REPO/git/refs   {"ref": "refs/probe", "sha": "000...0"}
 
-What it cannot tell: whether the token is limited to one *branch*. The provider client reaches
-one repository and one branch (gateway/write/scripts/check-token-scope.ts, static half), and a
-GitHub token is repository-scoped, not branch-scoped (protocol section 12.4).
+The reference name is malformed and the commit does not exist, so the request creates nothing
+whatever the answer is. GitHub checks the credential before it reads the body:
+
+    422 or 409   the credential is allowed to write here (it got as far as validating the request)
+    401/403/404  the credential is not allowed to write here
+    anything else  the check cannot tell, and says so (exit 2)
+
+Repositories probed: the submissions repository, the consumer repository, and every repository the
+credential can list. The credential PASSES when:
+  1. it can write to the submissions repository;
+  2. it cannot write to the consumer repository;
+  3. it cannot write to any other repository it can list;
+  4. no repository other than the submissions repository is private (a private repository is only
+     visible to a token that was given it on purpose).
+
+It runs inside the `verify-write-credential-scope` workflow, in the `production` environment, with
+`WRITE_GH_TOKEN` in the environment. The token is read from the environment only (never an
+argument) and is never printed. The output names the submissions and consumer repositories and
+gives counts for everything else: the name of an unrelated repository is not the check's to publish.
+
+What it cannot tell: whether the token is limited to one *branch*. A GitHub token is
+repository-scoped, not branch-scoped (protocol section 12.4); the provider client reaches one branch
+(gateway/write/scripts/check-token-scope.ts, static half).
 
     WRITE_GH_TOKEN=... python3 ops/verify-write-credential-scope.py --consumer OWNER/REPO
 
@@ -39,7 +53,13 @@ from pathlib import Path
 
 API = "https://api.github.com"
 MAX_PAGES = 10
+MAX_PROBES = 200
 WRANGLER = Path(__file__).resolve().parent.parent / "gateway" / "write" / "wrangler.toml"
+
+# The probe body. Both fields are invalid on purpose: no answer to this request can create a ref.
+PROBE_BODY = {"ref": "refs/probe", "sha": "0" * 40}
+WRITABLE = frozenset({422, 409})
+NOT_WRITABLE = frozenset({401, 403, 404})
 
 
 def expected_repository() -> str:
@@ -49,66 +69,89 @@ def expected_repository() -> str:
     return str(config["vars"]["SUBMISSIONS_REPO"])
 
 
-def can_write(repo: dict) -> bool:
-    permissions = repo.get("permissions") or {}
-    return any(bool(permissions.get(key)) for key in ("push", "maintain", "admin"))
+def classify(status: int) -> bool:
+    """True if the credential can write, False if it cannot. Anything else is not an answer."""
+    if status in WRITABLE:
+        return True
+    if status in NOT_WRITABLE:
+        return False
+    raise ValueError(f"unexpected HTTP status {status} from the write probe")
 
 
-def evaluate(repos: list[dict], expected: str, consumer: str) -> tuple[list[str], dict]:
-    """Return (problems, evidence). No problems means the credential passes."""
-    by_name = {str(repo.get("full_name", "")).lower(): repo for repo in repos}
+def evaluate(repos: list[dict], expected: str, consumer: str, probes: dict[str, int]) -> tuple[list[str], dict]:
+    """Return (problems, evidence). `probes` maps a lower-case full name to the probe's HTTP status."""
+    expected_key, consumer_key = expected.lower(), consumer.lower()
+    listed = {str(repo.get("full_name", "")).lower(): repo for repo in repos}
     problems: list[str] = []
 
-    target = by_name.get(expected.lower())
-    if target is None:
-        problems.append("the submissions repository is not in the credential's repository list")
-    elif not (target.get("permissions") or {}).get("push"):
-        problems.append("the credential cannot push to the submissions repository")
+    target_writable = classify(probes[expected_key])
+    if not target_writable:
+        problems.append("the credential cannot write to the submissions repository")
 
-    other = [repo for name, repo in by_name.items() if name != expected.lower()]
-    consumer_entry = by_name.get(consumer.lower())
-    if consumer_entry is not None and can_write(consumer_entry):
-        problems.append("the credential has write rights on the consumer repository")
-    writable_others = [repo for repo in other if can_write(repo)]
+    consumer_writable = classify(probes[consumer_key])
+    if consumer_writable:
+        problems.append("the credential can write to the consumer repository")
+
+    others = [name for name in listed if name not in (expected_key, consumer_key)]
+    writable_others = [name for name in others if classify(probes[name])]
     if writable_others:
-        problems.append(f"{len(writable_others)} other repository(ies) grant write rights")
-    private_others = [repo for repo in other if repo.get("private")]
+        problems.append(f"{len(writable_others)} other repository(ies) accept writes")
+    private_others = [name for name in listed if name != expected_key and listed[name].get("private")]
     if private_others:
         problems.append(f"{len(private_others)} other private repository(ies) are reachable")
 
     evidence = {
-        "repositories_listed": len(by_name),
-        "submissions_repository_listed": target is not None,
-        "submissions_repository_push": bool(target and (target.get("permissions") or {}).get("push")),
-        "consumer_listed": consumer_entry is not None,
-        "consumer_write": bool(consumer_entry and can_write(consumer_entry)),
+        "repositories_listed": len(listed),
+        "submissions_repository_listed": expected_key in listed,
+        "submissions_repository_writable": target_writable,
+        "consumer_listed": consumer_key in listed,
+        "consumer_writable": consumer_writable,
+        "other_repositories_probed": len(others),
         "other_writable": len(writable_others),
         "other_private": len(private_others),
     }
     return problems, evidence
 
 
+def _request(token: str, method: str, url: str, body: dict | None = None) -> tuple[int, object]:
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "build-engine-verify-write-credential-scope",
+            **({"Content-Type": "application/json"} if data else {}),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        return error.code, None
+
+
 def list_repositories(token: str) -> list[dict]:
     repos: list[dict] = []
     for page in range(1, MAX_PAGES + 1):
         url = f"{API}/user/repos?per_page=100&page={page}&affiliation=owner,collaborator,organization_member"
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "build-engine-verify-write-credential-scope",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            batch = json.load(response)
-        if not isinstance(batch, list):
-            raise ValueError("unexpected response shape")
+        status, batch = _request(token, "GET", url)
+        if status != 200 or not isinstance(batch, list):
+            raise ValueError(f"listing the credential's repositories answered HTTP {status}")
         repos.extend(batch)
         if len(batch) < 100:
             return repos
     raise ValueError("more than the page limit of repositories: refusing to judge a partial list")
+
+
+def probe(token: str, full_name: str) -> int:
+    status, _ = _request(token, "POST", f"{API}/repos/{full_name}/git/refs", PROBE_BODY)
+    if status == 201:
+        raise ValueError("the write probe created a reference: stop, this should be impossible")
+    return status
 
 
 def main() -> int:
@@ -124,14 +167,15 @@ def main() -> int:
     try:
         expected = args.expected or expected_repository()
         repos = list_repositories(token)
-    except urllib.error.HTTPError as error:
-        print(f"GitHub answered HTTP {error.code}: the credential could not be checked")
-        return 2
+        names = {expected.lower(), args.consumer.lower()} | {str(r.get("full_name", "")).lower() for r in repos}
+        if len(names) > MAX_PROBES:
+            raise ValueError("too many repositories to probe")
+        probes = {name: probe(token, name) for name in sorted(names)}
+        problems, evidence = evaluate(repos, expected, args.consumer, probes)
     except (urllib.error.URLError, ValueError, KeyError, OSError) as error:
-        print(f"the check could not run ({type(error).__name__})")
+        print(f"the check could not run ({type(error).__name__}: {error})")
         return 2
 
-    problems, evidence = evaluate(repos, expected, args.consumer)
     lines = [
         "## Write credential scope",
         "",

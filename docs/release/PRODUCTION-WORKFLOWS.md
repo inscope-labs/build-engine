@@ -48,10 +48,13 @@ refusal, secrets check, post-deploy `verify-deployment.py`). It is unchanged.
 ## Verifying the write credential's reach (S5 entry gate)
 
 `verify-write-credential-scope` (manual, `main` only, `production` environment, so its required
-reviewer approves each run) asks GitHub, with the environment's `WRITE_GH_TOKEN`, which repositories
-that credential can reach. It passes only when the credential can push to the submissions repository
-named in `gateway/write/wrangler.toml` and nothing else grants write rights or is private, and the
-consumer repository (input `consumer_repo`) has no write rights (ADR 0014). It changes nothing and
+reviewer approves each run) tests what the environment's `WRITE_GH_TOKEN` can write to. GitHub's
+`permissions` field is not used: it reports the account's role, not the token's rights. The check sends
+a write request that cannot succeed (a malformed reference with a non-existent commit, so nothing is ever
+created); GitHub answers 422 or 409 to a credential that may write there and 401, 403 or 404 to one
+that may not. It passes only when the credential can write to the submissions repository named in
+`gateway/write/wrangler.toml`, cannot write to the consumer repository (input `consumer_repo`) or to any
+other repository it can list, and no other repository is private (ADR 0014). It changes nothing and
 prints counts, not other repositories' names or the token. Rules: `ops/verify-write-credential-scope.py`.
 It cannot tell whether the token is limited to one branch: a GitHub token is repository-scoped.
 
