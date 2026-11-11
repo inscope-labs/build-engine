@@ -45,6 +45,16 @@ refusal, secrets check, post-deploy `verify-deployment.py`). It is unchanged.
    `WRITE_GH_TOKEN` (production's own credentials, not staging's); variable `DELIVERY_PUBLIC_KEY`.
    The read gateway's deploy also reads the secret `CTXGATE_BASE_URL`.
 
+## Verifying the write credential's reach (S5 entry gate)
+
+`verify-write-credential-scope` (manual, `main` only, `production` environment, so its required
+reviewer approves each run) asks GitHub, with the environment's `WRITE_GH_TOKEN`, which repositories
+that credential can reach. It passes only when the credential can push to the submissions repository
+named in `gateway/write/wrangler.toml` and nothing else grants write rights or is private, and the
+consumer repository (input `consumer_repo`) has no write rights (ADR 0014). It changes nothing and
+prints counts, not other repositories' names or the token. Rules: `ops/verify-write-credential-scope.py`.
+It cannot tell whether the token is limited to one branch: a GitHub token is repository-scoped.
+
 ## Still open (none of this PR resolves it)
 
 - **Production destinations**: the write gateway's `SUBMISSIONS_REPO` and `SUBMISSIONS_BRANCH` are now
