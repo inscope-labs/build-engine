@@ -50,7 +50,7 @@
   "write_gateway": {
     "role": "the submissions branch the write gateway commits into during staging",
     "branch": "staging/submissions",
-    "task_folder": "plans/pilot-001/submissions/10008-S001/10008-1-201-01",
+    "task_folder": "plans/pilot-001/submissions/{plan_number}-S001/{plan_number}-1-201-01",
     "fixtures": "ops/staging-fixtures/submissions",
     "notes": [
       "The branch is an orphan branch: it has no history, and the production submissions branch is",
@@ -62,7 +62,8 @@
       "gateway/write/scripts/seed-test-repo.ts. The path is the one the plan tooling and the write",
       "gateway derive - plans/<plan>/submissions/<order>/<task> - and not a guess: this was F0-074,",
       "and the pilot's first commit was refused with task-folder-missing until it was fixed."
-    ]
+    ],
+    "task_folder_note": "The shape of the folder, with the plan number substituted into it. The estate seeds the folder for a run and the pilot computes the same folder from the same number, so the two agree; the gateway never creates the folder itself (protocol section 12.3). A deployed run needs a fresh plan number, because a seal and a revocation are durable by design."
   },
   "credential": {
     "environment_variable": "GITHUB_TOKEN",

@@ -39,6 +39,10 @@ on:
           - "no"
           - "yes"
         default: "no"
+      plan_number:
+        description: "signed only: the pilot's plan number. Every identifier carries it, and a deployed run needs a FRESH one, because a seal and a revocation are durable by design: the first run's order and task stay revoked. The disposable estate is seeded for this number here, so the folder the gateway commits into and the folder the pilot computes cannot disagree"
+        type: string
+        default: "10008"
       read_base:
         description: "the staging read gateway"
         type: string
@@ -102,11 +106,25 @@ jobs:
           python3 ops/staging-pilot.py --probes-only \
             --read-base "$READ_BASE" --write-base "$WRITE_BASE" 2>&1 | tee "$RUNNER_TEMP/pilot.txt"
 
+      - name: The disposable estate is seeded for this run
+        if: inputs.mode == 'signed'
+        env:
+          PLAN_NUMBER: ${{ inputs.plan_number }}
+          GITHUB_TOKEN: ${{ secrets.WRITE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The estate's task folder is derived from the same plan number the pilot uses, so
+          # the folder the gateway commits into and the folder the pilot computes are the same
+          # one. The gateway never creates the folder itself (protocol section 12.3), so a
+          # disagreement would be refused rather than quietly worked around.
+          python3 ops/staging-estate.py seed --plan-number "$PLAN_NUMBER"
+
       - name: The pilot, signed, against the deployed gateways
         if: inputs.mode == 'signed'
         env:
           READ_BASE: ${{ inputs.read_base }}
           WRITE_BASE: ${{ inputs.write_base }}
+          PLAN_NUMBER: ${{ inputs.plan_number }}
           CTXGATE_SECRET: ${{ secrets.CTXGATE_SECRET }}
           CTXGATE_OPERATOR_TOKEN: ${{ secrets.CTXGATE_OPERATOR_TOKEN }}
           CTXGATE_WRITE_SECRET: ${{ secrets.CTXGATE_WRITE_SECRET }}
@@ -121,7 +139,8 @@ jobs:
             fi
           done
           python3 ops/staging-pilot.py --target deployed \
-            --read-base "$READ_BASE" --write-base "$WRITE_BASE" 2>&1 | tee "$RUNNER_TEMP/pilot.txt"
+            --read-base "$READ_BASE" --write-base "$WRITE_BASE" \
+            --plan-number "$PLAN_NUMBER" 2>&1 | tee "$RUNNER_TEMP/pilot.txt"
 
       - name: No secret is in the output
         if: always()
@@ -151,6 +170,7 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           REASON: ${{ inputs.reason }}
+          PLAN_NUMBER: ${{ inputs.plan_number }}
         run: |
           {
             echo "## staging-pilot ($MODE)"
@@ -158,6 +178,7 @@ jobs:
             echo "Source commit: \`${GITHUB_SHA}\`"
             echo
             printf 'Reason: %s\n\n' "$REASON"
+            printf 'Plan number: %s\n\n' "$PLAN_NUMBER"
             if [ -f "$RUNNER_TEMP/pilot.txt" ]; then
               echo '```'
               tail -n 40 "$RUNNER_TEMP/pilot.txt" | sed 's/\x1b\[[0-9;]*m//g'
