@@ -7,6 +7,7 @@
 #   init | bootstrap | doctor | sync | verify-main | status
 #   upload <plan_id> <dir|zip>      commit a worker submission to build-engine
 #   publish <task-branch> [...]     guard, push to outbox, open PR upstream
+#   transfer <plan> <order> <task>  the sealed task folder -> the consumer repository (ADR 0015)
 #   reconcile <plan_id> <submission_id> <task-branch>...
 #   halt [plan_id] | resume [plan_id]
 set -euo pipefail
@@ -25,6 +26,15 @@ ENGINE_WT="${ENGINE_WT:-$HOME/cbridge/engine}"
 DENY_PATHS="${DENY_PATHS:-^(engine/|plans/|\.github/)}"
 DENY_TEXT="${DENY_TEXT:-${PRIVATE_SLUG##*/}|build-engine|plans/|submissions/}"
 ALLOW_PATHS="${ALLOW_PATHS:-}"          # optional allowlist regex: every changed path must match it
+# The transfer (ADR 0015): where a sealed task folder lives in the submissions repository.
+# The write gateway's credential is NEVER used for the transfer: it cannot reach the consumer
+# repository, and that is the point (ADR 0014 item 4).
+# The braces are in a single-quoted string on purpose: inside "${VAR:-word}" bash ends the
+# expansion at the FIRST '}', so a default that carries the template's own braces would be cut
+# in half.
+if [ -z "${TRANSFER_FOLDER_TEMPLATE:-}" ]; then
+  TRANSFER_FOLDER_TEMPLATE='plans/{plan}/submissions/{order}/{task}'
+fi
 ALLOW_EMAIL_RE="${ALLOW_EMAIL_RE:-}"
 GIT_NAME="${GIT_NAME:-cbridge}"
 GIT_EMAIL="${GIT_EMAIL:-cbridge@users.noreply.github.com}"
@@ -266,6 +276,229 @@ cmd_publish() {
   fi
 }
 
+# ---------------------------------------------------------------- transfer (sealed task folder -> consumer PR)
+#
+# ADR 0015. The sealed task folder moves from the submissions repository to the consumer
+# repository, verified against the gateway's own record, and only as a **pull request**: the
+# consumer's default branch is never written to and never merged into.
+#
+# It is the operator's path, beside `cbridge upload`, and it runs with the operator-supplied
+# token. The write gateway's credential is never used here - that credential cannot reach the
+# consumer repository, and that is the point (ADR 0014 item 4).
+#
+# Every check below happens BEFORE any write, and any failure refuses with **no partial
+# writes**: the consumer repository is left exactly as it was.
+
+# The audit record. It names the work order, the task, the sealed commit, the destination, the
+# file set with its hashes, the outcome and the step that failed. It carries no credential, no
+# signature and no content (ADR 0015, decision 7).
+transfer_audit() {
+  local outcome="$1" reason="$2" step="$3" pr="${4:-}"
+  local dir="$WORKDIR/transfer-audit"
+  mkdir -p "$dir"
+  local name; name="$(date -u +%Y%m%dT%H%M%SZ)-$TRANSFER_ORDER.json"
+  jq -n \
+    --arg at "$(date -u +%FT%TZ)" \
+    --arg order "$TRANSFER_ORDER" \
+    --arg task "$TRANSFER_TASK" \
+    --arg plan "$TRANSFER_PLAN" \
+    --arg commit "$TRANSFER_SEAL_COMMIT" \
+    --arg repo "$UPSTREAM_SLUG" \
+    --arg base "$TRANSFER_BASE" \
+    --arg expected "$TRANSFER_EXPECT" \
+    --arg source "$TRANSFER_BRANCH" \
+    --arg root "$TRANSFER_DEST_ROOT" \
+    --arg outcome "$outcome" \
+    --arg reason "$reason" \
+    --arg step "$step" \
+    --arg pr "$pr" \
+    --argjson files "$TRANSFER_FILES" \
+    '{kind:"SUBMISSIONS_TRANSFER", at:$at, work_order:$order, task:$task, plan:$plan,
+      sealed_commit:$commit, seal_attested:true,
+      destination:{repository:$repo, branch:$base, expected_sha:$expected,
+                   source_branch:$source, root:$root},
+      files:$files, outcome:$outcome, failed_step:$step, reason:$reason,
+      pull_request:(if $pr == "" then null else $pr end)}' \
+    > "$dir/$name"
+  echo "audit record: $dir/$name"
+}
+
+cmd_transfer() {
+  need_clone; assert_private; fetch
+  command -v jq >/dev/null || die "pkg install jq"
+  command -v sha256sum >/dev/null || die "pkg install sha256sum"
+  local plan="" order="" task="" expect="" destroot="" title="" bodyf="" yes=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --expect-head) expect="$2"; shift 2 ;;
+      --dest-root) destroot="$2"; shift 2 ;;
+      --title) title="$2"; shift 2 ;;
+      --body-file) bodyf="$2"; shift 2 ;;
+      -y) yes=1; shift ;;
+      -*) die "unknown flag $1" ;;
+      *)
+        if [ -z "$plan" ]; then plan="$1"
+        elif [ -z "$order" ]; then order="$1"
+        elif [ -z "$task" ]; then task="$1"
+        else die "usage: transfer <plan> <order> <task> --expect-head SHA --dest-root PATH [--title T] [--body-file F] [-y]"
+        fi
+        shift ;;
+    esac
+  done
+  [ -n "$plan" ] && [ -n "$order" ] && [ -n "$task" ] \
+    || die "usage: transfer <plan> <order> <task> --expect-head SHA --dest-root PATH [--title T] [--body-file F] [-y]"
+  [ -n "$expect" ] || die "--expect-head is required: the transfer fails closed unless the destination head is the one you inspected"
+  [[ "$expect" =~ ^[0-9a-f]{40}$ ]] || die "--expect-head must be a 40-character lowercase sha"
+  [ -n "$destroot" ] || die "--dest-root is required: the destination paths come from the work order"
+  [[ "$destroot" =~ ^[A-Za-z0-9._/-]+$ ]] || die "--dest-root must be a repository path"
+  [[ "$destroot" != /* ]] || die "--dest-root is relative to the repository root"
+
+  local gw="${CTXGATE_WRITE_URL:-}"
+  [ -n "$gw" ] || die "set CTXGATE_WRITE_URL to the write gateway's base URL (the operator channel)"
+  local op="${OPERATOR_TOKEN:-}"
+  [ -n "$op" ] || die "set OPERATOR_TOKEN to the write gateway's operator token"
+
+  TRANSFER_PLAN="$plan"; TRANSFER_ORDER="$order"; TRANSFER_TASK="$task"
+  TRANSFER_EXPECT="$expect"; TRANSFER_DEST_ROOT="${destroot#/}"
+  TRANSFER_BASE="main"; TRANSFER_BRANCH="transfer/$order"; TRANSFER_SEAL_COMMIT=""; TRANSFER_FILES="[]"
+
+  # -- 1. the seal fact. The folder must be sealed under this work order, and the gateway's own
+  #       record of what it sealed is what the files are checked against.
+  local fact attested commit_sha recorded
+  fact=$(curl -sS -H "Authorization: Bearer $op" \
+    "$gw/admin/task-state?task=$task&order=$order" 2>/dev/null) || fact=""
+  [ -n "$fact" ] || { transfer_audit refused "the gateway's task-state fact could not be read" task-state; die "the write gateway did not answer the task-state fact for $task/$order"; }
+  attested=$(printf '%s' "$fact" | jq -r '.seal_attested // false' 2>/dev/null)
+  if [ "$attested" != "true" ]; then
+    transfer_audit refused "the task folder is not sealed under this work order" seal-attestation
+    die "the task folder is not sealed under this work order (seal_attested is false). Nothing was written."
+  fi
+  commit_sha=$(printf '%s' "$fact" | jq -r '.commit.sha // ""' 2>/dev/null)
+  [ -n "$commit_sha" ] || { transfer_audit refused "the seal names no commit" seal-attestation; die "the seal names no commit"; }
+  TRANSFER_SEAL_COMMIT="$commit_sha"
+  recorded=$(printf '%s' "$fact" | jq -c '.commit.hashes // {}' 2>/dev/null)
+  [ -n "$recorded" ] && [ "$recorded" != "null" ] || recorded="{}"
+
+  # -- 2. the sealed folder, read at the sealed commit (never at the branch head).
+  local folder
+  folder="${TRANSFER_FOLDER_TEMPLATE//\{plan\}/$plan}"
+  folder="${folder//\{order\}/$order}"
+  folder="${folder//\{task\}/$task}"
+  [[ "$folder" =~ ^[A-Za-z0-9._/-]+$ ]] || die "the folder template produced an unusable path"
+  g cat-file -e "$commit_sha^{commit}" 2>/dev/null || die "the sealed commit $commit_sha is not in the submissions repository"
+  local listed rel
+  listed=$(g ls-tree -r --name-only "$commit_sha" -- "$folder" 2>/dev/null) || listed=""
+  [ -n "$listed" ] || { transfer_audit refused "the sealed task folder is empty in the submissions repository" folder; die "the sealed task folder is empty: $folder"; }
+
+  # -- 3. every file matches the hash the gateway recorded when it committed it, and the file
+  #       set is exactly the sealed commit's: no additions, no omissions.
+  local rels=() hashes=() hash got missing="" extra="" r found
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    rel="${file#"$folder"/}"
+    [ "$rel" = ".keep" ] && continue        # the operator's placeholder; the gateway never commits it
+    rels+=("$rel")
+  done <<< "$listed"
+  [ "${#rels[@]}" -gt 0 ] || { transfer_audit refused "the sealed task folder holds no deliverable" folder; die "the sealed task folder holds no deliverable"; }
+  for rel in "${rels[@]}"; do
+    hash=$(printf '%s' "$recorded" | jq -r --arg p "$rel" '.[$p] // ""' 2>/dev/null)
+    if [ -z "$hash" ]; then extra="$extra $rel"; continue; fi
+    got=$(g show "$commit_sha:$folder/$rel" | sha256sum | cut -d' ' -f1)
+    [ "$got" = "$hash" ] || missing="$missing $rel"
+    hashes+=("$(jq -n --arg p "$rel" --arg h "$hash" '{path:$p, sha256:$h}')")
+  done
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    found=0
+    for rel in "${rels[@]}"; do [ "$rel" = "$r" ] && { found=1; break; }; done
+    [ "$found" = 1 ] || missing="$missing $r"
+  done <<< "$(printf '%s' "$recorded" | jq -r 'keys[]' 2>/dev/null)"
+  TRANSFER_FILES="$(printf '%s\n' "${hashes[@]}" | jq -s '.')"
+  if [ -n "$extra" ]; then
+    transfer_audit refused "a file in the sealed folder is not in the gateway's record:$extra" file-set
+    die "these files are not in the gateway's commit record:$extra. Nothing was written."
+  fi
+  if [ -n "$missing" ]; then
+    transfer_audit refused "a file is missing from the sealed folder or does not match the hash the gateway recorded:$missing" hashes
+    die "these files are missing or do not match the hash the gateway recorded at seal time:$missing. Nothing was written."
+  fi
+
+  # -- 4. the destination head must be the one the operator inspected.
+  local wt head
+  # A unique directory: two transfers in the same second must not collide.
+  wt="$(mktemp -d "$WORKDIR/transfer-XXXXXX")"
+  git init -q "$wt"
+  git -C "$wt" remote add upstream "$UPSTREAM_URL"
+  git -C "$wt" fetch -q upstream "$TRANSFER_BASE"
+  head=$(git -C "$wt" rev-parse "FETCH_HEAD")
+  if [ "$head" != "$TRANSFER_EXPECT" ]; then
+    transfer_audit refused "the destination head moved: it is $head, not the inspected $TRANSFER_EXPECT" destination-head
+    die "the destination head moved: it is $head, not the inspected $TRANSFER_EXPECT. Nothing was written."
+  fi
+
+  # -- 5. the files, into the destination paths, on the work order's branch.
+  git -C "$wt" checkout -q -b "$TRANSFER_BRANCH" "$head"
+  local dest="$wt/$TRANSFER_DEST_ROOT"
+  mkdir -p "$dest"
+  for rel in "${rels[@]}"; do
+    mkdir -p "$dest/$(dirname "$rel")"
+    g show "$commit_sha:$folder/$rel" > "$dest/$rel"
+  done
+  # the operator's own guards, unchanged: no secret pattern, no private context in the message.
+  if grep -rEq "$SECRET_RE" "$dest"; then
+    transfer_audit refused "a secret pattern is in the sealed payload" secret-guard
+    die "a secret pattern is in the sealed payload. Nothing was written."
+  fi
+  git -C "$wt" add -A
+  local msg="transfer $order/$task"
+  if grep -Eiq "$DENY_TEXT" <<< "$msg"; then
+    transfer_audit refused "the commit message matches DENY_TEXT" message-guard
+    die "the commit message matches DENY_TEXT (would leak private context). Nothing was written."
+  fi
+  git -C "$wt" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "$msg"
+  [ -n "$title" ] || title="Task $task ($order)"
+  local body="" bodyfile=""
+  if [ -n "$bodyf" ]; then [ -f "$bodyf" ] || die "no such file: $bodyf"; body=$(cat "$bodyf"); fi
+  if [ -z "$body" ]; then
+    body="$(printf 'Task `%s` of work order `%s`.\n\nSealed commit: `%s`.\n' "$task" "$order" "$commit_sha")"
+  fi
+  if grep -Eiq "$DENY_TEXT" <<< "$title"$'\n'"$body"; then
+    transfer_audit refused "the pull request title or body matches DENY_TEXT" message-guard
+    die "the PR title/body matches DENY_TEXT (would leak private context). Nothing was written."
+  fi
+
+  echo "sealed commit : $commit_sha"
+  echo "files         : ${#rels[@]}"
+  echo "destination   : $UPSTREAM_SLUG:$TRANSFER_BASE <- $TRANSFER_BRANCH ($TRANSFER_DEST_ROOT)"
+  git -C "$wt" diff --stat "$head" "$TRANSFER_BRANCH"
+  if [ "$yes" != 1 ]; then
+    read -r -p "Open the pull request to $UPSTREAM_SLUG:$TRANSFER_BASE? [y/N] " a
+    [ "$a" = y ] || die "aborted"
+  fi
+
+  # -- 6. the write, then the pull request. If the pull request cannot be opened, the branch is
+  #       removed: the consumer repository is left exactly as it was.
+  git -C "$wt" push -q upstream "HEAD:refs/heads/$TRANSFER_BRANCH" \
+    || { transfer_audit refused "the branch could not be pushed to the consumer repository" push; die "the branch could not be pushed"; }
+  local pr="" prurl=""
+  if have_gh; then
+    bodyfile="$wt/.pr-body.md"; printf '%s\n' "$body" > "$bodyfile"
+    if prurl=$(gh pr create --repo "$UPSTREAM_SLUG" --base "$TRANSFER_BASE" --head "$TRANSFER_BRANCH" \
+                 --title "$title" --body-file "$bodyfile" 2>&1); then
+      pr="$(printf '%s' "$prurl" | grep -oE 'https://[^ ]+/pull/[0-9]+' | head -1)"
+    else
+      git -C "$wt" push -q upstream --delete "$TRANSFER_BRANCH" 2>/dev/null || true
+      transfer_audit refused "the pull request could not be opened; the branch was removed" pull-request
+      die "the pull request could not be opened; the branch was removed and the consumer repository is unchanged."
+    fi
+  else
+    pr="https://github.com/$UPSTREAM_SLUG/compare/$TRANSFER_BASE...$TRANSFER_BRANCH?expand=1"
+  fi
+  transfer_audit opened "the sealed task folder was transferred and a pull request was opened" complete "$pr"
+  echo
+  echo "pull request: ${pr:-see the compare link above}"
+}
+
 # ---------------------------------------------------------------- reconcile (public merge -> private evidence)
 cmd_reconcile() {
   local plan="${1:?usage: reconcile <plan_id> <submission_id> <task-branch>...}" sid="${2:?}"; shift 2
@@ -315,6 +548,7 @@ case "$cmd" in
   init) cmd_init ;; bootstrap) cmd_bootstrap ;; doctor) cmd_doctor ;;
   sync) cmd_sync ;; verify-main) cmd_verify_main ;; status) cmd_status ;;
   upload) cmd_upload "$@" ;; publish) cmd_publish "$@" ;;
+  transfer) cmd_transfer "$@" ;;
   reconcile) cmd_reconcile "$@" ;; halt) cmd_halt "$@" ;; resume) cmd_resume "$@" ;;
   *) usage ;;
 esac

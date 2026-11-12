@@ -52,7 +52,14 @@ test("a sealed task whose seal is over its commit, for this task and order, is a
   assert.equal(fact.sealed, true);
   assert.equal(fact.committed, true);
   assert.equal(fact.seal_attested, true);
-  assert.deepEqual(fact.commit, { sha: "b".repeat(40), files: 2, at: 1_800_000_000, task_match: true, order_match: true });
+  assert.deepEqual(fact.commit, {
+    sha: "b".repeat(40),
+    files: 2,
+    at: 1_800_000_000,
+    task_match: true,
+    order_match: true,
+    hashes: { "intro.md": "1".repeat(64) },
+  });
   assert.deepEqual(fact.seal, { at: 1_800_000_100, commit: "b".repeat(40), files: 2 });
 });
 
@@ -109,11 +116,19 @@ test("a commit recorded for another task is not an attestation for this one", ()
   assert.equal(fact.commit?.task_match, false);
 });
 
-test("the fact carries no path, hash, writer or capability", () => {
+test("the fact carries no capability, no writer and no content", () => {
   const text = JSON.stringify(describeTaskState(session(), TASK, ORDER));
-  for (const forbidden of ["intro.md", "notes.md", "agent-7", "1".repeat(64), "hashes", "paths", "actor", "sig", "capability"]) {
+  for (const forbidden of ["agent-7", "actor", "sig", "capability", "content"]) {
     assert.equal(text.includes(forbidden), false, `the fact must not contain ${forbidden}`);
   }
+});
+
+test("the fact carries this task's paths and hashes, and no content", () => {
+  // ADR 0015, open point 1: the transfer verifies what the gateway sealed against the
+  // gateway's own record, so the record is readable - and it is about this task only.
+  const text = JSON.stringify(describeTaskState(session(), TASK, ORDER));
+  assert.equal(text.includes("intro.md"), true);
+  assert.equal(text.includes("1".repeat(64)), true);
 });
 
 test("describing a session does not change it", () => {
@@ -138,4 +153,29 @@ test("the fact has exactly the fields the shared transition vectors use", async 
     if (fact.commit !== null) assert.deepEqual(Object.keys(fact.commit as object).sort(), commitKeys);
     if (fact.seal !== null) assert.deepEqual(Object.keys(fact.seal as object).sort(), sealKeys);
   }
+});
+
+/**
+ * The per-file hash map (ADR 0015, open point 1). The transfer verifies what the gateway
+ * sealed against the gateway's own record, so the record has to be readable — and it has to
+ * stay about *this* task.
+ */
+
+test("the commit carries the per-file hashes the gateway recorded, keyed by path", () => {
+  const fact = describeTaskState(session(), TASK, ORDER);
+  assert.deepEqual(fact.commit?.hashes, { "intro.md": "1".repeat(64) });
+});
+
+test("a commit recorded against another task brings no paths or hashes", () => {
+  const fact = describeTaskState(session({ commit: commit({ task: "other-task" }) }), TASK, ORDER);
+  assert.equal(fact.commit?.task_match, false);
+  assert.deepEqual(fact.commit?.hashes, {});
+  assert.equal(fact.seal_attested, false);
+});
+
+test("a commit recorded against another work order brings no paths or hashes", () => {
+  const fact = describeTaskState(session({ commit: commit({ order: "other-order" }) }), TASK, ORDER);
+  assert.equal(fact.commit?.order_match, false);
+  assert.deepEqual(fact.commit?.hashes, {});
+  assert.equal(fact.seal_attested, false);
 });

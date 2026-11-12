@@ -202,13 +202,37 @@ test("only GET reaches the route", async () => {
   assert.equal(response.status, 404);
 });
 
-test("the response carries no path, hash, writer or capability", async () => {
+test("the response carries no capability, no writer and no content", async () => {
   const { capability } = await signedCapability();
   const d = driver();
   await d.recordCommit(capability, { paths: ["secret-name.md"], hashes: { "secret-name.md": "9".repeat(64) } });
   await d.get(capability, "seal");
   const { text } = await d.fact(query(capability));
-  for (const forbidden of ["secret-name.md", "9".repeat(64), capability.writer, capability.sig, "/w1/"]) {
+  for (const forbidden of [capability.writer, capability.sig, "/w1/"]) {
     assert.equal(text.includes(forbidden), false, `the response must not contain ${forbidden}`);
   }
+});
+
+test("the response carries this task's paths and hashes, and nothing else (ADR 0015)", async () => {
+  // The transfer verifies what the gateway sealed against the gateway's own record, so the
+  // record is readable. What it never carries is the content, the writer or a capability.
+  const { capability } = await signedCapability();
+  const d = driver();
+  await d.recordCommit(capability, { paths: ["secret-name.md"], hashes: { "secret-name.md": "9".repeat(64) } });
+  await d.get(capability, "seal");
+  const { text } = await d.fact(query(capability));
+  assert.equal(text.includes("secret-name.md"), true, "the path is there");
+  assert.equal(text.includes("9".repeat(64)), true, "the hash is there");
+  assert.equal(text.includes(capability.writer), false, "the writer is not");
+  assert.equal(text.includes(capability.sig), false, "the signature is not");
+});
+
+test("a commit recorded against another task brings no paths or hashes", async () => {
+  const { capability } = await signedCapability();
+  const d = driver();
+  await d.recordCommit(capability, { paths: ["secret-name.md"], hashes: { "secret-name.md": "9".repeat(64) } });
+  await d.get(capability, "seal");
+  const { text } = await d.fact(query({ ...query(capability), task: "10008-1-001-99" }));
+  assert.equal(text.includes("secret-name.md"), false, "another task's paths are not here");
+  assert.equal(text.includes("9".repeat(64)), false, "another task's hashes are not here");
 });
