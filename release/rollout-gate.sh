@@ -54,9 +54,13 @@ TOKEN="${GITHUB_TOKEN:-${GITHUB_PAT:-${GH_TOKEN:-}}}"
 RESULTS="$(mktemp "${TMPDIR:-/tmp}/rollout-gate.XXXXXX")"
 trap 'rm -f "$RESULTS"' EXIT
 
-pass() { printf '  PASS  %-14s %s\n' "$1" "${2:-}"; echo P >> "$RESULTS"; }
-fail() { printf '  FAIL  %-14s %s\n' "$1" "${2:-}"; echo F >> "$RESULTS"; }
-blocked() { printf '  BLOCKED-EXTERNAL  %-14s %s\n' "$1" "${2:-}"; echo B >> "$RESULTS"; }
+# The ONLY filter reaches every verdict, the standing ones and the stage-specific ones alike.
+# Without this, re-running one check reported the others too, and a check that had failed for
+# a reason that had nothing to do with the one being re-run (a missing credential, say) stood
+# next to it in the output and looked like the answer.
+pass() { wanted "$1" || return 0; printf '  PASS  %-14s %s\n' "$1" "${2:-}"; echo P >> "$RESULTS"; }
+fail() { wanted "$1" || return 0; printf '  FAIL  %-14s %s\n' "$1" "${2:-}"; echo F >> "$RESULTS"; }
+blocked() { wanted "$1" || return 0; printf '  BLOCKED-EXTERNAL  %-14s %s\n' "$1" "${2:-}"; echo B >> "$RESULTS"; }
 note() { printf '  note  %-14s %s\n' "$1" "${2:-}"; }
 section() { printf '\n== %s ==\n' "$1"; }
 
@@ -427,13 +431,25 @@ check_worker_secret_names() {
   local id="$1" worker="$2"; shift 2
   local acct="${CLOUDFLARE_ACCOUNT_ID:-}" tok="${CLOUDFLARE_API_TOKEN:-}" body names missing="" want
   if [[ -z "$acct" || -z "$tok" ]]; then
-    blocked "$id" "no Cloudflare credential in the environment (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN)"
+    # The Cloudflare credential is deliberately not the agent's (ADR 0013 item 4). The evidence
+    # is the recorded run of the workflow that asks the same question, inside the `production`
+    # environment, under the operator's approval - the same shape as the state-failure proof.
+    worker_secrets_run_evidence "$id" "$worker"
     return
   fi
   body="$(curl -sS -H "Authorization: Bearer $tok" \
     "https://api.cloudflare.com/client/v4/accounts/$acct/workers/scripts/$worker/secrets" 2>/dev/null)"
   if [[ -z "$body" ]] || ! printf '%s' "$body" | jq -e '.success == true' >/dev/null 2>&1; then
-    blocked "$id" "the secret list of the Worker '$worker' could not be read"
+    # Cloudflare says what is wrong; the token is never printed, and the error the API returns
+    # carries no part of it.
+    local why
+    why="$(printf '%s' "$body" | jq -r 'if type == "object" then (.errors // [] | map((.code // "") | tostring) | join(", ")) else "" end' 2>/dev/null)"
+    why="$(printf '%s' "$why" | tr -d '[:space:]')"
+    if [[ -n "$why" ]]; then
+      blocked "$id" "the Cloudflare API refused the secret list of the Worker '$worker' (code $why): the token may lack the Workers Scripts Read permission, or the account id may be wrong"
+    else
+      blocked "$id" "the secret list of the Worker '$worker' could not be read: the API answered nothing usable"
+    fi
     return
   fi
   names="$(printf '%s' "$body" | jq -r '.result[]?.name' 2>/dev/null)"
@@ -445,6 +461,31 @@ check_worker_secret_names() {
     return
   fi
   pass "$id" "secret name(s) present in the Worker '$worker': $*"
+}
+
+# The recorded run of the workflow that reads the deployed Workers' secret names.
+worker_secrets_run_evidence() {
+  local id="$1" worker="$2"
+  local run concl
+  if [[ -z "$TOKEN" ]]; then
+    blocked "$id" "no GitHub credential in the environment (GITHUB_TOKEN); the recorded run cannot be read"
+    return
+  fi
+  run="$(api GET "/repos/$REPO_SLUG/actions/workflows/worker-secrets.yml/runs?per_page=10" 2>/dev/null \
+    | jq -r '[.workflow_runs[]? | select(.head_branch == "main")] | .[0].id // empty' 2>/dev/null)"
+  if [[ -z "$run" ]]; then
+    blocked "$id" "the deployed Workers' secret names have never been checked: the Cloudflare credential is the operator's (ADR 0013 item 4), so the check runs in the 'production' environment under the operator's approval, and that workflow has not been run"
+    return
+  fi
+  concl="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.conclusion // ""' 2>/dev/null)"
+  case "$concl" in
+    success)
+      pass "$id" "the deployed Workers hold every contract secret name, checked in the 'production' environment (run $run)" ;;
+    "")
+      blocked "$id" "the secret-name check (run $run) has not finished" ;;
+    *)
+      fail "$id" "the secret-name check (run $run) concluded '$concl': a deployed Worker does not hold every contract secret name" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -854,10 +895,12 @@ print("%s|%s" % (repo.group(1) if repo else "", branch.group(1) if branch else "
   # production run shows an environment approval by a login ADR 0013 records, and that login is
   # not the identity that dispatched the run.
   local logins
-  logins="$(s4_recorded_logins)"
-  if [[ -z "$logins" ]]; then
+  if [[ -z "$TOKEN" ]]; then
+    blocked "S5-APPROVAL" "no GitHub credential in the environment (GITHUB_TOKEN); the approval record cannot be read, which is not a finding about the deployment"
+  elif [[ -z "$(s4_recorded_logins)" ]]; then
     blocked "S5-APPROVAL" "ADR 0013 records no GitHub login; the operator must supply it by an addendum, and until then this gate is BLOCKED-EXTERNAL"
   else
+    logins="$(s4_recorded_logins)"
     # The run the plan means is the one the write gateway's deploy workflow dispatched. The
     # production deployment records that predate S3's hardening are push-triggered runs of a
     # workflow that can no longer deploy, and a stale record is not the run that would publish
@@ -1000,10 +1043,12 @@ check_s4_read_gateway() {
   # 0013 that is not the dispatching agent's identity. No approval means FAIL. If ADR 0013
   # has no login recorded yet, the gate is BLOCKED-EXTERNAL."
   local logins
-  logins="$(s4_recorded_logins)"
-  if [[ -z "$logins" ]]; then
+  if [[ -z "$TOKEN" ]]; then
+    blocked "S4-APPROVAL" "no GitHub credential in the environment (GITHUB_TOKEN); the approval record cannot be read, which is not a finding about the deployment"
+  elif [[ -z "$(s4_recorded_logins)" ]]; then
     blocked "S4-APPROVAL" "ADR 0013 records no GitHub login; the operator must supply it by an addendum, and until then this gate is BLOCKED-EXTERNAL"
   else
+    logins="$(s4_recorded_logins)"
     # The production run the plan means is the one the read gateway's deploy workflow
     # dispatched. Older production deployment records exist from before S3 hardened the
     # workflows - push-triggered deploys, every one of them failed - and a stale record is
