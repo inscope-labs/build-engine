@@ -217,6 +217,10 @@ than naming a six-day-old push-triggered run.
 
 ## 5. Not done, and not verified
 
+*This section was written when the stage's pull request was opened. **Section 7 records what
+happened next**; the items below are kept as they were written, because a report that is edited
+to look finished is not a report.*
+
 - **The signed pilot has not been run in this stage.** It needs the change in section 3 to be
   merged, and then a run against the deployed staging gateways, which consumes the plan number
   it uses.
@@ -237,3 +241,49 @@ One pull request carries the stage's code: the parameterisation of the pilot's i
 the workflow's `plan_number` input and its seeding step, the estate record's task-folder
 shape, S5's gate checks, the correction to S4's approval check, the compatibility-date review
 and this report. **The operator merges it** (G-12); the agent never merges.
+
+**Pull request #65, merged by the operator on 2026-11-11** (`9982ece`).
+
+---
+
+## 7. After the report: the stage completed (2026-11-12)
+
+Everything section 5 listed as outstanding has since happened. It is recorded here, and in
+`docs/release/GATE-2-SUMMARY.md`, which is the exit gate's own item.
+
+| | What | Run |
+|---|---|---|
+| the signed pilot, against the **deployed** staging gateways | **`THE PILOT PASSED` — 44 checks**: the delivery, the seal, a write after the seal refused, the revocation of the order and of both tasks, and the audit records holding no secret, no content and no signature | **43120286426** |
+| the write gateway's **production** deploy | **success**; the production gateway answers `200`, reports `deploy_env: production`, serves the committed production key ids (`k1`) and writes to ADR 0014's repository and branch | **43209697603**, approved by `inscope-xlabs` |
+| the read gateway's **production** deploy | **success**; the production gateway answers `200` and serves the committed production key ids (`p1`) | **43211834638**, approved by `inscope-xlabs` |
+| the privacy scan over the captures | **0 hits** over six run logs, eight credential shapes and three content fixtures — with a positive control proving the scan can fail | see `GATE-2-SUMMARY.md` |
+
+The gate, after the two new production-deployment checks were added:
+
+| Stage | Result |
+|---|---|
+| S4 | **7 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL** (`S4-WORKER-SECRETS`) |
+| S5 | **6 PASS, 0 FAIL, 1 BLOCKED-EXTERNAL** (`S5-WORKER-SECRETS`) |
+
+**The one condition both stages still cannot close is the same one**: the check that reads the
+deployed Workers' secret names needs the Cloudflare credential, and the agent does not hold it
+(ADR 0013 item 4). It is the operator's check to run, and it is one command.
+
+### 7.1 What this stage found, and what it cost
+
+**The pilot's identifiers were hard-coded, and a deployed pilot is single-use.** The first
+deployed run revoked its own order and task in the deployed Durable Objects, and a seal and a
+revocation are durable by design. The parameterisation in section 3 is what made the second run
+possible, and it cost a plan number rather than a stage.
+
+**The approval check named a stale run.** For the write gateway, the production deployment
+records that predate S3's hardening are runs of the *same* workflow, push-triggered, and every
+one of them failed. Identifying the production run by its workflow path alone was therefore not
+enough, and the check said so by naming a six-day-old push run.
+
+**A probe that hard-codes one environment's key id can only ever be pointed at that
+environment.** The deployed probe built its bad-signature URL from the staging key id, so it
+could not ask the production gateways the question at all. It now reads the key id from the
+deployment's own `/healthz`, and it asks the separation question of the environment it is
+pointed at — the staging gate for staging, and the committed production configuration for
+production. The production pair now answers **21 checks**, all passing.
