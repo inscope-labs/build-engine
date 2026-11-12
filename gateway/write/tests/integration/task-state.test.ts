@@ -232,7 +232,7 @@ test("a commit recorded against another task brings no paths or hashes", async (
   const d = driver();
   await d.recordCommit(capability, { paths: ["secret-name.md"], hashes: { "secret-name.md": "9".repeat(64) } });
   await d.get(capability, "seal");
-  const { text } = await d.fact(query({ ...query(capability), task: "10008-1-001-99" }));
+  const { text } = await d.fact(`?task=${encodeURIComponent("10008-1-001-99")}&order=${encodeURIComponent(capability.order)}`);
   assert.equal(text.includes("secret-name.md"), false, "another task's paths are not here");
   assert.equal(text.includes("9".repeat(64)), false, "another task's hashes are not here");
 });
