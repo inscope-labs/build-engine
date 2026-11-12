@@ -62,6 +62,9 @@ def check_static(config):
     print("1. the production configuration is deployable")
     vars_ = config.get("vars", {})
     check(vars_.get("DEPLOY_ENV") == "production", "DEPLOY_ENV is production")
+    check(config.get("name") == "ctxgate-write",
+          "the production Worker is named ctxgate-write, so its host is ctxgate-write.<subdomain>.workers.dev "
+          "(ADR 0012); the name is the host")
     check(not is_placeholder(vars_.get("SUBMISSIONS_REPO")),
           "the production submissions repository is named (not a placeholder)")
     check(bool(vars_.get("SUBMISSIONS_BRANCH")), "the production submissions branch is named")
