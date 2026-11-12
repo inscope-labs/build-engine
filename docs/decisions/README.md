@@ -20,4 +20,4 @@ the question, what the design proposes (or the final decision), what it blocks. 
 | 0012 | Compatibility record, hostnames, repositories and credential model (Q-4, Q-5, DX-1, DX-2) | **decided** (2026-11-08), condition on the submissions repository | S4, S5, S8 |
 | 0013 | Authorizations for the v0.6.0 rollout plan | **decided** (2026-11-08), conditions on login and agent identity | S3, S4, S5, S9 |
 | 0014 | Two repositories per plan; submissions repository and branch for the pilot | **decided** (2026-11-10) | S5 entry gate; resolves ADR 0012 condition |
-| 0015 | The submissions-to-consumer transfer path (R0-011) | **open** — proposed 2026-11-12, awaiting the operator's approval and the answers to four open points | S6 implementation |
+| 0015 | The submissions-to-consumer transfer path (R0-011) | **decided** (2026-11-12) | S6 implementation; the operator channel's per-file hash field |
