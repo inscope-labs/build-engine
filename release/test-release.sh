@@ -387,4 +387,13 @@ grep -q '"protocol": "build-engine/0.6"' "$R/template/engine/release.json" && gr
 sed -i "s/^## 0\.6\.1 - unreleased\$/## 0.6.1 - 2026-01-01/" "$R/CHANGELOG.md"; plant; build
 must_pass "a version set with set-version.sh passes the release gate" "$R/release/verify.sh" "$(ART)" --release
 
+# --- the transfer (ADR 0015) ------------------------------------------------------------
+# It ships: the manifest lists `managed operator`, and the transfer is part of `cbridge`. So the
+# release machinery covers it, the way the exit gate asks.
+fresh
+must_pass "the transfer's own suite passes (it ships, so the release machinery covers it)" \
+  bash "$R/tests/test_transfer.sh"
+must_pass "cbridge upload still works (Q-CB-2: both routes are supported in 0.6.0)" \
+  bash "$R/tests/test_cbridge.sh"
+
 echo "$PASS passed, $FAILN failed"; [[ $FAILN -eq 0 ]]

@@ -156,13 +156,22 @@ check_c_ci() {
     fail "C-CI" "no check runs on the tip of main"
     return
   fi
-  bad="$(printf '%s' "$body" | jq -r '[.check_runs[] | select(.conclusion != "success") | .name] | join(", ")' 2>/dev/null)"
+  # A check run that has not finished is not a failure. A workflow waiting at an environment's
+  # approval prompt reports no conclusion at all, and reading that as a red build would make
+  # the gate report a failure the repository does not have.
+  bad="$(printf '%s' "$body" | jq -r '[.check_runs[] | select(.status == "completed" and .conclusion != "success") | .name] | join(", ")' 2>/dev/null)"
   names="$(printf '%s' "$body" | jq -r '[.check_runs[].name] | join(", ")' 2>/dev/null)"
+  local pending
+  pending="$(printf '%s' "$body" | jq -r '[.check_runs[] | select(.status != "completed")] | length' 2>/dev/null)"
   if [[ -n "$bad" ]]; then
     fail "C-CI" "not successful: $bad"
     return
   fi
-  pass "C-CI" "$total check runs on main, all successful"
+  if [[ "$pending" == "0" || "$pending" == "null" ]]; then
+    pass "C-CI" "$total check runs on main, all successful"
+  else
+    pass "C-CI" "$total check runs on main, all completed ones successful ($pending still running or awaiting approval)"
+  fi
 }
 
 check_c_base() {
@@ -948,6 +957,67 @@ print("%s|%s" % (repo.group(1) if repo else "", branch.group(1) if branch else "
   fi
 }
 
+# The submissions-to-consumer transfer (S6, BE-6, ADR 0015).
+check_s6_transfer() {
+  section "S6 stage-specific checks"
+
+  # --- the ADR that approves the transfer design is decided.
+  local adr
+  adr="$(ls docs/decisions/0015-*.md 2>/dev/null | head -1)"
+  if [[ -z "$adr" ]]; then
+    fail "S6-ADR-0015" "there is no ADR 0015 on this branch: the S6 entry gate needs the ADR that approves the transfer design"
+  elif grep -q 'Status: \*\*decided\*\*' "$adr"; then
+    pass "S6-ADR-0015" "$(basename "$adr") approves the transfer design"
+  else
+    fail "S6-ADR-0015" "$(basename "$adr") does not carry status 'decided'"
+  fi
+
+  # --- the transfer's own suite: the happy path and the four negative tests.
+  local out rc
+  out="$(bash tests/test_transfer.sh 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S6-TRANSFER-TESTS" "the transfer's suite failed: $(printf '%s' "$out" | grep -E '^  FAIL' | head -2 | tr '\n' ' ')"
+  else
+    pass "S6-TRANSFER-TESTS" "$(printf '%s' "$out" | grep -oE 'passed: [0-9]+ +failed: [0-9]+' | tail -1) — the happy path and the four negative tests (a tampered hash, a moved destination head, an unsealed folder, a partial-failure injection)"
+  fi
+
+  # --- `cbridge upload` still works (Q-CB-2: both routes are supported in 0.6.0).
+  out="$(bash tests/test_cbridge.sh 2>&1)"; rc=$?
+  if [[ "$rc" != 0 ]]; then
+    fail "S6-CBRIDGE" "the cbridge suite failed: $(printf '%s' "$out" | grep -E '^  FAIL' | head -2 | tr '\n' ' ')"
+  else
+    pass "S6-CBRIDGE" "$(printf '%s' "$out" | grep -oE '[0-9]+ passed, [0-9]+ failed' | tail -1) — cbridge upload still works"
+  fi
+
+  # --- the credential boundary: the submissions credential cannot reach the consumer
+  # repository. That is the operator's own check, run inside the production environment; the
+  # agent reads its conclusion rather than the credential.
+  local run concl
+  if [[ -z "$TOKEN" ]]; then
+    blocked "S6-CREDENTIAL-BOUNDARY" "no GitHub credential in the environment (GITHUB_TOKEN); the recorded run cannot be read"
+  else
+    run="$(api GET "/repos/$REPO_SLUG/actions/workflows/verify-write-credential-scope.yml/runs?per_page=10" 2>/dev/null \
+      | jq -r '[.workflow_runs[]? | select(.head_branch == "main")] | .[0].id // empty' 2>/dev/null)"
+    if [[ -z "$run" ]]; then
+      blocked "S6-CREDENTIAL-BOUNDARY" "the write credential's reach has never been checked"
+    else
+      concl="$(api GET "/repos/$REPO_SLUG/actions/runs/$run" 2>/dev/null | jq -r '.conclusion // ""' 2>/dev/null)"
+      case "$concl" in
+        success) pass "S6-CREDENTIAL-BOUNDARY" "the submissions credential cannot reach the consumer repository (run $run)" ;;
+        "") blocked "S6-CREDENTIAL-BOUNDARY" "the credential-scope check (run $run) has not finished" ;;
+        *) fail "S6-CREDENTIAL-BOUNDARY" "the credential-scope check (run $run) concluded '$concl': the submissions credential may reach the consumer repository" ;;
+      esac
+    fi
+  fi
+
+  # --- the transfer ships, so the release machinery covers it (the exit gate's C-ISO item).
+  if grep -q '^managed operator$' release/manifest.txt && grep -q 'test_transfer.sh' release/test-release.sh; then
+    pass "S6-RELEASE-COVERAGE" "the transfer ships (the manifest lists 'managed operator') and release/test-release.sh covers it"
+  else
+    fail "S6-RELEASE-COVERAGE" "the transfer ships but the allowlist or release/test-release.sh does not cover it"
+  fi
+}
+
 check_s4_read_gateway() {
   section "S4 stage-specific checks"
 
@@ -1130,7 +1200,10 @@ case "$STAGE" in
     check_repo_secret_names "S5-SECRETS" production CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
     check_worker_secret_names "S5-WORKER-SECRETS" ctxgate-write SIGNING_KEYS OPERATOR_TOKEN GITHUB_TOKEN
     ;;
-  S6|S7|S8|S9)
+  S6)
+    check_s6_transfer
+    ;;
+  S7|S8|S9)
     printf '\n  note  %-14s this runner implements the standing checks only; the stage-specific\n' "$STAGE"
     printf '        checks for %s are not implemented here, so this run is NOT a gate PASS for\n' "$STAGE"
     printf '        %s. The stage report lists them separately.\n' "$STAGE"

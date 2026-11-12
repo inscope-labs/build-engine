@@ -13,8 +13,12 @@
  *    gateway only says what it holds.
  *  - It is bound to **both** the task and the work order. A seal that belongs to a different
  *    order is not an attestation for this one.
- *  - It carries **no capability, no path, no hash and no content**. The audit rules
- *    (ADR 0004) apply to this response as they do to the audit record.
+ *  - It carries **no capability, no signature, no writer id and no content**. It carries the
+ *    sealed commit's **file paths relative to the task folder** and their **SHA-256 content
+ *    hashes**, and only when that commit belongs to the task and the work order asked about
+ *    (ADR 0015, open point 1): the transfer has to verify what the gateway sealed, and the
+ *    gateway's own record is what it verifies against. The audit rules (ADR 0004) apply to
+ *    this response as they do to the audit record.
  */
 import type { CommitRecord, SealRecord, SessionState } from "../types/session.ts";
 
@@ -36,8 +40,21 @@ export interface TaskStateFact {
   committed: boolean;
   /** Whether the session is sealed. */
   sealed: boolean;
-  /** The recorded commit, reduced to what the operator needs. `null` when there is none. */
-  commit: { sha: string; files: number; at: number; task_match: boolean; order_match: boolean } | null;
+  /**
+   * The recorded commit, reduced to what the operator needs. `null` when there is none.
+   *
+   * `hashes` is the per-file SHA-256 map the gateway recorded when it committed, keyed by the
+   * path relative to the task folder. It is present only when the commit belongs to **this**
+   * task and **this** work order: a commit recorded against another task brings no paths here.
+   */
+  commit: {
+    sha: string;
+    files: number;
+    at: number;
+    task_match: boolean;
+    order_match: boolean;
+    hashes: Record<string, string>;
+  } | null;
   /** The recorded seal. `null` when the task is not sealed. */
   seal: { at: number; commit: string; files: number } | null;
   /**
@@ -105,7 +122,15 @@ export function describeTaskState(
     commit:
       commit === null
         ? null
-        : { sha: commit.sha, files: commit.paths.length, at: commit.at, task_match: taskMatch, order_match: orderMatch },
+        : {
+            sha: commit.sha,
+            files: commit.paths.length,
+            at: commit.at,
+            task_match: taskMatch,
+            order_match: orderMatch,
+            // Another task's paths are not this task's business, so they are not reported.
+            hashes: taskMatch && orderMatch ? { ...commit.hashes } : {},
+          },
     seal: seal === null ? null : { at: seal.at, commit: seal.commit, files: seal.files },
     seal_attested: attested,
   };

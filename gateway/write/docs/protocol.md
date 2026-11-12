@@ -1083,12 +1083,15 @@ The answer is JSON:
 | `state` | `open`, `sealed`, `revoked`, `closed`, or `unknown` when `known` is false |
 | `committed` | whether a successful commit is recorded |
 | `sealed` | whether `state` is `sealed` |
-| `commit` | `null`, or `{sha, files, at, task_match, order_match}`; the count of files, never their paths or hashes |
+| `commit` | `null`, or `{sha, files, at, task_match, order_match, hashes}`; the count of files, and `hashes` is the per-file SHA-256 map the gateway recorded at commit time, keyed by the path relative to the task folder. It is `{}` unless the commit belongs to the task and the work order asked about |
 | `seal` | `null`, or `{at, commit, files}` |
 | `seal_attested` | **the field Gateway A acts on**: true only when the state is `sealed`, a seal and a commit are both recorded, the seal is over that commit, and the commit belongs to the task and the work order asked about |
 
-The response never carries a capability, a signature, a path, a content hash, a writer id or file content (the
-rules of section 11 apply). A sealed session stays sealed: a later `admin/revoke` or `admin/close` does not change
+The response never carries a capability, a signature, a writer id or file content (the rules of section 11 apply).
+It carries the sealed commit's **file paths relative to the task folder** and their **SHA-256 content hashes**,
+and only when that commit belongs to the task and the work order asked about: the transfer verifies what the
+gateway sealed against the gateway's own record (ADR 0015), and a commit recorded against another task brings no
+paths here. A sealed session stays sealed: a later `admin/revoke` or `admin/close` does not change
 it (section 5.2 gives those transitions only from `open`), and this fact reports that honestly.
 
 The operator channel is **not** part of the agent protocol. It is not hypermedia, it is not linked from agent
