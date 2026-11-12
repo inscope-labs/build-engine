@@ -55,6 +55,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 
@@ -228,7 +229,67 @@ def estate_head(branch):
     return out.split()[0] if out.strip() else ""
 
 
-def probes(read_base, write_base, only="both"):
+def production_facts():
+    """The committed production configuration of both gateways.
+
+    The write gateway's production deployment is its top-level table; the read gateway's is
+    rendered from `ops/environments.json`, which is its single source of truth. Nothing here is
+    a secret: the key ids are declarations.
+    """
+    with open(os.path.join(WRITE_GW, "wrangler.toml"), "rb") as handle:
+        write_vars = tomllib.load(handle).get("vars", {})
+    with open(os.path.join(READ_GW, "ops", "environments.json"), "rb") as handle:
+        environments = json.load(handle)
+    read_production = environments.get("environments", {}).get("production", {})
+    return write_vars, read_production
+
+
+def check_production_deployments(write_base, read_base):
+    """The production deployments, asked what they are.
+
+    `scripts/check-staging-separation.py` compares a published gateway with the **staging**
+    configuration, so it cannot answer for production: it would report the production gateway as
+    wrong for the one thing that makes it the production gateway. This asks the same property of
+    the other environment - a published deployment is the one that was configured - comparing the
+    live answers with the committed production configuration.
+    """
+    say("the deployed gateways are the production ones")
+    write_vars, read_production = production_facts()
+
+    status, body = http("GET", write_base + "/healthz")
+    check(status == 200, "the write gateway answers (%d)" % status)
+    try:
+        health = json.loads(body)
+    except ValueError:
+        health = {}
+    policy = health.get("policy", {})
+    check(health.get("deploy_env") == write_vars.get("DEPLOY_ENV"),
+          "the write gateway reports the environment it was configured for (%s)" % health.get("deploy_env"))
+    check(health.get("deploy_env") == "production",
+          "the write gateway is the production one")
+    check(policy.get("submissions_repo") == write_vars.get("SUBMISSIONS_REPO"),
+          "the write gateway writes to the configured repository")
+    check(policy.get("submissions_branch") == write_vars.get("SUBMISSIONS_BRANCH"),
+          "the write gateway writes to the configured branch")
+    declared = [k.strip() for k in str(write_vars.get("SIGNING_KEY_IDS", "")).split(",") if k.strip()]
+    check(sorted(policy.get("key_ids", [])) == sorted(declared),
+          "the write gateway serves exactly the declared key ids")
+    check(health.get("conformance_clock") is False,
+          "the conformance test clock is off in a published gateway")
+
+    status, body = http("GET", read_base + "/healthz")
+    check(status == 200, "the read gateway answers (%d)" % status)
+    try:
+        health = json.loads(body)
+    except ValueError:
+        health = {}
+    check(sorted(health.get("key_ids", [])) == sorted(read_production.get("key_ids", [])),
+          "the read gateway serves exactly the declared key ids")
+    check(health.get("conformance_clock") is False,
+          "the conformance test clock is off in a published gateway")
+
+
+def probes(read_base, write_base, only="both", expect_env="staging"):
     """The checks a deployed gateway can be asked without any secret.
 
     The signed leg needs the staging signing keys, and those are the operator's. These probes
@@ -246,6 +307,10 @@ def probes(read_base, write_base, only="both"):
     }
     wanted = ["read", "write"] if only == "both" else [only]
 
+    # The key ids each deployment serves are read from its own /healthz, not assumed. A probe
+    # that hard-codes one environment's key id can only ever be pointed at that environment, and
+    # the production gateways serve different ones.
+    key_ids = {}
     say("the deployed gateways")
     for kind in wanted:
         label, base, _scheme = gateways[kind]
@@ -255,23 +320,33 @@ def probes(read_base, write_base, only="both"):
             health = json.loads(body)
         except ValueError:
             health = {}
+        ids = health.get("key_ids") or []
+        key_ids[kind] = ids[0] if ids else ""
         note("scheme %s, key ids %s" % (health.get("scheme") or health.get("protocol"), health.get("key_ids")))
 
     say("the deployed gateways are the staging ones")
-    for kind in ("write", "read"):
-        if kind not in wanted:
-            continue
-        script = os.path.join(WRITE_GW, "scripts", "check-staging-separation.py")
-        rc, out = run([sys.executable, script, "--kind", kind, "--base-url", gateways[kind][1]], check_rc=False)
-        check(rc == 0, "the separation gate passes for the %s gateway" % kind)
-        if rc != 0:
-            note(out.strip().splitlines()[-1] if out.strip() else "")
+    if expect_env == "production":
+        check_production_deployments(write_base, read_base)
+    else:
+        for kind in ("write", "read"):
+            if kind not in wanted:
+                continue
+            script = os.path.join(WRITE_GW, "scripts", "check-staging-separation.py")
+            rc, out = run([sys.executable, script, "--kind", kind, "--base-url", gateways[kind][1]], check_rc=False)
+            check(rc == 0, "the separation gate passes for the %s gateway" % kind)
+            if rc != 0:
+                note(out.strip().splitlines()[-1] if out.strip() else "")
 
     say("the deployed gateways refuse what they must")
     if "read" in wanted:
-        status, _ = http("GET", read_base + "/v1/s1/0/" + ORDER_ID + "/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        # The key id comes from the deployment's own /healthz. A link naming a key id this
+        # deployment does not serve would be refused for the wrong reason, and the check would
+        # prove nothing about the signature.
+        kid = key_ids.get("read") or ""
+        check(bool(kid), "the read gateway declares a key id the probe can use")
+        status, _ = http("GET", read_base + "/v1/%s/0/%s/%s/%s/plans/pilot-001/package/brief.md" % (kid, ORDER_ID, "A" * 43, "0" * 40))
         check(status == 403, "a link with a bad signature is refused (%d)" % status)
-        status, _ = http("GET", read_base + "/v1/s1/0/" + ORDER_ID + "/%s/%s/plans/pilot-001/package/brief.md" % ("A" * 43, "0" * 40))
+        status, _ = http("GET", read_base + "/v1/%s/0/%s/%s/%s/plans/pilot-001/package/brief.md" % (kid, ORDER_ID, "A" * 43, "0" * 40))
         check(status == 403, "a link with an unknown order is refused (%d)" % status)
         status, _ = http("GET", read_base + "/admin/audit")
         check(status == 401, "the read audit channel refuses an unauthenticated caller (%d)" % status)
@@ -318,6 +393,11 @@ def main(argv=None):
                         help="only the checks that need no secret (the deployed gateways)")
     parser.add_argument("--only", choices=["both", "read", "write"], default="both",
                         help="which gateway the probes cover; the write gateway is not deployed until Stage S5")
+    parser.add_argument("--expect-env", choices=["staging", "production"], default="staging",
+                        help="which environment the probes are pointed at. The separation check is "
+                             "asked of the environment: the staging gate compares a published "
+                             "gateway with the staging configuration, and the production check "
+                             "compares it with the production one.")
     args = parser.parse_args(argv)
     set_plan_number(args.plan_number)
 
@@ -337,7 +417,7 @@ def main(argv=None):
                   if label in probed]
         if not all(needed):
             raise SystemExit("--probes-only needs the base URL of every gateway it probes")
-        probes(args.read_base, args.write_base, args.only)
+        probes(args.read_base, args.write_base, args.only, args.expect_env)
         say("the result")
         if FAILURES:
             print("\033[1;31mTHE PROBES FAILED: %d check(s)\033[0m" % len(FAILURES), flush=True)

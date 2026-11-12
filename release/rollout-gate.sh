@@ -768,6 +768,15 @@ ids = re.search(r"SIGNING_KEY_IDS\s*=\s*\"([^\"]*)\"", m.group(1) if m else "")
 print(",".join((ids.group(1) if ids else "").split(",")))' 2>/dev/null
 }
 
+# The write gateway's production key ids, from its committed top-level (production) table.
+s5_production_key_ids() {
+  python3 -c 'import re
+text = open("gateway/write/wrangler.toml").read()
+m = re.search(r"^\[vars\](.*?)(^\[|\Z)", text, re.S | re.M)
+ids = re.search(r"SIGNING_KEY_IDS\s*=\s*\"([^\"]*)\"", m.group(1) if m else "")
+print(",".join((ids.group(1) if ids else "").split(",")))' 2>/dev/null
+}
+
 # The deployed staging write gateway answers, and it is the staging one.
 check_s5_write_gateway() {
   section "S5 stage-specific checks"
@@ -797,6 +806,34 @@ check_s5_write_gateway() {
     fail "S5-STAGING" "the staging write gateway serves the key ids '$health', not the committed staging key ids '$keyids'"
   else
     pass "S5-STAGING" "the staging write gateway answers, is the staging one, and serves the committed staging key ids ($keyids)"
+  fi
+
+  # --- the deployed production write gateway answers, and it is the production one.
+  # The staging check above proves the staging deployment is the staging one; this proves the
+  # other half, because a production deployment that is not the production one would be a
+  # deployment nobody can identify.
+  local pbody phealth pkeyids pwant
+  pbody="$(curl -sS -m 30 -H "User-Agent: ctxgate-check/6.1" \
+    "https://ctxgate-write.qnuralink.workers.dev/healthz" 2>/dev/null)"
+  phealth="$(printf '%s' "$pbody" | jq -r '.policy.key_ids | join(",")' 2>/dev/null)"
+  pkeyids="$(s5_production_key_ids)"
+  pwant="$(python3 -c 'import re
+text = open("gateway/write/wrangler.toml").read()
+m = re.search(r"^\[vars\](.*?)(^\[|\Z)", text, re.S | re.M)
+repo = re.search(r"SUBMISSIONS_REPO\s*=\s*\"([^\"]*)\"", m.group(1) if m else "")
+branch = re.search(r"SUBMISSIONS_BRANCH\s*=\s*\"([^\"]*)\"", m.group(1) if m else "")
+print("%s|%s" % (repo.group(1) if repo else "", branch.group(1) if branch else ""))' 2>/dev/null)"
+  if [[ -z "$pbody" ]]; then
+    blocked "S5-PROD-DEPLOYED" "the production write gateway did not answer; deploy it and have the approval first"
+  elif [[ "$(printf '%s' "$pbody" | jq -r '.deploy_env // ""' 2>/dev/null)" != "production" ]]; then
+    fail "S5-PROD-DEPLOYED" "the gateway at ctxgate-write does not report itself as the production one"
+  elif [[ "$phealth" != "$pkeyids" ]]; then
+    fail "S5-PROD-DEPLOYED" "the production write gateway serves the key ids '$phealth', not the committed production key ids '$pkeyids'"
+  elif [[ "$(printf '%s' "$pbody" | jq -r '.policy.submissions_repo // ""' 2>/dev/null)" != "${pwant%%|*}" \
+     || "$(printf '%s' "$pbody" | jq -r '.policy.submissions_branch // ""' 2>/dev/null)" != "${pwant##*|}" ]]; then
+    fail "S5-PROD-DEPLOYED" "the production write gateway writes to '$pwant', not the committed destination"
+  else
+    pass "S5-PROD-DEPLOYED" "the production write gateway answers, is the production one, serves the committed production key ids ($pkeyids) and writes to the committed destination"
   fi
 
   # --- the deployed write gateway refuses what it must.
@@ -898,6 +935,28 @@ check_s4_read_gateway() {
       fail "S4-STAGING" "the gateway at $staging serves the key ids '$health', not the committed staging key ids '$keyids'"
     else
       pass "S4-STAGING" "the staging gateway at $staging answers and serves the staging key ids ($keyids)"
+    fi
+  fi
+
+  # --- the deployed production read gateway answers, and it serves the production key ids.
+  # The read gateway's /healthz does not name its environment, so its identity is its key ids:
+  # the production deployment serves the production ones and the staging deployment the
+  # staging ones, and the two sets are disjoint (ADR 0008).
+  local prodhost
+  prodhost="$(s4_production_host)"
+  if [[ -z "$prodhost" ]]; then
+    blocked "S4-PROD-HOST" "the production host could not be derived from the committed configuration and ADR 0012"
+  else
+    local pbody phealth pkeyids
+    pbody="$(curl -sS -m 30 -H "User-Agent: ctxgate-check/6.1" "https://$prodhost/healthz" 2>/dev/null)"
+    phealth="$(printf '%s' "$pbody" | jq -r '.key_ids | join(",")' 2>/dev/null)"
+    pkeyids="$(python3 -c 'import json;print(",".join(json.load(open("gateway/read/production/ops/environments.json"))["environments"]["production"]["key_ids"]))' 2>/dev/null)"
+    if [[ -z "$pbody" ]]; then
+      blocked "S4-PROD-DEPLOYED" "the production gateway at $prodhost did not answer; deploy it and have the approval first"
+    elif [[ "$phealth" != "$pkeyids" ]]; then
+      fail "S4-PROD-DEPLOYED" "the gateway at $prodhost serves the key ids '$phealth', not the committed production key ids '$pkeyids'"
+    else
+      pass "S4-PROD-DEPLOYED" "the production gateway at $prodhost answers and serves the committed production key ids ($pkeyids)"
     fi
   fi
 
