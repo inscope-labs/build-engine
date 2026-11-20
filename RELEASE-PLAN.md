@@ -1,7 +1,7 @@
 BUILD-ENGINE
 Repository-Wide First Release Implementation Plan
 Target repository: https://github.com/inscope-labs/build-engine
-Planning baseline: main branch, VERSION 0.5.0 (unreleased)
+Planning baseline: main branch, VERSION 0.6.0 (unreleased)
 Objective: deliver the first verified, installable, operationally coherent release artifact and prove its supported end-to-end workflow.
 
 ======================================================================
